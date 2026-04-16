@@ -1,4 +1,4 @@
-# Databáze - nepushovat (data zůstávají lokálně nebo na Railway volume)
+# Databáze - nepushovat
 *.db
 data/
 
@@ -6,14 +6,3 @@ data/
 __pycache__/
 *.pyc
 *.pyo
-
-# Dočasné soubory
-*.log
-*.tmp
-
-# Windows
-Thumbs.db
-desktop.ini
-
-# Batové skripty (jen pro Windows lokální provoz)
-*.bat
