@@ -4504,6 +4504,26 @@ def spa_routes(**kwargs):
     return render_template('app.html')
 
 
+# ─── ADMIN: NAHRÁNÍ DATABÁZE ─────────────────────────────────────────────────
+UPLOAD_SECRET = os.environ.get('UPLOAD_SECRET', 'razzor-upload-2026')
+
+@app.route('/admin/upload-db', methods=['POST'])
+def admin_upload_db():
+    secret = request.headers.get('X-Upload-Secret', '')
+    if secret != UPLOAD_SECRET:
+        return jsonify({'error': 'Unauthorized'}), 403
+    if 'file' not in request.files:
+        return jsonify({'error': 'Chybí soubor'}), 400
+    f = request.files['file']
+    from database import DB_PATH
+    import shutil
+    backup_path = DB_PATH + '.backup'
+    if os.path.exists(DB_PATH):
+        shutil.copy2(DB_PATH, backup_path)
+    f.save(DB_PATH)
+    return jsonify({'ok': True, 'message': 'Databáze nahrána'})
+
+
 if __name__ == '__main__':
     init_db()
     auto_migrate()
