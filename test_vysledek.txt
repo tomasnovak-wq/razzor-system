@@ -1,0 +1,16 @@
+=== DIAGNOSTIKA FLIGHT CASE SYSTEM ===
+Python: 3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]
+Pracovni adresar: C:\Users\tnovak\Desktop\Claude\flightcase-system
+Soubor skriptu: C:\Users\tnovak\Desktop\Claude\flightcase-system\test_db.py
+
+Flask: OK (verze 3.1.3)
+
+Databaze cesta: C:\Users\tnovak\Desktop\Claude\flightcase-system\data\system.db
+Databaze existuje: True
+Databaze velikost: 2,273,280 bytes
+SQLite: OK - materialu v DB: 375
+SQLite: typy casu: 1564
+SQLite: kusovnik polozky: 27128
+
+app.html existuje: True
+app.html velikost: 59,170 bytes

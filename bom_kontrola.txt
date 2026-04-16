@@ -1,0 +1,23 @@
+=== KONTROLA BOM ===
+
+Typy casů celkem v DB: 1564
+Typy casů S BOM položkami: 1564
+Typy casů BEZ BOM položek: 0
+
+--- Příklady HN čísel BEZ BOM ---
+
+--- Typy casů s nejméně BOM položkami (min 1) ---
+  HN239571           1 pol.  Úprava casu dle požadavků zákazníka
+  HN291672           1 pol.  Hra
+  HN253296           2 pol.  10x Pěnový blok s drážkami
+  HN257669           2 pol.  Reloop Wings
+  HN260900           2 pol.  10xštítek MK
+  HN269750           2 pol.  Set desek 9mm HEXA
+  HN272134           2 pol.  iPHONE 1549 x 801 mm PREMIUM 9 mm
+  HN271394           2 pol.  Terminál na míru do DFX Liberec
+  HN271349           2 pol.  Split Y kabel 2M 2x NEUTRIK NL4FXX - 1x NEUTRIK NLT4MXX, kabel 2.5mm, délka 2m
+  HN277909           2 pol.  Set desek
+
+--- Statistika BOM ---
+  BOM položky na typ: min=1, max=33, průměr=17.3
+  Celkem BOM záznamů: 27128
