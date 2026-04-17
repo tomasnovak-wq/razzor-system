@@ -1,8 +1,8 @@
 {
-  "verze": 4,
-  "popis": "Claude md",
-  "autor": "Tom",
-  "datum": "17.04.2026",
-  "cas": "13:20",
-  "git_commit": "5f2f77f"
+  "verze": 5,
+  "popis": "test deploy skriptu z Macu",
+  "autor": "Ludek",
+  "datum": "17.04.2026 13:00",
+  "cas": "12:43",
+  "git_commit": "37b1e63"
 }
