@@ -1,8 +1,8 @@
 {
-  "verze": 6,
-  "popis": "Claude md",
-  "autor": "Tom",
+  "verze": 7,
+  "popis": "Mac workflow: deploy.sh volá update_version.py, CLAUDE.md rozšířen o Mac",
+  "autor": "Ludek",
   "datum": "17.04.2026",
-  "cas": "13:22",
-  "git_commit": "8c09568"
+  "cas": "13:54",
+  "git_commit": "3429f69"
 }

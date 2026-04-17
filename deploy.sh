@@ -1,33 +1,38 @@
 #!/bin/bash
-# deploy.sh — automatické nasazení nové verze razzor-system
+# deploy.sh — automatické nasazení nové verze razzor-system (Mac/Linux)
+#
+# Mac ekvivalent _NASTROJE/Nasadit na cloud.bat pro Windows.
+# Volá stejný update_version.py jako ten .bat, aby byl formát version.json jednotný.
 #
 # Použití:
 #   ./deploy.sh "krátký popis změny"
-#   ./deploy.sh                        (interaktivně se zeptá na popis)
+#   ./deploy.sh                        (interaktivně si vyžádá popis)
+#
+# Volitelně přepis autora:  AUTOR=Tomas ./deploy.sh "..."
 #
 # Co skript dělá:
-#   1. Zkontroluje, že je ve správné složce.
-#   2. Zeptá se (nebo převezme z argumentu) na popis změny.
+#   1. Zkontroluje, že je v kořeni projektu.
+#   2. Získá popis změny (z argumentu nebo interaktivně).
 #   3. Ukáže git status a vyžádá si potvrzení.
-#   4. Stáhne nejnovější verzi z GitHubu (git pull --rebase --autostash).
-#   5. V souboru version.json zvýší číslo verze, přepíše autora na "Ludek",
-#      popis na zadaný text a datum na aktuální.
-#   6. Zacommituje všechny změny a pushne na GitHub.
-#   7. Nasadí aplikaci na Fly.io (fly deploy -a razzor-system).
+#   4. Stáhne nejnovější kód z GitHubu (git pull --rebase --autostash).
+#   5. Zavolá update_version.py "POPIS" "AUTOR" (zapíše version.json ve správném
+#      formátu: verze, popis, autor, datum, cas, git_commit).
+#   6. git add -A, git commit, git push.
+#   7. fly deploy -a razzor-system.
 
-set -e  # kdekoli něco selže, skript skončí
+set -e
 
 # --- Konfigurace ------------------------------------------------------------
 
-AUTOR="${AUTOR:-Ludek}"          # dá se přepsat: AUTOR=Tom ./deploy.sh ...
+AUTOR="${AUTOR:-Ludek}"          # dá se přepsat: AUTOR=Tomas ./deploy.sh ...
 FLY_APP="razzor-system"
 # ---------------------------------------------------------------------------
 
 # Přejít do složky, kde leží tento skript (= kořen projektu)
 cd "$(dirname "$0")"
 
-# Kontrola, že jsme opravdu ve složce projektu
-if [ ! -f "version.json" ] || [ ! -f "app.py" ]; then
+# Kontrola, že jsme opravdu v kořeni projektu
+if [ ! -f "version.json" ] || [ ! -f "app.py" ] || [ ! -f "update_version.py" ]; then
     echo "Chyba: skript musí ležet v kořenové složce razzor-system."
     echo "Aktuální složka: $(pwd)"
     exit 1
@@ -51,7 +56,7 @@ echo ""
 echo "==> Lokální změny, které se zacommitují:"
 git status --short
 if [ -z "$(git status --short)" ]; then
-    echo "   (žádné změny — bude zveřejněna jen nová verze v version.json)"
+    echo "   (žádné změny v kódu — zveřejní se jen nová verze v version.json)"
 fi
 
 echo ""
@@ -67,41 +72,17 @@ echo ""
 echo "==> git pull --rebase --autostash"
 git pull --rebase --autostash
 
-# Zvýšit verzi, přepsat autora/popis/datum v version.json
+# Zapsat novou verzi přes oficiální update_version.py (stejně jako Windows .bat)
 echo ""
-echo "==> Aktualizace version.json"
-NEW_VERSION=$(POPIS_ENV="$POPIS" AUTOR_ENV="$AUTOR" python3 <<'PYEOF'
-import json
-import os
-from datetime import datetime
+echo "==> python3 update_version.py \"$POPIS\" \"$AUTOR\""
+python3 update_version.py "$POPIS" "$AUTOR"
 
-popis = os.environ['POPIS_ENV']
-autor = os.environ['AUTOR_ENV']
-
-with open('version.json', 'r', encoding='utf-8') as f:
-    v = json.load(f)
-
-v['verze'] = int(v.get('verze', 0)) + 1
-v['autor'] = autor
-v['popis'] = popis
-v['datum'] = datetime.now().strftime('%d.%m.%Y %H:%M')
-
-with open('version.json', 'w', encoding='utf-8') as f:
-    json.dump(v, f, ensure_ascii=False, indent=2)
-    f.write('\n')
-
-print(v['verze'])
-PYEOF
-)
-
-echo "   Nová verze: v$NEW_VERSION"
-echo "   Datum:      $(date +'%d.%m.%Y %H:%M')"
-echo "   Autor:      $AUTOR"
-echo "   Popis:      $POPIS"
+# Přečíst zapsanou verzi pro commit message
+NEW_VERSION=$(python3 -c "import json; print(json.load(open('version.json'))['verze'])")
 
 # Commit
 echo ""
-echo "==> git add + git commit"
+echo "==> git add + git commit (v$NEW_VERSION: $POPIS)"
 git add -A
 git commit -m "v$NEW_VERSION: $POPIS"
 

@@ -10,21 +10,51 @@ Stack: **Flask + SQLite** (SPA — jedna HTML stránka, veškerá logika v JavaS
 
 ## Spuštění lokálně
 
+**Windows:**
 ```
-SPUSTIT.bat          # Windows — spustí python app.py na http://localhost:5001
+SPUSTIT.bat          # spustí python app.py na http://localhost:5001
 python app.py        # přímé spuštění
+```
+
+**Mac / Linux:**
+```
+python3 app.py       # přímé spuštění na http://localhost:5001
 ```
 
 Server musí být restartován po každé změně Python souboru. Změny v `templates/app.html` se projeví okamžitě (bez restartu) — stačí refresh v prohlížeči.
 
+Port je pevně 5001 (ne 5000) — na macOS kolidoval port 5000 s AirPlay Receiverem, proto je 5001 zvolený jednotně pro všechny platformy.
+
 ## Deployment na cloud
 
+**Windows (Tomáš):**
 ```
-_NASTROJE\Nasadit na cloud.bat   # git commit + push + fly deploy (Fly.io)
-_NASTROJE\Stahni novou verzi.bat # git pull (stáhnutí cizích změn)
+_NASTROJE\Nasadit na cloud.bat        # git commit + push + fly deploy (Fly.io)
+_NASTROJE\Stahni novou verzi.bat      # git pull (stáhnutí cizích změn)
 _NASTROJE\Nahrat data na cloud.bat    # upload lokální DB na server
-_NASTROJE\Stahni data z cloudu.bat   # download DB ze serveru
+_NASTROJE\Stahni data z cloudu.bat    # download DB ze serveru
 ```
+
+**Mac (Ludek):**
+```
+./deploy.sh "popis zmeny"             # ekvivalent Nasadit na cloud.bat
+                                      # (volá stejný update_version.py → shodný formát version.json)
+git pull --rebase --autostash         # stáhnutí cizích změn
+
+# Stáhnout produkční databázi (pomocí flyctl):
+fly ssh sftp get /data/system.db -a razzor-system && mv system.db data/system.db
+```
+
+Mac užívá `./deploy.sh` místo .bat skriptů. Oba skripty volají stejný `update_version.py "POPIS" "AUTOR"`, takže formát `version.json` je identický a štítek verze v aplikaci je konzistentní.
+
+### Autentizace na GitHub (Mac)
+
+GitHub od roku 2021 nepřijímá git push s heslem. Nejjednodušší řešení:
+```
+brew install gh
+gh auth login                        # přihlášení přes prohlížeč, jednou provždy
+```
+Od té chvíle `git push` funguje bez dotazu na heslo.
 
 Cloud URL: **https://razzor-system.fly.dev** (Fly.io, Frankfurt)
 

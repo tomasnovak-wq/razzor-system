@@ -1,7 +1,7 @@
 """
 Flight Case výrobní systém — Flask server
 Spuštění: python app.py
-Přístup: http://localhost:5000  (nebo http://IP_PC:5000 z jiných strojů v síti)
+Přístup: http://localhost:5001  (nebo http://IP_PC:5001 z jiných strojů v síti)
 """
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 import sqlite3
