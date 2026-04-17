@@ -601,6 +601,7 @@ def auto_migrate():
     # zakazky – fakturace + přiřazení + priorita
     add_column('zakazky', 'fakturovano',   'INTEGER DEFAULT 0')
     add_column('zakazky', 'prioritni',     'INTEGER DEFAULT 0')
+    add_column('zakazky', 'foceni',        'INTEGER DEFAULT 0')
 
     # prijemky – dopravné + měna
     add_column('prijemky', 'dopravne',     'REAL DEFAULT 0')

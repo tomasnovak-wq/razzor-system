@@ -764,7 +764,7 @@ def api_zakazka_update(zak_id):
     conn = get_db()
     c = conn.cursor()
     fields = ['stav','pocet_ks','termin','zakaznik','poznamka_dilna','poznamka_cnc',
-              'pracovnik','sn_cislo','faktura_cislo','faktura_datum','datum_dokonceni','prioritni']
+              'pracovnik','sn_cislo','faktura_cislo','faktura_datum','datum_dokonceni','prioritni','foceni']
     updates = ', '.join(f"{f}=?" for f in fields if f in data)
     vals = [data[f] for f in fields if f in data]
     if 'stav' in data and data['stav'] == 'Hotovo' and 'datum_dokonceni' not in data:
@@ -772,6 +772,15 @@ def api_zakazka_update(zak_id):
     if updates:
         c.execute(f"UPDATE zakazky SET {updates}, updated_at=datetime('now') WHERE id=?", vals + [zak_id])
         conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/zakazky/<int:zak_id>', methods=['DELETE'])
+def api_zakazka_delete(zak_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM zakazky WHERE id=?", (zak_id,))
+    conn.commit()
     conn.close()
     return jsonify({'ok': True})
 
@@ -2270,6 +2279,23 @@ def api_faktura_create():
     conn = get_db()
     c = conn.cursor()
 
+    # Blokace fakturace zakázek s otevřenými odchylkami
+    zak_ids = [p.get('zakazka_id') for p in polozky_in if p.get('zakazka_id')]
+    if zak_ids:
+        placeholders = ','.join('?' * len(zak_ids))
+        c.execute(f"""
+            SELECT z.hn_cislo
+            FROM odchylky_karty o
+            JOIN zakazky z ON z.id = o.zakazka_id
+            WHERE o.zakazka_id IN ({placeholders}) AND o.stav = 'Nová'
+            GROUP BY o.zakazka_id
+        """, zak_ids)
+        blokujici = c.fetchall()
+        if blokujici:
+            cisla = ', '.join(r['hn_cislo'] or str(r[0]) for r in blokujici)
+            conn.close()
+            return jsonify({'error': f'Nelze vyfakturovat – zakázky mají otevřené odchylky: {cisla}. Nejprve odchylky uzavři.'}), 400
+
     # Zjisti příští číslo (atomicky)
     c.execute("SELECT cislo FROM faktury ORDER BY id DESC LIMIT 1")
     row = c.fetchone()
@@ -2501,7 +2527,9 @@ def api_zakazky_k_fakturaci():
                round((t.cena_dilu + t.cena_vyroby) * 1.047, 2) as cena_za_mj,
                round((t.cena_dilu + t.cena_vyroby) * 1.047 * z.pocet_ks, 2) as zaklad,
                round((t.cena_dilu + t.cena_vyroby) * 1.047 * z.pocet_ks * 0.21, 2) as dph,
-               round((t.cena_dilu + t.cena_vyroby) * 1.047 * z.pocet_ks * 1.21, 2) as celkem_s_dph
+               round((t.cena_dilu + t.cena_vyroby) * 1.047 * z.pocet_ks * 1.21, 2) as celkem_s_dph,
+               (SELECT COUNT(*) FROM odchylky_karty o
+                WHERE o.zakazka_id = z.id AND o.stav = 'Nová') as ma_odchylku
         FROM zakazky z
         LEFT JOIN typy_casu t ON t.id = z.typ_casu_id
         WHERE (z.fakturovano IS NULL OR z.fakturovano = 0)

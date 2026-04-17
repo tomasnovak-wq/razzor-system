@@ -1,0 +1,3 @@
+cd C:\Users\tnovak\Desktop\Claude\flightcase-system
+
+Do budoucna: pokud server přestane fungovat po mých změnách, stačí spustit git checkout HEAD -- app.py v příkazovém řádku — to okamžitě obnoví poslední fungující verzi z Gitu.

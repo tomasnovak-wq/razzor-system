@@ -35,6 +35,7 @@ td { padding:8px 12px; font-size:.875rem; color:#374151; border-bottom:1px solid
 .stav-Hotovo { background:#dcfce7; color:#15803d; }
 .stav-Expedováno { background:#ede9fe; color:#6d28d9; }
 .stav-Zrušeno { background:#fee2e2; color:#b91c1c; }
+.stav-Zkontrolováno { background:#e0e7ff; color:#3730a3; }
 .prioritni-row { background: #fffbeb !important; }
 .prioritni-row:hover { background: #fef3c7 !important; }
 .stav-OK { background:#dcfce7; color:#15803d; }
@@ -593,7 +594,7 @@ async function dashboard() {
     document.getElementById('stat-typy') && (document.getElementById('stat-typy').textContent = r.items?.length > 0 ? '1000+' : '0');
   });
   api('/api/zakazky').then(r => {
-    const aktivni = (r.items||[]).filter(z => !['Hotovo','Expedováno','Zrušeno'].includes(z.stav)).length;
+    const aktivni = (r.items||[]).filter(z => !['Hotovo','Zkontrolováno','Expedováno','Zrušeno'].includes(z.stav)).length;
     document.getElementById('stat-zak') && (document.getElementById('stat-zak').textContent = aktivni);
   });
 }
@@ -1940,21 +1941,64 @@ function _zakRow(z) {
   const prioBtn = `<button title="${isPrio ? 'Zrušit prioritu' : 'Označit jako prioritní'}"
     onclick="event.stopPropagation();togglePriorita(${z.id},${isPrio?0:1},this)"
     class="text-lg leading-none transition-colors ${isPrio ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400'}">★</button>`;
-  return `<tr class="${trClass}" onclick="zakazkaDetail(${z.id})">
+
+  // Banner pod řádkem dle stavu
+  let bannerRow = '';
+  if (z.stav === 'Hotovo') {
+    bannerRow = `<tr><td colspan="10" style="padding:0">
+      <div style="background:#fef3c7;color:#92400e;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #fde68a">
+        ⏳ VYČKEJTE NA KONTROLU CASE
+      </div></td></tr>`;
+  } else if (z.stav === 'Zkontrolováno') {
+    if (z.foceni) {
+      bannerRow = `<tr><td colspan="10" style="padding:0">
+        <div style="background:#111827;color:white;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #374151">
+          📷 ODNESTE NA FOCENÍ
+        </div></td></tr>`;
+    } else if (z.fakturovano) {
+      bannerRow = `<tr><td colspan="10" style="padding:0">
+        <div style="background:#15803d;color:white;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #16a34a">
+          ✅ ODNESTE NEPRODLENĚ NA PŘEJÍMKU
+        </div></td></tr>`;
+    } else {
+      bannerRow = `<tr><td colspan="10" style="padding:0">
+        <div style="background:#dc2626;color:white;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #b91c1c">
+          🚫 VYČKEJTE NA VYSTAVENÍ FAKTURY
+        </div></td></tr>`;
+    }
+  }
+
+  const mainRow = `<tr class="${trClass}" onclick="zakazkaDetail(${z.id})">
     <td class="w-8 text-center pr-0" onclick="event.stopPropagation()">${prioBtn}</td>
     <td><p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
         <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p></td>
     <td class="font-medium">${z.case_nazev||z.nazev||'–'}</td>
     <td class="text-gray-500">${z.zakaznik||'–'}</td>
     <td class="text-center font-semibold">${z.pocet_ks}</td>
-    <td>${badge(z.stav)}</td>
-    <td class="text-sm ${z.termin && z.termin < dnes && !['Hotovo','Expedováno'].includes(z.stav) ? 'text-red-500 font-semibold' : 'text-gray-500'}">${z.termin||'–'}</td>
+    <td onclick="event.stopPropagation()">
+      <select onchange="_setStav(${z.id}, this.value)" style="font-size:.75rem;padding:2px 4px;border-radius:6px;border:1.5px solid #e2e8f0;cursor:pointer;background:white;max-width:120px">
+        ${['Čeká','CNC hotovo','Výroba','Hotovo','Zkontrolováno','Expedováno'].map(s=>`<option value="${s}" ${z.stav===s?'selected':''}>${s}</option>`).join('')}
+      </select>
+    </td>
+    <td class="text-sm ${z.termin && z.termin < dnes && !['Hotovo','Zkontrolováno','Expedováno'].includes(z.stav) ? 'text-red-500 font-semibold' : 'text-gray-500'}">${z.termin||'–'}</td>
     <td class="text-sm">${_zakPracovnikBadge(z.pracovnik)}</td>
+    <td class="text-center" onclick="event.stopPropagation()">
+      <input type="checkbox" title="Focení" ${z.foceni ? 'checked' : ''}
+        onchange="toggleFoceni(${z.id}, this.checked)"
+        style="width:16px;height:16px;cursor:pointer">
+    </td>
     <td onclick="event.stopPropagation()"><div class="flex gap-1">
       <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
       <button class="btn btn-secondary py-1 px-2 text-xs" onclick="tiskVyrobniListZakazka(${z.id})">🖨</button>
     </div></td>
   </tr>`;
+  return mainRow + bannerRow;
+}
+
+async function toggleFoceni(zakId, hodnota) {
+  await api('/api/zakazky/' + zakId, 'PUT', { foceni: hodnota ? 1 : 0 });
+  const zak = (_cache.zakazky || []).find(z => z.id === zakId);
+  if (zak) { zak.foceni = hodnota ? 1 : 0; _zakFilter(); }
 }
 
 async function togglePriorita(zakId, hodnota, btn) {
@@ -1995,7 +2039,7 @@ async function zakazky() {
   setContent('<div class="text-center py-16 text-gray-400">Načítám...</div>');
   const data = await api('/api/zakazky?limit=500');
   _cache.zakazky = data.items || [];
-  const stavy = ['','Čeká','CNC hotovo','Výroba','Hotovo','Expedováno','Zrušeno'];
+  const stavy = ['','Čeká','CNC hotovo','Výroba','Hotovo','Zkontrolováno','Expedováno'];
 
   setFilter(`<div class="px-6 py-3 flex gap-3 flex-wrap items-center">
     <input id="zak-search" class="input flex-1" style="min-width:200px" placeholder="Hledat HN, zákazník, název..." oninput="_zakFilter()">
@@ -2013,7 +2057,7 @@ async function zakazky() {
   <table class="w-full tbl-sort">
     <thead><tr>
       <th class="no-sort w-8" title="Priorita">★</th><th>HN / Typ</th><th>Název</th><th>Zákazník</th>
-      <th class="text-center">Ks</th><th>Stav</th><th>Termín</th><th>Pracovník</th><th class="no-sort">Akce</th>
+      <th class="text-center">Ks</th><th>Stav</th><th>Termín</th><th>Pracovník</th><th class="no-sort text-center">Focení</th><th class="no-sort">Akce</th>
     </tr></thead>
     <tbody id="zak-tbody">${_cache.zakazky.map(_zakRow).join('')}</tbody>
   </table>
@@ -2064,7 +2108,7 @@ async function editZakazka(id, prefill={}) {
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs text-gray-500">Stav</label>
           <select class="select" id="zak-stav">
-            ${['Čeká','CNC hotovo','Výroba','Hotovo','Expedováno','Zrušeno'].map(s=>`<option ${z.stav===s?'selected':''}>${s}</option>`).join('')}
+            ${['Čeká','CNC hotovo','Výroba','Hotovo','Zkontrolováno','Expedováno'].map(s=>`<option ${z.stav===s?'selected':''}>${s}</option>`).join('')}
           </select>
         </div>
         <div><label class="text-xs text-gray-500">Termín</label><input class="input" id="zak-termin" type="date" value="${z.termin}"></div>
@@ -2700,7 +2744,7 @@ async function _odkazySave(typId) {
 }
 
 async function zmenaStavu(id, aktualniStav) {
-  const stavy = ['Čeká','CNC hotovo','Výroba','Hotovo','Expedováno','Zrušeno'];
+  const stavy = ['Čeká','CNC hotovo','Výroba','Hotovo','Zkontrolováno','Expedováno'];
   openModal(`
     <h3 class="text-lg font-semibold mb-4">Změnit stav zakázky</h3>
     <div class="space-y-2">
@@ -2717,19 +2761,35 @@ async function zmenaStavu(id, aktualniStav) {
 
 async function _setStav(id, stav) {
   await api(`/api/zakazky/${id}`, 'PUT', { stav });
-  _cache.zakazky = null;
-  tiskVyrobniListZakazka(id);
+  closeModal();
+  // Aktualizuj v cache a překresli seznam
+  const zak = (_cache.zakazky || []).find(z => z.id === id);
+  if (zak) {
+    zak.stav = stav;
+    if (stav === 'Hotovo' && !zak.datum_dokonceni) zak.datum_dokonceni = new Date().toISOString().slice(0,10);
+    _zakFilter();
+  } else {
+    _cache.zakazky = null;
+    zakazky();
+  }
 }
 
 async function zrusitZakazku(id) {
   openModal(`
-    <h3 class="text-lg font-semibold mb-2">Zrušit zakázku?</h3>
-    <p class="text-sm text-gray-500 mb-4">Zakázka bude označena jako Zrušeno. Data zůstanou zachována.</p>
+    <h3 class="text-lg font-semibold mb-2">Smazat zakázku?</h3>
+    <p class="text-sm text-gray-500 mb-4">Zakázka bude trvale smazána. Tuto akci nelze vrátit.</p>
     <div class="flex gap-2">
-      <button class="btn btn-danger flex-1" onclick="_setStav(${id},'Zrušeno')">✕ Ano, zrušit</button>
+      <button class="btn btn-danger flex-1" onclick="_smazatZakazku(${id})">✕ Ano, smazat</button>
       <button class="btn btn-secondary flex-1" onclick="tiskVyrobniListZakazka(${id})">Zpět</button>
     </div>
   `);
+}
+
+async function _smazatZakazku(id) {
+  await api(`/api/zakazky/${id}`, 'DELETE');
+  closeModal();
+  _cache.zakazky = null;
+  zakazky();
 }
 
 async function hlasitOdchylku(zakId, typId, hnCislo) {
@@ -6523,10 +6583,16 @@ async function novaFaktura() {
     return `<span class="badge" style="${cls};font-size:.65rem;padding:1px 5px">${s||'–'}</span>`;
   };
 
-  const radky = zakazky.map((z,i) => `
-    <tr id="fak-row-${i}">
-      <td><input type="checkbox" class="fak-chk" data-idx="${i}" onchange="_fakRowToggle(${i})" checked></td>
-      <td class="font-mono text-xs">${z.hn_cislo || '–'}</td>
+  const radky = zakazky.map((z,i) => {
+    const maOdchylku = z.ma_odchylku > 0;
+    const rowStyle = maOdchylku ? 'opacity:.5;pointer-events:none;background:#fff1f2' : '';
+    const odchylkaBadge = maOdchylku
+      ? `<span title="Otevřená odchylka – nelze fakturovat" style="margin-left:4px;background:#fee2e2;color:#b91c1c;font-size:.65rem;padding:1px 6px;border-radius:999px;font-weight:700">⚠ Odchylka</span>`
+      : '';
+    return `
+    <tr id="fak-row-${i}" style="${rowStyle}">
+      <td><input type="checkbox" class="fak-chk" data-idx="${i}" onchange="_fakRowToggle(${i})" ${maOdchylku ? 'disabled' : 'checked'}></td>
+      <td class="font-mono text-xs">${z.hn_cislo || '–'}${odchylkaBadge}</td>
       <td>${z.nazev || ''}</td>
       <td>${stavBadgeFak(z.stav)}</td>
       <td><input type="number" id="fak-ks-${i}" class="input text-right" style="width:60px;padding:4px 6px"
@@ -6536,7 +6602,8 @@ async function novaFaktura() {
       <td class="text-right text-sm" id="fak-mj-${i}">${fmt(z.cena_za_mj)} Kč</td>
       <td class="text-right text-sm" id="fak-zaklad-${i}">${fmt(z.zaklad)} Kč</td>
       <td class="text-right text-sm font-semibold" id="fak-celkem-${i}">${fmt(z.celkem_s_dph)} Kč</td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   const prazdnyText = zakazky.length === 0 ? `
     <tr><td colspan="8" class="text-center py-6 text-gray-400">
