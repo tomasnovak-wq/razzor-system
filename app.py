@@ -249,7 +249,7 @@ def api_typ_casu_detail(typ_id):
     c.execute("""
         SELECT k.material_kod, k.mnozstvi, m.nazev, m.typ, m.druh, m.nc_bez_dph,
                m.hmotnost as hmotnost_j, m.nity, m.oblibeny,
-               COALESCE(s.skutecny_stav, s.naskladneno - s.pouzito, 0) as stav_skladu,
+               COALESCE(s.naskladneno - s.pouzito, 0) as stav_skladu,
                (k.mnozstvi * m.nc_bez_dph) as cena_polozky,
                (k.mnozstvi * m.hmotnost)   as hmotnost_polozky
         FROM kusovniky k
@@ -266,7 +266,7 @@ def api_typ_casu_detail(typ_id):
         c.execute("""
             SELECT ms.spojovaci_kod, ms.mnozstvi_na_kus,
                    m.nazev, m.nc_bez_dph, m.hmotnost as hmotnost_j,
-                   COALESCE(s.skutecny_stav, s.naskladneno - s.pouzito, 0) as stav_skladu
+                   COALESCE(s.naskladneno - s.pouzito, 0) as stav_skladu
             FROM material_spojeniky ms
             JOIN materialy m ON m.kod = ms.spojovaci_kod
             LEFT JOIN sklad s ON s.material_kod = ms.spojovaci_kod
