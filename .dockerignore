@@ -1,0 +1,10 @@
+# flyctl launch added from .gitignore
+# Databáze - nepushovat
+**\*.db
+**\data
+
+# Python cache
+**\__pycache__
+**\*.pyc
+**\*.pyo
+fly.toml

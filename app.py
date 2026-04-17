@@ -4504,6 +4504,18 @@ def spa_routes(**kwargs):
     return render_template('app.html')
 
 
+# ─── VERZE SYSTÉMU ───────────────────────────────────────────────────────────
+@app.route('/api/verze')
+def api_verze():
+    import json as _json
+    ver_path = os.path.join(os.path.dirname(__file__), 'version.json')
+    try:
+        with open(ver_path, encoding='utf-8') as f:
+            return jsonify(_json.load(f))
+    except:
+        return jsonify({'verze': '?', 'popis': '', 'autor': '', 'datum': '', 'cas': '', 'git_commit': ''})
+
+
 # ─── ADMIN: NAHRÁNÍ DATABÁZE ─────────────────────────────────────────────────
 UPLOAD_SECRET = os.environ.get('UPLOAD_SECRET', 'razzor-upload-2026')
 
@@ -4529,7 +4541,7 @@ if __name__ == '__main__':
     auto_migrate()
     print("\n" + "="*60)
     print("  Flight Case výrobní systém")
-    print("  Otevři v prohlížeči: http://localhost:5000")
-    print("  Ze sítě:             http://<IP-tohoto-PC>:5000")
+    print("  Otevři v prohlížeči: http://localhost:5001")
+    print("  Ze sítě:             http://<IP-tohoto-PC>:5001")
     print("="*60 + "\n")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=5001, debug=False)

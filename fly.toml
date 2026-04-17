@@ -1,20 +1,26 @@
-app = "razzor-system"
-primary_region = "fra"
+# fly.toml app configuration file generated for razzor-system on 2026-04-16T23:03:01+02:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'razzor-system'
+primary_region = 'fra'
 
 [build]
+
+[[mounts]]
+  source = 'razzor_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
 [[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
+  memory = '256mb'
+  cpu_kind = 'shared'
   cpus = 1
-
-[mounts]
-  source = "razzor_data"
-  destination = "/data"
+  memory_mb = 256

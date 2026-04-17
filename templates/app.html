@@ -1395,7 +1395,7 @@ async function bomDetail(typId) {
         </div>` : '';
       })()}
     </div>
-    ${casData ? `
+    ${casData && casData.cnc ? `
     <div id="cas-vypocet-panel" class="hidden mb-4 border border-orange-200 rounded-xl overflow-hidden bg-orange-50">
       <div class="flex items-center justify-between px-4 py-2 bg-orange-100">
         <p class="font-semibold text-orange-800 text-sm cursor-pointer" onclick="this.closest('.mb-4').querySelector('.grid').classList.toggle('hidden')">
@@ -8137,6 +8137,21 @@ async function nbHwDelete(hwid) {
 
 // ── START ─────────────────────────────────────────────────────────────────
 navigate('dashboard');
+
+// ── VERZE ─────────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const v = await api('/api/verze');
+    const el = document.getElementById('sys-verze');
+    if (el && v.verze) {
+      el.textContent = `v${v.verze} · ${v.datum||''} ${v.cas||''} · ${v.autor||''} · ${v.popis||''}`;
+      el.title = `Git: ${v.git_commit||''}`;
+    }
+  } catch(e) {}
+})();
 </script>
+
+<div id="sys-verze" class="fixed bottom-0 right-0 text-xs text-gray-300 bg-white bg-opacity-80 px-3 py-1 rounded-tl-lg z-50 no-print" style="font-size:0.65rem"></div>
+
 </body>
 </html>
