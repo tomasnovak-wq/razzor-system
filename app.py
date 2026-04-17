@@ -4519,6 +4519,15 @@ def api_verze():
 # ─── ADMIN: NAHRÁNÍ DATABÁZE ─────────────────────────────────────────────────
 UPLOAD_SECRET = os.environ.get('UPLOAD_SECRET', 'razzor-upload-2026')
 
+@app.route('/admin/download-db', methods=['GET'])
+def admin_download_db():
+    secret = request.args.get('secret', '')
+    if secret != UPLOAD_SECRET:
+        return jsonify({'error': 'Unauthorized'}), 403
+    from database import DB_PATH
+    return send_file(DB_PATH, as_attachment=True, download_name='system.db')
+
+
 @app.route('/admin/upload-db', methods=['POST'])
 def admin_upload_db():
     secret = request.headers.get('X-Upload-Secret', '')
