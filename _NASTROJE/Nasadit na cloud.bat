@@ -1,8 +1,8 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0\.."
 
 echo.
-echo === AKTUALIZOVAT SYSTEM ===
+echo === NASADIT NA CLOUD ===
 echo.
 
 set /p ZPRAVA=Popis zmeny (Enter = aktualizace):

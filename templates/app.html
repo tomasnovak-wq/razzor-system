@@ -8138,6 +8138,26 @@ async function nbHwDelete(hwid) {
 // ── START ─────────────────────────────────────────────────────────────────
 navigate('dashboard');
 
+// ── PROSTREDI (favicon + štítek) ──────────────────────────────────────────
+(function() {
+  const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname.startsWith('192.168.');
+
+  // favicon – modrá lokálně, červená na serveru
+  const color = local ? '#1d4ed8' : '#bd1823';
+  const svgFavicon = `<svg viewBox="0 0 98 98" xmlns="http://www.w3.org/2000/svg"><path fill="#ffffff" d="M90 13.1V90H9.1V13.1z"/><path d="M91.7 0H6.3C2.8 0 0 2.8 0 6.3v85.4C0 95.2 2.8 98 6.3 98h85.4c3.5 0 6.3-2.8 6.3-6.3V6.3C98 2.8 95.2 0 91.7 0M43.3 19.7h12.3c13.1 0 22.7 9.2 22.7 20.3s-1.8 8.5-2.3 9.4c0 .1-.2.2-.3 0L43.2 20c-.1-.1 0-.3.1-.3m-2.8 58.8H20.1q-.3 0-.3-.3v-19c0-.2.2-.3.4-.2l20.5 19.1c.2.1 0 .4-.2.4m40.4 0H63.7c-.2 0-.3 0-.4-.2L20 39.1c-.1-.1-.2-.3-.2-.4V21.3c0-.2.2-.3.4-.2l60.9 56.8c.2.2 0 .5-.2.5Z" fill="${color}"/><path d="M78.2 40c0 4.7-1.8 8.5-2.3 9.4 0 .1-.2.2-.3 0L43.1 20c-.1-.1 0-.3.1-.3h12.3c13.1 0 22.7 9.2 22.7 20.3" fill="#ffffff"/><path d="M80.9 78.5H63.7c-.2 0-.3 0-.4-.2L20 39.1c-.1-.1-.2-.3-.2-.4V21.3c0-.2.2-.3.4-.2l60.9 56.8c.2.2 0 .5-.2.5Z" fill="#ffffff"/></svg>`;
+  const faviconUrl = 'data:image/svg+xml,' + encodeURIComponent(svgFavicon);
+  let link = document.querySelector("link[rel='icon']");
+  if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+  link.type = 'image/svg+xml';
+  link.href = faviconUrl;
+
+  // štítek prostředí
+  const badge = document.createElement('div');
+  badge.textContent = local ? 'LOCAL' : 'CLOUD';
+  badge.style.cssText = `position:fixed;top:8px;right:8px;padding:2px 10px;border-radius:999px;font-size:.65rem;font-weight:700;z-index:9999;letter-spacing:.05em;${local ? 'background:#1d4ed8;color:white;' : 'background:#dc2626;color:white;'}`;
+  document.body.appendChild(badge);
+})();
+
 // ── VERZE ─────────────────────────────────────────────────────────────────
 (async () => {
   try {
