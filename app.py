@@ -827,7 +827,7 @@ def api_vyrobni_list(zak_id):
         c.execute("""
             SELECT k.material_kod, k.mnozstvi, k.mnozstvi * ? as celkem,
                    m.nazev, m.typ, m.druh, m.umisteni, m.dodavatel, m.web_url, m.oblibeny,
-                   COALESCE(s.skutecny_stav, s.naskladneno - s.pouzito, 0) as stav_skladu
+                   COALESCE(s.naskladneno - s.pouzito, 0) as stav_skladu
             FROM kusovniky k
             JOIN materialy m ON m.kod = k.material_kod
             LEFT JOIN sklad s ON s.material_kod = k.material_kod
@@ -842,7 +842,7 @@ def api_vyrobni_list(zak_id):
             c.execute("""
                 SELECT ms.spojovaci_kod, ms.mnozstvi_na_kus,
                        m.nazev, m.umisteni, m.oblibeny,
-                       COALESCE(s.skutecny_stav, s.naskladneno - s.pouzito, 0) as stav_skladu
+                       COALESCE(s.naskladneno - s.pouzito, 0) as stav_skladu
                 FROM material_spojeniky ms
                 JOIN materialy m ON m.kod = ms.spojovaci_kod
                 LEFT JOIN sklad s ON s.material_kod = ms.spojovaci_kod
