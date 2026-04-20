@@ -1,8 +1,8 @@
 {
-  "verze": 21,
-  "popis": "Priprava vyroby: nazev casu, dropdown Zakaznik/Sklad, editovatelny termin, fix klik na radek",
+  "verze": 22,
+  "popis": "Dilna: sloupec Zakaznik/Sklad prebira destinace z Pripravy vyroby",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:36",
-  "git_commit": "d0765b6"
+  "cas": "16:39",
+  "git_commit": "c44d4e1"
 }

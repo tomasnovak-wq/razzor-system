@@ -3026,7 +3026,10 @@ function _dilnaRow(z) {
       <p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
       <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p>
     </td>
-    <td class="text-gray-700 text-sm">${z.zakaznik||'–'}</td>
+    <td>
+      ${(() => { const d = z.destinace||'Zákazník'; return `<span style="font-size:.7rem;padding:1px 7px;border-radius:999px;font-weight:600;${d==='Sklad'?'background:#dbeafe;color:#1d4ed8':'background:#dcfce7;color:#15803d'}">${d}</span>`; })()}
+      ${z.zakaznik ? `<p class="text-xs text-gray-400 mt-0.5">${z.zakaznik}</p>` : ''}
+    </td>
     <td class="text-center font-semibold">${z.pocet_ks}</td>
     <td class="text-center">${cncBadge}</td>
     <td class="text-xs" style="${terminCls}">${z.termin||'–'}</td>
@@ -3147,7 +3150,7 @@ async function dilna() {
       <thead><tr>
         <th class="no-sort w-8" title="Priorita">★</th>
         <th>HN / Typ</th>
-        <th>Zákazník</th>
+        <th>Zákazník/Sklad</th>
         <th class="text-center">Ks</th>
         <th class="text-center">CNC</th>
         <th>Termín</th>
