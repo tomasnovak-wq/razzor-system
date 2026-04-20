@@ -7423,14 +7423,11 @@ async function _cncLoad() {
           '</label>';
         }).join('');
 
-    // Progress
+    // Progress (jen pro logiku tlačítka — nezobrazuje se jako sloupec)
     const celkem = z.cnc_celkem;
     const hotovo = z.cnc_hotovo;
     const allDone = celkem > 0 && hotovo === celkem;
     const noBom   = celkem === 0;
-    const progressTxt = noBom
-      ? '<span class="text-xs text-gray-400">bez BOM</span>'
-      : '<span class="text-xs ' + (allDone ? 'text-green-600 font-semibold' : 'text-gray-500') + '">' + hotovo + '/' + celkem + '</span>';
 
     // Tlačítka akcí — bez hromadného "Vše vyřezáno"
     // "CNC hotovo" se zpřístupní jen když jsou všechny položky zaškrtnuté (nebo BOM není nastaven)
@@ -7445,22 +7442,25 @@ async function _cncLoad() {
       ? '<button class="btn text-xs py-1 px-2 btn-warning" onclick="cncZmenaStavu(' + z.id + ',\'Výroba\')">→ Výroba</button>'
       : '';
 
-    const cncPozn = z.poznamka_cnc
-      ? '<p class="text-xs text-blue-600 mt-1">⚙ ' + z.poznamka_cnc + '</p>' : '';
-
     // Stav badge — viditelný přímo v řádku, aby bylo jasné v jakém stavu case je
     const stavColors = {'Čeká':'background:#dbeafe;color:#1d4ed8','CNC hotovo':'background:#ede9fe;color:#7c3aed','Výroba':'background:#fef3c7;color:#92400e','Hotovo':'background:#dcfce7;color:#15803d','Zkontrolováno':'background:#f0fdf4;color:#166534','Expedováno':'background:#f1f5f9;color:#475569'};
     const stavBadgeCnc = '<span style="' + (stavColors[z.stav]||'background:#f1f5f9;color:#475569') + ';font-size:.68rem;padding:2px 7px;border-radius:999px;font-weight:600;white-space:nowrap">' + (z.stav||'?') + '</span>';
 
+    // Poznámka operátora — editovatelná textarea, uloží se při odchodu
+    const poznamkaTa = '<textarea rows="2" placeholder="Co ještě chybí vyřezat…" ' +
+      'onblur="cncSavePoznamka(' + z.id + ',this.value)" ' +
+      'style="width:100%;font-size:.72rem;padding:4px 6px;border-radius:6px;border:1.5px solid #e2e8f0;resize:vertical;background:white;min-width:140px">' +
+      (z.poznamka_cnc || '') + '</textarea>';
+
     return '<tr class="' + (isPrio ? 'prioritni-row' : '') + '">' +
       '<td class="font-mono text-xs text-blue-600 font-semibold">' + prioIcon + (z.hn_cislo||'–') + '<br>' + stavBadgeCnc + '</td>' +
       '<td class="font-medium text-gray-800">' + (z.case_nazev||z.nazev||'–') +
-        (z.zakaznik ? '<p class="text-xs text-gray-400">' + z.zakaznik + '</p>' : '') + cncPozn + '</td>' +
+        (z.zakaznik ? '<p class="text-xs text-gray-400">' + z.zakaznik + '</p>' : '') + '</td>' +
       '<td class="text-center font-semibold">' + z.pocet_ks + '</td>' +
       '<td class="text-xs ' + terminClass + '">' + (z.termin||'–') + '</td>' +
       '<td class="max-w-xs">' + matInfo + '</td>' +
       '<td><div class="flex flex-col gap-1.5 py-0.5">' + checklistHtml + '</div></td>' +
-      '<td class="text-center">' + progressTxt + '</td>' +
+      '<td style="min-width:150px">' + poznamkaTa + '</td>' +
       '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + btnCncHotovo + '</div></td>' +
     '</tr>';
   });
@@ -7476,7 +7476,7 @@ async function _cncLoad() {
         <thead><tr>
           <th>HN</th><th>Název / Zákazník</th><th class="text-center">Ks</th>
           <th>Termín</th><th>Materiály (info)</th>
-          <th>Checklist</th><th class="text-center">Splněno</th><th class="text-right">Akce</th>
+          <th>Checklist</th><th>Poznámka operátora</th><th class="text-right">Akce</th>
         </tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>
@@ -7496,6 +7496,10 @@ async function cncToggleAll(zakId, kody, rezano, btn) {
   btn.disabled = true;
   await api('/api/cnc/' + zakId + '/toggle-all', 'POST', { rezano: rezano ? 1 : 0, material_kody: kody });
   await _cncLoad();
+}
+
+async function cncSavePoznamka(zakId, text) {
+  await api('/api/zakazky/' + zakId, 'PUT', { poznamka_cnc: text });
 }
 
 async function cncZmenaStavu(zakId, novyStav) {
