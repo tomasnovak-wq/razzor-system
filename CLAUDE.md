@@ -89,6 +89,26 @@ Klíčové tabulky:
 - `dochazka` / `dochazka_zaznamy` — docházka pracovníků
 - `fifo_davky` — FIFO evidence nákupních cen
 
+### Výrobní zakázky — workflow stavů
+
+Stavy zakázky (v tomto pořadí): **Čeká → CNC hotovo → Výroba → Hotovo → Zkontrolováno → Expedováno**
+
+Stav „Zrušeno" neexistuje — zrušená zakázka se fyzicky smaže (`DELETE /api/zakazky/<id>`).
+
+Stav lze měnit přímo v seznamu zakázek přes inline `<select>` v řádku — bez otevírání dialogu. Změna se projeví okamžitě (cache se aktualizuje v JS bez reloadu).
+
+Bannery pod řádkem zakázky (viditelné v hlavním seznamu):
+- `Hotovo` → žlutý: „VYČKEJTE NA KONTROLU CASE"
+- `Zkontrolováno` + `foceni=1` → černý: „ODNESTE NA FOCENÍ"
+- `Zkontrolováno` + `fakturovano=1` → zelený: „ODNESTE NEPRODLENĚ NA PŘEJÍMKU"
+- `Zkontrolováno` + `fakturovano=0` → červený: „VYČKEJTE NA VYSTAVENÍ FAKTURY"
+
+Sloupec `foceni` (INTEGER DEFAULT 0) v tabulce `zakazky` — zaškrtávátko přímo v řádku seznamu.
+
+### Fakturace — blokace odchylkami
+
+Zakázku s otevřenou odchylkou (stav = `Nová` v tabulce `odchylky_karty`) nelze vyfakturovat. Blokace je na dvou úrovních: frontend (zakázka je zašedlá s badge ⚠ Odchylka, checkbox disabled) i backend (endpoint `POST /api/faktury` vrátí 400 pokud zakázka má otevřenou odchylku).
+
 ### Stav skladu — důležité
 
 Správný výpočet disponibilního množství je vždy `COALESCE(s.naskladneno - s.pouzito, 0)`. Sloupec `skutecny_stav` obsahuje fyzicky napočítaný stav z inventury — může být 0 i když materiál na skladě je. Nikdy nepoužívat `skutecny_stav` jako hlavní ukazatel dostupnosti.

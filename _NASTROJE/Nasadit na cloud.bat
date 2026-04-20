@@ -33,6 +33,9 @@ if errorlevel 1 goto chyba
 echo.
 echo === Hotovo! https://razzor-system.fly.dev ===
 echo.
+echo  Tip: Pokud jsi pridal novou funkci nebo zmenil architekturu,
+echo  rekni Claudovi: "Aktualizuj CLAUDE.md"
+echo.
 pause
 exit /b 0
 

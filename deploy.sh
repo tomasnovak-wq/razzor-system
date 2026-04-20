@@ -51,6 +51,24 @@ if [ -z "$POPIS" ]; then
     exit 1
 fi
 
+# Připomínka CLAUDE.md
+echo ""
+echo "-----------------------------------------------"
+echo " Chceš aktualizovat CLAUDE.md?"
+echo " (doporučeno pokud jsi přidal novou funkci,"
+echo "  změnil architekturu nebo workflow)"
+echo "-----------------------------------------------"
+printf "Aktualizovat CLAUDE.md? [y/N] "
+read -r CLAUDE_UPDATE
+if [ "$CLAUDE_UPDATE" = "y" ] || [ "$CLAUDE_UPDATE" = "Y" ]; then
+    echo ""
+    echo " >>> Otevři Cowork a řekni Claudovi:"
+    echo "     'Aktualizuj CLAUDE.md podle aktuálních změn v projektu'"
+    echo ""
+    printf " Stiskni Enter až budeš mít CLAUDE.md hotový..."
+    read -r
+fi
+
 # Ukázat, co se bude commitovat
 echo ""
 echo "==> Lokální změny, které se zacommitují:"
