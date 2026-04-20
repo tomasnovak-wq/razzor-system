@@ -2867,7 +2867,14 @@ function _pripravaRow(z) {
         ${destOpts}
       </select>
     </td>
-    <td class="text-center font-semibold">${z.pocet_ks}</td>
+    <td style="min-width:170px">
+      <textarea rows="1" placeholder="Pozn. pro CNC…"
+        onblur="pripravaSetPoznamka(${z.id},'cnc',this.value)"
+        style="width:100%;font-size:.72rem;padding:3px 5px;border-radius:5px;border:1.5px solid #e2e8f0;resize:none;background:white;margin-bottom:3px">${z.poznamka_cnc||''}</textarea>
+      <textarea rows="1" placeholder="Pozn. pro Dílnu…"
+        onblur="pripravaSetPoznamka(${z.id},'dilna',this.value)"
+        style="width:100%;font-size:.72rem;padding:3px 5px;border-radius:5px;border:1.5px solid #e2e8f0;resize:none;background:white">${z.poznamka_dilna||''}</textarea>
+    </td>
     <td class="text-center">${_bomStatusBadge(z)}</td>
     <td class="text-xs text-gray-400">${(z.datum_zapsani||'').slice(0,10)||'–'}</td>
     <td>
@@ -2936,6 +2943,13 @@ async function pripravaSetTermin(zakId, hodnota) {
   if (zak) { zak.termin = hodnota; _pripravaFilter(); } // re-render kvůli barvě termínu
 }
 
+async function pripravaSetPoznamka(zakId, typ, text) {
+  const field = typ === 'cnc' ? 'poznamka_cnc' : 'poznamka_dilna';
+  await api('/api/zakazky/' + zakId, 'PUT', { [field]: text });
+  const zak = (_cache['priprava-vyroby'] || []).find(z => z.id === zakId);
+  if (zak) zak[field] = text;
+}
+
 async function pripravaVyroby() {
   _cache['priprava-vyroby'] = null;
   setContent('<div class="text-center py-16 text-gray-400">Načítám...</div>');
@@ -2962,7 +2976,7 @@ async function pripravaVyroby() {
         <th>HN / Typ</th>
         <th>Název</th>
         <th class="no-sort">Zákazník/Sklad</th>
-        <th class="text-center">Ks</th>
+        <th class="no-sort">Poznámky (CNC / Dílna)</th>
         <th class="text-center" title="Stav kusovníku (BOM)">BOM</th>
         <th>Přidáno</th>
         <th class="no-sort">Termín</th>
@@ -3012,7 +3026,7 @@ function _dilnaRow(z) {
   ).join('');
 
   // Banner pro stav Hotovo
-  const bannerRow = z.stav === 'Hotovo' ? `<tr><td colspan="9" style="padding:0">
+  const bannerRow = z.stav === 'Hotovo' ? `<tr><td colspan="10" style="padding:0">
     <div style="background:#fef3c7;color:#92400e;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #fde68a">
       ⏳ VYČKEJTE NA KONTROLU CASE
     </div></td></tr>` : '';
@@ -3027,6 +3041,14 @@ function _dilnaRow(z) {
       <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p>
     </td>
     <td class="text-gray-700 text-sm font-medium">${z.case_nazev||z.nazev||'–'}</td>
+    <td onclick="event.stopPropagation()" style="min-width:160px">
+      <textarea rows="2" placeholder="Poznámka pro dílnu…"
+        onblur="dilnaSavePoznamka(${z.id}, this.value)"
+        style="width:100%;font-size:.75rem;padding:4px 6px;border:1.5px solid #e2e8f0;border-radius:6px;resize:none;outline:none;background:#f8fafc;line-height:1.3"
+        onfocus="this.style.borderColor='#6366f1'"
+        onfocusout="this.style.borderColor='#e2e8f0'"
+      >${z.poznamka_dilna||''}</textarea>
+    </td>
     <td>
       ${(() => { const d = z.destinace||'Zákazník'; return `<span style="font-size:.7rem;padding:1px 7px;border-radius:999px;font-weight:600;${d==='Sklad'?'background:#dbeafe;color:#1d4ed8':'background:#dcfce7;color:#15803d'}">${d}</span>`; })()}
       ${z.zakaznik ? `<p class="text-xs text-gray-400 mt-0.5">${z.zakaznik}</p>` : ''}
@@ -3067,7 +3089,7 @@ function _dilnaFilter() {
   );
   const tbody   = document.getElementById('dilna-tbody');
   const counter = document.getElementById('dilna-count');
-  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="10" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="11" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
   if (counter) counter.textContent = filtered.length;
 }
 
@@ -3076,6 +3098,12 @@ function _dilnaSetStavTab(btn, stav) {
   btn.classList.add('active');
   btn.dataset.stav = stav;
   _dilnaFilter();
+}
+
+async function dilnaSavePoznamka(zakId, text) {
+  await api('/api/zakazky/' + zakId, 'PUT', { poznamka_dilna: text });
+  const zak = (_cache.dilna || []).find(z => z.id === zakId);
+  if (zak) zak.poznamka_dilna = text;
 }
 
 async function _dilnaSetStav(id, stav) {
@@ -3152,6 +3180,7 @@ async function dilna() {
         <th class="no-sort w-8" title="Priorita">★</th>
         <th>HN / Typ</th>
         <th>Název</th>
+        <th class="no-sort">Poznámka (z kanceláře)</th>
         <th>Zákazník/Sklad</th>
         <th class="text-center">Ks</th>
         <th class="text-center">CNC</th>
@@ -7456,11 +7485,11 @@ async function _cncLoad() {
       '<td class="font-mono text-xs text-blue-600 font-semibold">' + prioIcon + (z.hn_cislo||'–') + '<br>' + stavBadgeCnc + '</td>' +
       '<td class="font-medium text-gray-800">' + (z.case_nazev||z.nazev||'–') +
         (z.zakaznik ? '<p class="text-xs text-gray-400">' + z.zakaznik + '</p>' : '') + '</td>' +
+      '<td style="min-width:150px">' + poznamkaTa + '</td>' +
       '<td class="text-center font-semibold">' + z.pocet_ks + '</td>' +
       '<td class="text-xs ' + terminClass + '">' + (z.termin||'–') + '</td>' +
       '<td class="max-w-xs">' + matInfo + '</td>' +
       '<td><div class="flex flex-col gap-1.5 py-0.5">' + checklistHtml + '</div></td>' +
-      '<td style="min-width:150px">' + poznamkaTa + '</td>' +
       '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + btnCncHotovo + '</div></td>' +
     '</tr>';
   });
@@ -7474,9 +7503,9 @@ async function _cncLoad() {
     <div class="card overflow-auto">
       <table class="w-full">
         <thead><tr>
-          <th>HN</th><th>Název / Zákazník</th><th class="text-center">Ks</th>
-          <th>Termín</th><th>Materiály (info)</th>
-          <th>Checklist</th><th>Poznámka operátora</th><th class="text-right">Akce</th>
+          <th>HN</th><th>Název / Zákazník</th><th>Poznámka (z kanceláře)</th>
+          <th class="text-center">Ks</th><th>Termín</th><th>Materiály (info)</th>
+          <th>Checklist</th><th class="text-right">Akce</th>
         </tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>

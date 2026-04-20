@@ -1,8 +1,8 @@
 {
-  "verze": 24,
-  "popis": "CNC: sloupec Poznámka operátora místo Splněno",
+  "verze": 25,
+  "popis": "Dílna: přidán sloupec Poznámka (z kanceláře) pro poznamka_dilna",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:45",
-  "git_commit": "e1d06db"
+  "cas": "16:54",
+  "git_commit": "5e7e82c"
 }
