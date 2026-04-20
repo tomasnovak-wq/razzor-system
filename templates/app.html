@@ -141,9 +141,13 @@ table.tbl-sort thead th.no-sort::after { content: '' !important; }
       <span style="font-size:.6rem;font-weight:700;letter-spacing:.1em;color:rgba(148,163,184,.55);text-transform:uppercase">Výroba</span>
     </div>
     <div class="pl-2 mb-2 space-y-0.5" style="border-left:2px solid rgba(255,255,255,.08);margin-left:6px">
-      <div class="nav-item px-3 py-1.5 rounded-lg text-sm flex items-center gap-2.5 text-blue-200" onclick="navigate('zakazky')" id="nav-zakazky">
-        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        Výrobní zakázky
+      <div class="nav-item px-3 py-1.5 rounded-lg text-sm flex items-center gap-2.5 text-blue-200" onclick="navigate('priprava-vyroby')" id="nav-priprava-vyroby">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="11" y2="16"/></svg>
+        Příprava výroby
+      </div>
+      <div class="nav-item px-3 py-1.5 rounded-lg text-sm flex items-center gap-2.5 text-blue-200" onclick="navigate('dilna')" id="nav-dilna">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+        Dílna
       </div>
       <div class="nav-item px-3 py-1.5 rounded-lg text-sm flex items-center gap-2.5 text-blue-200" onclick="navigate('cnc')" id="nav-cnc">
         <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8l3 3-3 3M14 14h3"/></svg>
@@ -244,6 +248,8 @@ function navigate(page) {
   // Invaliduj cache modulů které se mohly změnit
   if (page !== currentPage) {
     if (['materialy','sklad','zakazky','dodavatele','fakturace','dochazka','statistiky'].includes(page)) _cache[page] = null;
+    if (page === 'priprava-vyroby') _cache['priprava-vyroby'] = null;
+    if (page === 'dilna') _cache.dilna = null;
   }
   currentPage = page;
   clearFilter();
@@ -251,7 +257,7 @@ function navigate(page) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.add('text-blue-200'));
   const nav = document.getElementById('nav-' + page);
   if (nav) { nav.classList.add('active','text-white'); nav.classList.remove('text-blue-200'); }
-  const pages = { dashboard, materialy, sklad, 'typy-casu': typyCasu, zakazky, inventura, nastaveni, dodavatele, prijemky, fakturace, kancelar, 'opravne-doklady': opravneDoklady, nakupy, cnc, nabidky, dochazka, 'chyby-v-bom': chybyVBom, statistiky };
+  const pages = { dashboard, materialy, sklad, 'typy-casu': typyCasu, zakazky, 'priprava-vyroby': pripravaVyroby, dilna, inventura, nastaveni, dodavatele, prijemky, fakturace, kancelar, 'opravne-doklady': opravneDoklady, nakupy, cnc, nabidky, dochazka, 'chyby-v-bom': chybyVBom, statistiky };
   if (pages[page]) pages[page]();
 }
 
@@ -452,7 +458,7 @@ async function dashboard() {
       <p class="text-3xl font-bold mt-1 ${navrh14.length > 0 ? 'text-orange-500' : 'text-green-600'}">${navrh14.length}</p>
       <p class="text-xs text-gray-400 mt-1">→ Nákupy</p>
     </div>
-    <div class="card p-5 cursor-pointer hover:shadow-md" onclick="navigate('zakazky')">
+    <div class="card p-5 cursor-pointer hover:shadow-md" onclick="navigate('priprava-vyroby')">
       <p class="text-sm text-gray-500">Aktivní zakázky</p>
       <p class="text-3xl font-bold text-blue-600 mt-1" id="stat-zak">–</p>
     </div>
@@ -575,7 +581,7 @@ async function dashboard() {
     <div class="card p-5">
       <h3 class="font-semibold text-gray-700 mb-3">Poslední zakázky</h3>
       ${zak.length === 0 ? '<p class="text-sm text-gray-400">Žádné zakázky</p>' : zak.map(z => `
-        <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50 rounded" onclick="navigate('zakazky')">
+        <div class="flex items-center justify-between py-2 border-b border-gray-50 last:border-0 cursor-pointer hover:bg-gray-50 rounded" onclick="navigate('priprava-vyroby')">
           <div>
             <p class="text-sm font-medium text-gray-700">${z.hn_cislo || z.nazev || 'Zakázka #'+z.id}</p>
             <p class="text-xs text-gray-400">${z.case_nazev || ''}</p>
@@ -1997,19 +2003,28 @@ function _zakRow(z) {
 
 async function toggleFoceni(zakId, hodnota) {
   await api('/api/zakazky/' + zakId, 'PUT', { foceni: hodnota ? 1 : 0 });
-  const zak = (_cache.zakazky || []).find(z => z.id === zakId);
-  if (zak) { zak.foceni = hodnota ? 1 : 0; _zakFilter(); }
+  const cacheKey = currentPage === 'dilna' ? 'dilna' : (currentPage === 'priprava-vyroby' ? 'priprava-vyroby' : 'zakazky');
+  const cache = _cache[cacheKey] || [];
+  const zak = cache.find(z => z.id === zakId);
+  if (zak) {
+    zak.foceni = hodnota ? 1 : 0;
+    if (currentPage === 'dilna') _dilnaFilter();
+    else if (currentPage === 'priprava-vyroby') _pripravaFilter();
+    else _zakFilter();
+  }
 }
 
 async function togglePriorita(zakId, hodnota, btn) {
   await api('/api/zakazky/' + zakId, 'PUT', { prioritni: hodnota });
-  // Aktualizuj cache a re-render
-  const zak = (_cache.zakazky || []).find(z => z.id === zakId);
+  const cacheKey = currentPage === 'dilna' ? 'dilna' : (currentPage === 'priprava-vyroby' ? 'priprava-vyroby' : 'zakazky');
+  const cache = _cache[cacheKey] || [];
+  const zak = cache.find(z => z.id === zakId);
   if (zak) {
     zak.prioritni = hodnota;
-    // Řazení: priority nahoře
-    _cache.zakazky.sort((a, b) => (b.prioritni || 0) - (a.prioritni || 0));
-    _zakFilter();
+    cache.sort((a, b) => (b.prioritni || 0) - (a.prioritni || 0));
+    if (currentPage === 'dilna') _dilnaFilter();
+    else if (currentPage === 'priprava-vyroby') _pripravaFilter();
+    else _zakFilter();
   }
 }
 
@@ -2157,7 +2172,8 @@ async function saveZakazka(existingId, typId) {
     : await api('/api/zakazky', 'POST', data);
   if (r.error) return alert('Chyba: ' + r.error);
   closeModal();
-  zakazky();
+  if (currentPage === 'dilna') dilna();
+  else pripravaVyroby();
 }
 
 function adamHallUrl(kod) {
@@ -2763,14 +2779,19 @@ async function _setStav(id, stav) {
   await api(`/api/zakazky/${id}`, 'PUT', { stav });
   closeModal();
   // Aktualizuj v cache a překresli seznam
-  const zak = (_cache.zakazky || []).find(z => z.id === id);
+  const allCaches = [_cache['priprava-vyroby'], _cache.dilna, _cache.zakazky];
+  let zak = null;
+  for (const c of allCaches) { if (c) { zak = c.find(z => z.id === id); if (zak) break; } }
   if (zak) {
     zak.stav = stav;
     if (stav === 'Hotovo' && !zak.datum_dokonceni) zak.datum_dokonceni = new Date().toISOString().slice(0,10);
-    _zakFilter();
+    if (currentPage === 'dilna') _dilnaFilter();
+    else if (currentPage === 'priprava-vyroby') _pripravaFilter();
+    else _zakFilter();
   } else {
-    _cache.zakazky = null;
-    zakazky();
+    if (currentPage === 'dilna') { _cache.dilna = null; dilna(); }
+    else if (currentPage === 'priprava-vyroby') { _cache['priprava-vyroby'] = null; pripravaVyroby(); }
+    else { _cache.zakazky = null; zakazky(); }
   }
 }
 
@@ -2788,8 +2809,320 @@ async function zrusitZakazku(id) {
 async function _smazatZakazku(id) {
   await api(`/api/zakazky/${id}`, 'DELETE');
   closeModal();
+  _cache['priprava-vyroby'] = null;
+  _cache.dilna = null;
   _cache.zakazky = null;
-  zakazky();
+  pripravaVyroby();
+}
+
+// ── PŘÍPRAVA VÝROBY ───────────────────────────────────────────────────────
+
+function _bomStatusBadge(z) {
+  if (!z.typ_casu_id) return '<span class="text-xs text-gray-300">—</span>';
+  const w = [];
+  if (z.bom_spec_ok === 0 || z.bom_spec_ok === null)
+    w.push('<span style="background:#fff7ed;color:#c2410c;font-size:.68rem;padding:1px 5px;border-radius:4px;display:block;white-space:nowrap;font-weight:600">⚠ spec casu</span>');
+  if (z.bom_mat_ok === 0 || z.bom_mat_ok === null)
+    w.push('<span style="background:#fef2f2;color:#dc2626;font-size:.68rem;padding:1px 5px;border-radius:4px;display:block;white-space:nowrap;font-weight:600">⚠ materiál</span>');
+  if (!w.length) return '<span style="color:#16a34a;font-weight:700;font-size:1rem">✓</span>';
+  return w.join('');
+}
+
+function _pripravaRow(z) {
+  const dnes = new Date().toISOString().slice(0,10);
+  const isPrio = z.prioritni == 1;
+  const prioBtn = `<button title="${isPrio ? 'Zrušit prioritu' : 'Označit jako prioritní'}"
+    onclick="event.stopPropagation();togglePriorita(${z.id},${isPrio?0:1},this)"
+    class="text-lg leading-none transition-colors ${isPrio ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400'}">★</button>`;
+
+  const stavColors = {
+    'Čeká':         'background:#dbeafe;color:#1d4ed8',
+    'CNC hotovo':   'background:#ede9fe;color:#7c3aed',
+    'Výroba':       'background:#fef3c7;color:#92400e',
+    'Hotovo':       'background:#dcfce7;color:#15803d',
+    'Zkontrolováno':'background:#f0fdf4;color:#166534',
+    'Expedováno':   'background:#f1f5f9;color:#475569'
+  };
+  const stavBadge = `<span style="${stavColors[z.stav]||'background:#f1f5f9;color:#475569'};font-size:.72rem;padding:2px 8px;border-radius:999px;font-weight:600;white-space:nowrap">${z.stav}</span>`;
+
+  const terminCls = z.termin && z.termin < dnes && !['Hotovo','Zkontrolováno','Expedováno'].includes(z.stav)
+    ? 'color:#dc2626;font-weight:600' : 'color:#6b7280';
+  const odeslano = z.odeslano_do_vyroby == 1;
+  const canDelete = z.stav === 'Čeká' && !odeslano;
+
+  return `<tr class="tr-hover cursor-pointer${isPrio?' prioritni-row':''}" onclick="zakazkaDetail(${z.id})">
+    <td class="w-8 text-center pr-0" onclick="event.stopPropagation()">${prioBtn}</td>
+    <td>
+      <p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
+      <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p>
+    </td>
+    <td class="text-gray-700 text-sm">${z.zakaznik||'–'}</td>
+    <td class="text-center font-semibold">${z.pocet_ks}</td>
+    <td class="text-center">${_bomStatusBadge(z)}</td>
+    <td class="text-xs text-gray-400">${(z.datum_zapsani||'').slice(0,10)||'–'}</td>
+    <td class="text-xs" style="${terminCls}">${z.termin||'–'}</td>
+    <td class="text-center" onclick="event.stopPropagation()">
+      <input type="checkbox" title="Focení" ${z.foceni ? 'checked' : ''}
+        onchange="toggleFoceni(${z.id}, this.checked)"
+        style="width:16px;height:16px;cursor:pointer">
+    </td>
+    <td>${stavBadge}</td>
+    <td>${_zakPracovnikBadge(z.pracovnik)}</td>
+    <td class="text-center" onclick="event.stopPropagation()">
+      <input type="checkbox" title="Odeslat do Dílny" ${odeslano ? 'checked' : ''}
+        onchange="toggleOdeslatDoVyroby(${z.id}, this.checked)"
+        style="width:16px;height:16px;cursor:pointer;accent-color:#16a34a">
+    </td>
+    <td onclick="event.stopPropagation()">
+      <div class="flex gap-1">
+        <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
+        ${canDelete ? `<button class="btn btn-secondary py-1 px-2 text-xs" style="color:#ef4444" onclick="zrusitZakazku(${z.id})" title="Smazat">✕</button>` : ''}
+      </div>
+    </td>
+  </tr>`;
+}
+
+function _pripravaFilter() {
+  const s  = (document.getElementById('prep-search')||{value:''}).value.toLowerCase();
+  const st = document.querySelector('#prep-stavy .tab-btn.active')?.dataset.stav ?? '';
+  const data = _cache['priprava-vyroby'] || [];
+  const filtered = data.filter(z =>
+    (!s  || (z.hn_cislo||'').toLowerCase().includes(s) || (z.zakaznik||'').toLowerCase().includes(s) || (z.case_nazev||z.nazev||'').toLowerCase().includes(s)) &&
+    (!st || z.stav === st)
+  );
+  const tbody   = document.getElementById('prep-tbody');
+  const counter = document.getElementById('prep-count');
+  if (tbody)   tbody.innerHTML   = filtered.map(_pripravaRow).join('') || '<tr><td colspan="12" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (counter) counter.textContent = filtered.length;
+}
+
+function _pripravaSetStav(btn, stav) {
+  document.querySelectorAll('#prep-stavy .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  btn.dataset.stav = stav;
+  _pripravaFilter();
+}
+
+async function toggleOdeslatDoVyroby(zakId, hodnota) {
+  await api('/api/zakazky/' + zakId, 'PUT', { odeslano_do_vyroby: hodnota ? 1 : 0 });
+  const zak = (_cache['priprava-vyroby'] || []).find(z => z.id === zakId);
+  if (zak) { zak.odeslano_do_vyroby = hodnota ? 1 : 0; _pripravaFilter(); }
+  _cache.dilna = null; // Invaliduj cache Dílny
+}
+
+async function pripravaVyroby() {
+  _cache['priprava-vyroby'] = null;
+  setContent('<div class="text-center py-16 text-gray-400">Načítám...</div>');
+  const data = await api('/api/zakazky?limit=500');
+  _cache['priprava-vyroby'] = data.items || [];
+  const stavy = ['','Čeká','CNC hotovo','Výroba','Hotovo','Zkontrolováno','Expedováno'];
+
+  setFilter(`<div class="px-6 py-3 flex gap-3 flex-wrap items-center">
+    <input id="prep-search" class="input flex-1" style="min-width:200px" placeholder="Hledat HN, zákazník, název..." oninput="_pripravaFilter()">
+    <div id="prep-stavy" class="flex gap-1 flex-wrap">
+      ${stavy.map((s,i) => `<button class="tab-btn${i===0?' active':''}" data-stav="${s}" onclick="_pripravaSetStav(this,'${s}')">${s||'Vše'}</button>`).join('')}
+    </div>
+    <button class="btn btn-primary flex-shrink-0" onclick="novaZakazka()">+ Nová zakázka</button>
+  </div>`);
+
+  setContent(`
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">Příprava výroby <span class="text-base font-normal text-gray-400" id="prep-count">${_cache['priprava-vyroby'].length}</span></h2>
+    </div>
+    <div class="card overflow-x-auto">
+    <table class="w-full tbl-sort">
+      <thead><tr>
+        <th class="no-sort w-8" title="Priorita">★</th>
+        <th>HN / Typ</th>
+        <th>Zákazník</th>
+        <th class="text-center">Ks</th>
+        <th class="text-center" title="Stav kusovníku (BOM)">BOM</th>
+        <th>Přidáno</th>
+        <th>Termín</th>
+        <th class="no-sort text-center" title="Focení po dokončení">📷</th>
+        <th>Stav</th>
+        <th>Pracovník</th>
+        <th class="no-sort text-center" title="Odeslat do Dílny">🔧 Dílna</th>
+        <th class="no-sort">Akce</th>
+      </tr></thead>
+      <tbody id="prep-tbody">${_cache['priprava-vyroby'].map(_pripravaRow).join('')}</tbody>
+    </table>
+    </div>`);
+}
+
+// ── DÍLNA ─────────────────────────────────────────────────────────────────
+
+function _dilnaRow(z) {
+  const dnes = new Date().toISOString().slice(0,10);
+  const isPrio = z.prioritni == 1;
+  const prioBtn = `<button title="${isPrio ? 'Zrušit prioritu' : 'Označit jako prioritní'}"
+    onclick="event.stopPropagation();togglePriorita(${z.id},${isPrio?0:1},this)"
+    class="text-lg leading-none transition-colors ${isPrio ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400'}">★</button>`;
+
+  // CNC badge — zobrazí se pokud zakázka prošla stavem CNC hotovo nebo dál
+  const cncDone = ['CNC hotovo','Výroba','Hotovo','Zkontrolováno','Expedováno'].includes(z.stav);
+  const cncBadge = cncDone
+    ? '<span style="background:#dcfce7;color:#15803d;font-size:.7rem;padding:2px 8px;border-radius:4px;font-weight:700">CNC ✓</span>'
+    : '<span style="background:#f1f5f9;color:#94a3b8;font-size:.7rem;padding:2px 8px;border-radius:4px">CNC –</span>';
+
+  // Pracovník dropdown
+  const users = _cache.dilnaUsers || [];
+  const pracovnikOpts = `<option value="">– Nikdo –</option>` +
+    users.map(u => `<option value="${u.jmeno}" ${z.pracovnik===u.jmeno?'selected':''}>${u.jmeno.split(' ')[0]}</option>`).join('');
+
+  // Stav dropdown — bez CNC hotovo; zakázka v CNC hotovo se zobrazí jako Výroba (připraveno k sestavení)
+  const stavProDropdown = (z.stav === 'CNC hotovo') ? 'Výroba' : z.stav;
+  const stavOpts = ['Čeká','Výroba','Hotovo','Zkontrolováno','Expedováno'].map(s =>
+    `<option value="${s}" ${stavProDropdown===s?'selected':''}>${s}</option>`
+  ).join('');
+
+  // Banner pro stav Hotovo
+  const bannerRow = z.stav === 'Hotovo' ? `<tr><td colspan="8" style="padding:0">
+    <div style="background:#fef3c7;color:#92400e;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #fde68a">
+      ⏳ VYČKEJTE NA KONTROLU CASE
+    </div></td></tr>` : '';
+
+  const terminCls = z.termin && z.termin < dnes && !['Hotovo','Zkontrolováno','Expedováno'].includes(z.stav)
+    ? 'color:#dc2626;font-weight:600' : 'color:#6b7280';
+
+  const mainRow = `<tr class="tr-hover cursor-pointer${isPrio?' prioritni-row':''}" onclick="zakazkaDetail(${z.id})">
+    <td class="w-8 text-center pr-0" onclick="event.stopPropagation()">${prioBtn}</td>
+    <td>
+      <p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
+      <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p>
+    </td>
+    <td class="text-gray-700 text-sm">${z.zakaznik||'–'}</td>
+    <td class="text-center font-semibold">${z.pocet_ks}</td>
+    <td class="text-center">${cncBadge}</td>
+    <td class="text-xs" style="${terminCls}">${z.termin||'–'}</td>
+    <td onclick="event.stopPropagation()">
+      <select onchange="_dilnaSetStav(${z.id}, this.value)"
+        style="font-size:.75rem;padding:2px 4px;border-radius:6px;border:1.5px solid #e2e8f0;cursor:pointer;background:white;max-width:120px">
+        ${stavOpts}
+      </select>
+    </td>
+    <td onclick="event.stopPropagation()">
+      <select onchange="_dilnaPracovnikChange(${z.id}, this.value)"
+        style="font-size:.75rem;padding:2px 4px;border-radius:6px;border:1.5px solid #e2e8f0;cursor:pointer;background:white;max-width:110px">
+        ${pracovnikOpts}
+      </select>
+    </td>
+    <td onclick="event.stopPropagation()">
+      <div class="flex gap-1">
+        <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
+        <button class="btn btn-secondary py-1 px-2 text-xs" onclick="tiskVyrobniListZakazka(${z.id})">🖨</button>
+      </div>
+    </td>
+  </tr>`;
+  return mainRow + bannerRow;
+}
+
+function _dilnaFilter() {
+  const s  = (document.getElementById('dilna-search')||{value:''}).value.toLowerCase();
+  const st = document.querySelector('#dilna-stavy .tab-btn.active')?.dataset.stav ?? '';
+  const data = _cache.dilna || [];
+  const filtered = data.filter(z =>
+    (!s  || (z.hn_cislo||'').toLowerCase().includes(s) || (z.zakaznik||'').toLowerCase().includes(s) || (z.case_nazev||z.nazev||'').toLowerCase().includes(s)) &&
+    // Tab "Čeká" zobrazí i CNC hotovo (montér ještě nezačal)
+    (!st || z.stav === st || (st === 'Čeká' && z.stav === 'CNC hotovo'))
+  );
+  const tbody   = document.getElementById('dilna-tbody');
+  const counter = document.getElementById('dilna-count');
+  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="9" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (counter) counter.textContent = filtered.length;
+}
+
+function _dilnaSetStavTab(btn, stav) {
+  document.querySelectorAll('#dilna-stavy .tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  btn.dataset.stav = stav;
+  _dilnaFilter();
+}
+
+async function _dilnaSetStav(id, stav) {
+  await api(`/api/zakazky/${id}`, 'PUT', { stav });
+  const zak = (_cache.dilna || []).find(z => z.id === id);
+  if (zak) {
+    zak.stav = stav;
+    if (stav === 'Hotovo' && !zak.datum_dokonceni) zak.datum_dokonceni = new Date().toISOString().slice(0,10);
+    _dilnaFilter();
+    if (stav === 'Hotovo') _dilnaHotovoBanner(zak);
+  } else {
+    _cache.dilna = null;
+    dilna();
+  }
+}
+
+async function _dilnaPracovnikChange(id, pracovnik) {
+  await api(`/api/zakazky/${id}`, 'PUT', { pracovnik });
+  const zak = (_cache.dilna || []).find(z => z.id === id);
+  if (zak) { zak.pracovnik = pracovnik; }
+}
+
+function _dilnaHotovoBanner(z) {
+  if (z.foceni) {
+    openModal(`
+      <div class="text-center py-8">
+        <div style="font-size:3.5rem" class="mb-4">📷</div>
+        <h3 class="text-xl font-bold mb-4">Case je hotový!</h3>
+        <div style="background:#111827;color:white;padding:14px 32px;border-radius:10px;font-weight:900;font-size:1.1rem;letter-spacing:.1em;display:inline-block">
+          ODNESTE NA FOCENÍ
+        </div>
+        <div class="mt-5">
+          <button class="btn btn-secondary px-6" onclick="closeModal()">OK</button>
+        </div>
+      </div>
+    `);
+  } else {
+    openModal(`
+      <div class="text-center py-8">
+        <div style="font-size:3.5rem" class="mb-4">✅</div>
+        <h3 class="text-xl font-bold mb-2">Case je hotový!</h3>
+        <p class="text-gray-500 mb-5">Focení není potřeba.</p>
+        <button class="btn btn-primary px-6" onclick="closeModal()">OK</button>
+      </div>
+    `);
+  }
+}
+
+async function dilna() {
+  _cache.dilna = null;
+  setContent('<div class="text-center py-16 text-gray-400">Načítám...</div>');
+  const [data, rUz] = await Promise.all([
+    api('/api/zakazky?dilna=1&limit=500'),
+    api('/api/uzivatele')
+  ]);
+  _cache.dilna = data.items || [];
+  _cache.dilnaUsers = (rUz.uzivatele || []).filter(u => u.aktivni);
+  const stavy = ['','Čeká','Výroba','Hotovo','Zkontrolováno','Expedováno'];
+
+  setFilter(`<div class="px-6 py-3 flex gap-3 flex-wrap items-center">
+    <input id="dilna-search" class="input flex-1" style="min-width:200px" placeholder="Hledat HN, zákazník, název..." oninput="_dilnaFilter()">
+    <div id="dilna-stavy" class="flex gap-1 flex-wrap">
+      ${stavy.map((s,i) => `<button class="tab-btn${i===0?' active':''}" data-stav="${s}" onclick="_dilnaSetStavTab(this,'${s}')">${s||'Vše'}</button>`).join('')}
+    </div>
+  </div>`);
+
+  setContent(`
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-2xl font-bold text-gray-800">Dílna <span class="text-base font-normal text-gray-400" id="dilna-count">${_cache.dilna.length}</span></h2>
+    </div>
+    <div class="card overflow-x-auto">
+    <table class="w-full tbl-sort">
+      <thead><tr>
+        <th class="no-sort w-8" title="Priorita">★</th>
+        <th>HN / Typ</th>
+        <th>Zákazník</th>
+        <th class="text-center">Ks</th>
+        <th class="text-center">CNC</th>
+        <th>Termín</th>
+        <th>Stav</th>
+        <th>Pracovník</th>
+        <th class="no-sort">Akce</th>
+      </tr></thead>
+      <tbody id="dilna-tbody">${_cache.dilna.map(_dilnaRow).join('')}</tbody>
+    </table>
+    </div>`);
 }
 
 async function hlasitOdchylku(zakId, typId, hnCislo) {

@@ -599,9 +599,10 @@ def auto_migrate():
     add_column('materialy', 'web_url', 'TEXT')
 
     # zakazky – fakturace + přiřazení + priorita
-    add_column('zakazky', 'fakturovano',   'INTEGER DEFAULT 0')
-    add_column('zakazky', 'prioritni',     'INTEGER DEFAULT 0')
-    add_column('zakazky', 'foceni',        'INTEGER DEFAULT 0')
+    add_column('zakazky', 'fakturovano',         'INTEGER DEFAULT 0')
+    add_column('zakazky', 'prioritni',           'INTEGER DEFAULT 0')
+    add_column('zakazky', 'foceni',              'INTEGER DEFAULT 0')
+    add_column('zakazky', 'odeslano_do_vyroby',  'INTEGER DEFAULT 0')  # 1 = zobrazit v Dílně
 
     # prijemky – dopravné + měna
     add_column('prijemky', 'dopravne',     'REAL DEFAULT 0')

@@ -698,17 +698,35 @@ def api_sklad_min():
 def api_zakazky():
     conn = get_db()
     c = conn.cursor()
-    stav = request.args.get('stav', '')
+    stav   = request.args.get('stav', '')
     search = request.args.get('q', '')
-    limit = int(request.args.get('limit', 100))
+    limit  = int(request.args.get('limit', 100))
+    dilna  = request.args.get('dilna', '')   # ?dilna=1 → jen zakázky odeslané do Dílny
 
     query = """
-        SELECT z.*, t.nazev as case_nazev, t.typ_korpusu
+        SELECT z.*, t.nazev as case_nazev, t.typ_korpusu,
+               CASE WHEN z.typ_casu_id IS NULL THEN NULL
+                    WHEN (t.vnitrni_sirka  IS NOT NULL AND t.vnitrni_sirka  > 0 AND
+                          t.vnitrni_vyska  IS NOT NULL AND t.vnitrni_vyska  > 0 AND
+                          t.vnitrni_hloubka IS NOT NULL AND t.vnitrni_hloubka > 0) THEN 1
+                    ELSE 0
+               END as bom_spec_ok,
+               CASE WHEN z.typ_casu_id IS NULL THEN NULL
+                    WHEN EXISTS (
+                        SELECT 1 FROM kusovniky k
+                        JOIN materialy m ON m.kod = k.material_kod
+                        WHERE k.typ_casu_id = z.typ_casu_id
+                          AND m.typ NOT LIKE 'HW%' AND m.typ != 'PODVOZEK'
+                    ) THEN 1
+                    ELSE 0
+               END as bom_mat_ok
         FROM zakazky z
         LEFT JOIN typy_casu t ON t.id = z.typ_casu_id
         WHERE 1=1
     """
     params = []
+    if dilna:
+        query += " AND z.odeslano_do_vyroby = 1"
     if stav:
         query += " AND z.stav=?"
         params.append(stav)
@@ -764,7 +782,8 @@ def api_zakazka_update(zak_id):
     conn = get_db()
     c = conn.cursor()
     fields = ['stav','pocet_ks','termin','zakaznik','poznamka_dilna','poznamka_cnc',
-              'pracovnik','sn_cislo','faktura_cislo','faktura_datum','datum_dokonceni','prioritni','foceni']
+              'pracovnik','sn_cislo','faktura_cislo','faktura_datum','datum_dokonceni',
+              'prioritni','foceni','odeslano_do_vyroby']
     updates = ', '.join(f"{f}=?" for f in fields if f in data)
     vals = [data[f] for f in fields if f in data]
     if 'stav' in data and data['stav'] == 'Hotovo' and 'datum_dokonceni' not in data:
