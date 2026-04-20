@@ -1,8 +1,8 @@
 {
-  "verze": 9,
-  "popis": "claude md",
-  "autor": "Tom",
+  "verze": 10,
+  "popis": "Ochrana DELETE zakázky – blokace mazání ve stavech Výroba a dál",
+  "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "13:31",
-  "git_commit": "cdd0a56"
+  "cas": "14:10",
+  "git_commit": "6576d91"
 }

@@ -779,6 +779,15 @@ def api_zakazka_update(zak_id):
 def api_zakazka_delete(zak_id):
     conn = get_db()
     c = conn.cursor()
+    c.execute("SELECT stav FROM zakazky WHERE id=?", (zak_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Zakázka nenalezena'}), 404
+    POVOLENE_STAVY = {'Čeká', 'CNC hotovo'}
+    if row['stav'] not in POVOLENE_STAVY:
+        conn.close()
+        return jsonify({'error': f'Zakázku ve stavu „{row["stav"]}" nelze smazat. Smazat lze pouze zakázky ve stavu Čeká nebo CNC hotovo.'}), 400
     c.execute("DELETE FROM zakazky WHERE id=?", (zak_id,))
     conn.commit()
     conn.close()
