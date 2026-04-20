@@ -1,8 +1,8 @@
 {
-  "verze": 15,
-  "popis": "CNC: stav badge v radku + error handling pri zmene stavu",
+  "verze": 16,
+  "popis": "CNC: nove filtry Ceka na rezani / CNC hotovo / Vsechny casy, odebrano tlacitko Vse vyrezano",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:11",
-  "git_commit": "0b5df93"
+  "cas": "16:18",
+  "git_commit": "369f548"
 }

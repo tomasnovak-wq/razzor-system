@@ -7300,7 +7300,7 @@ function _bomDetailClose() {
 }
 
 // ── CNC MODUL ─────────────────────────────────────────────────────────────
-let _cncStavFiltr = 'Čeká,CNC hotovo';
+let _cncStavFiltr = 'Čeká';
 
 async function cnc() {
   setContent('<div class="text-center py-16 text-gray-400">⏳ Načítám CNC přehled...</div>');
@@ -7310,10 +7310,9 @@ async function cnc() {
       <span class="text-sm font-medium text-gray-600">Zobrazit:</span>
       <div id="cnc-stavy" class="flex gap-1 flex-wrap">
         ${[
-          ['Čeká,CNC hotovo', 'Čeká + CNC hotovo'],
-          ['Čeká', 'Čeká'],
-          ['CNC hotovo', 'CNC hotovo'],
-          ['Čeká,CNC hotovo,Výroba', 'Všechny aktivní'],
+          ['Čeká',         'Čeká na řezání'],
+          ['CNC hotovo',   'CNC hotovo'],
+          ['Čeká,CNC hotovo', 'Všechny casy'],
         ].map(([val, label]) =>
           '<button class="tab-btn' + (val === _cncStavFiltr ? ' active' : '') + '" ' +
           'onclick="_cncSetStav(this,\'' + val + '\')">' + label + '</button>'
@@ -7390,15 +7389,7 @@ async function _cncLoad() {
       ? '<span class="text-xs text-gray-400">bez BOM</span>'
       : '<span class="text-xs ' + (allDone ? 'text-green-600 font-semibold' : 'text-gray-500') + '">' + hotovo + '/' + celkem + '</span>';
 
-    // Tlačítka akcí
-    const activeKods = checkItems.map(i => i.key);
-    const kodyStr = JSON.stringify(activeKods).replace(/"/g, "'");
-    const btnVse = noBom ? '' : allDone
-      ? '<button class="btn text-xs py-1 px-2" style="background:#dcfce7;color:#15803d" ' +
-        'onclick="cncToggleAll(' + z.id + ',' + kodyStr + ',false,this)">↺ Odznačit</button>'
-      : '<button class="btn text-xs py-1 px-2 btn-success" ' +
-        'onclick="cncToggleAll(' + z.id + ',' + kodyStr + ',true,this)">✓ Vše vyřezáno</button>';
-
+    // Tlačítka akcí — bez hromadného "Vše vyřezáno"
     const btnCncHotovo = z.stav === 'Čeká'
       ? '<button class="btn text-xs py-1 px-2" style="background:#f3e8ff;color:#7c3aed" ' +
         'onclick="cncZmenaStavu(' + z.id + ',\'CNC hotovo\')">⚙ CNC hotovo</button>'
@@ -7422,7 +7413,7 @@ async function _cncLoad() {
       '<td class="max-w-xs">' + matInfo + '</td>' +
       '<td><div class="flex flex-col gap-1.5 py-0.5">' + checklistHtml + '</div></td>' +
       '<td class="text-center">' + progressTxt + '</td>' +
-      '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + btnVse + ' ' + btnCncHotovo + '</div></td>' +
+      '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + btnCncHotovo + '</div></td>' +
     '</tr>';
   });
 
