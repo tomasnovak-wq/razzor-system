@@ -3928,6 +3928,7 @@ def api_cnc():
         FROM zakazky z
         LEFT JOIN typy_casu t ON t.id = z.typ_casu_id
         WHERE z.stav IN ({placeholders})
+          AND z.odeslano_do_vyroby = 1
         ORDER BY z.prioritni DESC, z.termin ASC, z.created_at ASC
     """, stavy)
     zakazky_rows = c.fetchall()
