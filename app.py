@@ -822,7 +822,7 @@ def api_zakazka_update(zak_id):
     c = conn.cursor()
     fields = ['stav','pocet_ks','termin','zakaznik','poznamka_dilna','poznamka_cnc',
               'pracovnik','sn_cislo','faktura_cislo','faktura_datum','datum_dokonceni',
-              'prioritni','foceni','odeslano_do_vyroby']
+              'prioritni','foceni','odeslano_do_vyroby','destinace']
     updates = ', '.join(f"{f}=?" for f in fields if f in data)
     vals = [data[f] for f in fields if f in data]
     if 'stav' in data and data['stav'] == 'Hotovo' and 'datum_dokonceni' not in data:

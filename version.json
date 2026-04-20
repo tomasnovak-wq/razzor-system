@@ -1,8 +1,8 @@
 {
-  "verze": 20,
-  "popis": "CNC: barevne odliseni materialu (fenol, peny, plast, premium, natural)",
+  "verze": 21,
+  "popis": "Priprava vyroby: nazev casu, dropdown Zakaznik/Sklad, editovatelny termin, fix klik na radek",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:30",
-  "git_commit": "1f8b4ce"
+  "cas": "16:36",
+  "git_commit": "d0765b6"
 }

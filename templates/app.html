@@ -2850,30 +2850,44 @@ function _pripravaRow(z) {
   const odeslano = z.odeslano_do_vyroby == 1;
   const canDelete = z.stav === 'Čeká' && !odeslano;
 
-  return `<tr class="tr-hover cursor-pointer${isPrio?' prioritni-row':''}" onclick="zakazkaDetail(${z.id})">
-    <td class="w-8 text-center pr-0" onclick="event.stopPropagation()">${prioBtn}</td>
+  const dest = z.destinace || 'Zákazník';
+  const destOpts = ['Zákazník','Sklad'].map(d =>
+    `<option value="${d}" ${dest===d?'selected':''}>${d}</option>`).join('');
+
+  return `<tr class="tr-hover${isPrio?' prioritni-row':''}">
+    <td class="w-8 text-center pr-0">${prioBtn}</td>
     <td>
       <p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
       <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p>
     </td>
-    <td class="text-gray-700 text-sm">${z.zakaznik||'–'}</td>
+    <td class="text-gray-700 text-sm font-medium">${z.case_nazev||z.nazev||'–'}</td>
+    <td>
+      <select onchange="pripravaSetDestinace(${z.id}, this.value)"
+        style="font-size:.75rem;padding:2px 6px;border-radius:6px;border:1.5px solid #e2e8f0;cursor:pointer;background:white">
+        ${destOpts}
+      </select>
+    </td>
     <td class="text-center font-semibold">${z.pocet_ks}</td>
     <td class="text-center">${_bomStatusBadge(z)}</td>
     <td class="text-xs text-gray-400">${(z.datum_zapsani||'').slice(0,10)||'–'}</td>
-    <td class="text-xs" style="${terminCls}">${z.termin||'–'}</td>
-    <td class="text-center" onclick="event.stopPropagation()">
+    <td>
+      <input type="date" value="${z.termin||''}"
+        onchange="pripravaSetTermin(${z.id}, this.value)"
+        style="font-size:.75rem;padding:2px 4px;border-radius:6px;border:1.5px solid #e2e8f0;background:white;${terminCls}">
+    </td>
+    <td class="text-center">
       <input type="checkbox" title="Focení" ${z.foceni ? 'checked' : ''}
         onchange="toggleFoceni(${z.id}, this.checked)"
         style="width:16px;height:16px;cursor:pointer">
     </td>
     <td>${stavBadge}</td>
     <td>${_zakPracovnikBadge(z.pracovnik)}</td>
-    <td class="text-center" onclick="event.stopPropagation()">
+    <td class="text-center">
       <input type="checkbox" title="Odeslat do Dílny" ${odeslano ? 'checked' : ''}
         onchange="toggleOdeslatDoVyroby(${z.id}, this.checked)"
         style="width:16px;height:16px;cursor:pointer;accent-color:#16a34a">
     </td>
-    <td onclick="event.stopPropagation()">
+    <td>
       <div class="flex gap-1">
         <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
         ${canDelete ? `<button class="btn btn-secondary py-1 px-2 text-xs" style="color:#ef4444" onclick="zrusitZakazku(${z.id})" title="Smazat">✕</button>` : ''}
@@ -2892,7 +2906,7 @@ function _pripravaFilter() {
   );
   const tbody   = document.getElementById('prep-tbody');
   const counter = document.getElementById('prep-count');
-  if (tbody)   tbody.innerHTML   = filtered.map(_pripravaRow).join('') || '<tr><td colspan="12" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (tbody)   tbody.innerHTML   = filtered.map(_pripravaRow).join('') || '<tr><td colspan="13" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
   if (counter) counter.textContent = filtered.length;
 }
 
@@ -2907,7 +2921,19 @@ async function toggleOdeslatDoVyroby(zakId, hodnota) {
   await api('/api/zakazky/' + zakId, 'PUT', { odeslano_do_vyroby: hodnota ? 1 : 0 });
   const zak = (_cache['priprava-vyroby'] || []).find(z => z.id === zakId);
   if (zak) { zak.odeslano_do_vyroby = hodnota ? 1 : 0; _pripravaFilter(); }
-  _cache.dilna = null; // Invaliduj cache Dílny
+  _cache.dilna = null;
+}
+
+async function pripravaSetDestinace(zakId, hodnota) {
+  await api('/api/zakazky/' + zakId, 'PUT', { destinace: hodnota });
+  const zak = (_cache['priprava-vyroby'] || []).find(z => z.id === zakId);
+  if (zak) zak.destinace = hodnota;
+}
+
+async function pripravaSetTermin(zakId, hodnota) {
+  await api('/api/zakazky/' + zakId, 'PUT', { termin: hodnota });
+  const zak = (_cache['priprava-vyroby'] || []).find(z => z.id === zakId);
+  if (zak) { zak.termin = hodnota; _pripravaFilter(); } // re-render kvůli barvě termínu
 }
 
 async function pripravaVyroby() {
@@ -2934,11 +2960,12 @@ async function pripravaVyroby() {
       <thead><tr>
         <th class="no-sort w-8" title="Priorita">★</th>
         <th>HN / Typ</th>
-        <th>Zákazník</th>
+        <th>Název</th>
+        <th class="no-sort">Zákazník/Sklad</th>
         <th class="text-center">Ks</th>
         <th class="text-center" title="Stav kusovníku (BOM)">BOM</th>
         <th>Přidáno</th>
-        <th>Termín</th>
+        <th class="no-sort">Termín</th>
         <th class="no-sort text-center" title="Focení po dokončení">📷</th>
         <th>Stav</th>
         <th>Pracovník</th>

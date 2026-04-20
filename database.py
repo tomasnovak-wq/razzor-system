@@ -603,6 +603,7 @@ def auto_migrate():
     add_column('zakazky', 'prioritni',           'INTEGER DEFAULT 0')
     add_column('zakazky', 'foceni',              'INTEGER DEFAULT 0')
     add_column('zakazky', 'odeslano_do_vyroby',  'INTEGER DEFAULT 0')  # 1 = zobrazit v Dílně
+    add_column('zakazky', 'destinace',           "TEXT DEFAULT 'Zákazník'")  # Zákazník / Sklad
 
     # prijemky – dopravné + měna
     add_column('prijemky', 'dopravne',     'REAL DEFAULT 0')
