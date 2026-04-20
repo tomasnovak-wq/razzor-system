@@ -738,6 +738,45 @@ def api_zakazky():
 
     c.execute(query, params)
     items = db_rows_to_list(c.fetchall())
+
+    # Pro pohled Dílna: přidej skutečný stav CNC řezání (per kategorie)
+    if dilna and items:
+        zak_ids = [it['id'] for it in items]
+        typ_ids = list({it['typ_casu_id'] for it in items if it.get('typ_casu_id')})
+
+        # BOM typy materiálů pro každý typ casu
+        bom_by_typ = {}
+        if typ_ids:
+            ph = ','.join('?' * len(typ_ids))
+            c.execute(f"SELECT k.typ_casu_id, m.typ FROM kusovniky k "
+                      f"JOIN materialy m ON m.kod=k.material_kod WHERE k.typ_casu_id IN ({ph})",
+                      typ_ids)
+            for row in c.fetchall():
+                bom_by_typ.setdefault(row['typ_casu_id'], []).append(row['typ'] or '')
+
+        # Zaškrtnuté kategorie z cnc_rezani
+        cnc_by_zak = {}
+        if zak_ids:
+            ph = ','.join('?' * len(zak_ids))
+            c.execute(f"SELECT zakazka_id, material_kod, rezano FROM cnc_rezani "
+                      f"WHERE zakazka_id IN ({ph})", zak_ids)
+            for row in c.fetchall():
+                cnc_by_zak.setdefault(row['zakazka_id'], {})[row['material_kod']] = row['rezano']
+
+        for it in items:
+            typ_id = it.get('typ_casu_id')
+            mats   = bom_by_typ.get(typ_id, []) if typ_id else []
+            cnc    = cnc_by_zak.get(it['id'], {})
+            has_d  = any(_cnc_je_deska(_cnc_norm_typ(t))    for t in mats)
+            has_p  = any(_cnc_je_podvozek(_cnc_norm_typ(t)) for t in mats)
+            has_n  = any(_cnc_je_pena(_cnc_norm_typ(t))     for t in mats)
+            it['cnc_has_desky']    = has_d
+            it['cnc_has_podvozky'] = has_p
+            it['cnc_has_peny']     = has_n
+            it['cnc_desky_ok']    = bool(cnc.get('_DESKY_',    0)) if has_d else None
+            it['cnc_podvozky_ok'] = bool(cnc.get('_PODVOZKY_', 0)) if has_p else None
+            it['cnc_peny_ok']     = bool(cnc.get('_PENY_',     0)) if has_n else None
+
     conn.close()
     return jsonify({'items': items})
 

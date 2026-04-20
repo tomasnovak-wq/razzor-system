@@ -2959,11 +2959,19 @@ function _dilnaRow(z) {
     onclick="event.stopPropagation();togglePriorita(${z.id},${isPrio?0:1},this)"
     class="text-lg leading-none transition-colors ${isPrio ? 'text-amber-500' : 'text-gray-200 hover:text-amber-400'}">★</button>`;
 
-  // CNC badge — zobrazí se pokud zakázka prošla stavem CNC hotovo nebo dál
-  const cncDone = ['CNC hotovo','Výroba','Hotovo','Zkontrolováno','Expedováno'].includes(z.stav);
-  const cncBadge = cncDone
-    ? '<span style="background:#dcfce7;color:#15803d;font-size:.7rem;padding:2px 8px;border-radius:4px;font-weight:700">CNC ✓</span>'
-    : '<span style="background:#f1f5f9;color:#94a3b8;font-size:.7rem;padding:2px 8px;border-radius:4px">CNC –</span>';
+  // CNC chipy — skutečný stav řezání z cnc_rezani (nezávislé na stavu zakázky)
+  function _cncChip(label, ok) {
+    return ok
+      ? `<span style="background:#dcfce7;color:#15803d;font-size:.68rem;padding:1px 6px;border-radius:4px;font-weight:700;white-space:nowrap;display:block">✓ ${label}</span>`
+      : `<span style="background:#f1f5f9;color:#94a3b8;font-size:.68rem;padding:1px 6px;border-radius:4px;white-space:nowrap;display:block">${label}</span>`;
+  }
+  const cncItems = [];
+  if (z.cnc_has_desky)    cncItems.push(_cncChip('Desky',    z.cnc_desky_ok));
+  if (z.cnc_has_podvozky) cncItems.push(_cncChip('Podvozky', z.cnc_podvozky_ok));
+  if (z.cnc_has_peny)     cncItems.push(_cncChip('Pěny',     z.cnc_peny_ok));
+  const cncBadge = cncItems.length
+    ? `<div class="flex flex-col gap-0.5">${cncItems.join('')}</div>`
+    : '<span style="color:#94a3b8;font-size:.7rem">–</span>';
 
   // Pracovník dropdown
   const users = _cache.dilnaUsers || [];

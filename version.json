@@ -1,8 +1,8 @@
 {
-  "verze": 12,
-  "popis": "Úpravy navigace a CNC sekce",
+  "verze": 13,
+  "popis": "Dílna: CNC status z reálných dat řezání",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "15:36",
-  "git_commit": "b6e38c9"
+  "cas": "15:47",
+  "git_commit": "5f7183a"
 }
