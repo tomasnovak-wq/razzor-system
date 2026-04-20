@@ -1,8 +1,8 @@
 {
-  "verze": 22,
-  "popis": "Dilna: sloupec Zakaznik/Sklad prebira destinace z Pripravy vyroby",
+  "verze": 23,
+  "popis": "Dilna: pridani sloupce Nazev casu",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:39",
-  "git_commit": "c44d4e1"
+  "cas": "16:41",
+  "git_commit": "4242853"
 }

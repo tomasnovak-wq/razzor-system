@@ -3012,7 +3012,7 @@ function _dilnaRow(z) {
   ).join('');
 
   // Banner pro stav Hotovo
-  const bannerRow = z.stav === 'Hotovo' ? `<tr><td colspan="8" style="padding:0">
+  const bannerRow = z.stav === 'Hotovo' ? `<tr><td colspan="9" style="padding:0">
     <div style="background:#fef3c7;color:#92400e;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #fde68a">
       ⏳ VYČKEJTE NA KONTROLU CASE
     </div></td></tr>` : '';
@@ -3026,6 +3026,7 @@ function _dilnaRow(z) {
       <p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
       <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p>
     </td>
+    <td class="text-gray-700 text-sm font-medium">${z.case_nazev||z.nazev||'–'}</td>
     <td>
       ${(() => { const d = z.destinace||'Zákazník'; return `<span style="font-size:.7rem;padding:1px 7px;border-radius:999px;font-weight:600;${d==='Sklad'?'background:#dbeafe;color:#1d4ed8':'background:#dcfce7;color:#15803d'}">${d}</span>`; })()}
       ${z.zakaznik ? `<p class="text-xs text-gray-400 mt-0.5">${z.zakaznik}</p>` : ''}
@@ -3066,7 +3067,7 @@ function _dilnaFilter() {
   );
   const tbody   = document.getElementById('dilna-tbody');
   const counter = document.getElementById('dilna-count');
-  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="9" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="10" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
   if (counter) counter.textContent = filtered.length;
 }
 
@@ -3150,6 +3151,7 @@ async function dilna() {
       <thead><tr>
         <th class="no-sort w-8" title="Priorita">★</th>
         <th>HN / Typ</th>
+        <th>Název</th>
         <th>Zákazník/Sklad</th>
         <th class="text-center">Ks</th>
         <th class="text-center">CNC</th>
