@@ -896,6 +896,28 @@ def auto_migrate():
     except Exception as e:
         log.append(f"  [WARN] migrace pena_odkaz selhala: {e}")
 
+    # ── JEDNORÁZOVÉ DATOVÉ MIGRACE ───────────────────────────────────────────
+    # Tracking tabulka — zabrání opakovanému spouštění jednorázových migrací
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS _migrations (
+            name    TEXT PRIMARY KEY,
+            ran_at  TEXT DEFAULT (datetime('now'))
+        )
+    """)
+
+    # Migrace: existující zakázky → odeslano_do_vyroby = 1
+    # Zakázky vzniklé před zavedením Příprava výroby mají DEFAULT 0 a "zmizely" z CNC/Dílna.
+    # Tato migrace je nastaví na 1 — jsou to reálné výrobní zakázky.
+    c.execute("SELECT 1 FROM _migrations WHERE name='odeslano_init_v1'")
+    if not c.fetchone():
+        c.execute("""
+            UPDATE zakazky SET odeslano_do_vyroby = 1
+            WHERE odeslano_do_vyroby = 0
+              AND stav IN ('Čeká','CNC hotovo','Výroba','Hotovo','Zkontrolováno','Expedováno')
+        """)
+        c.execute("INSERT INTO _migrations (name) VALUES ('odeslano_init_v1')")
+        log.append("  [OK] migrace odeslano_init_v1: existující zakázky → odeslano_do_vyroby=1")
+
     conn.commit()
     conn.close()
     if log:
