@@ -7310,9 +7310,9 @@ async function cnc() {
       <span class="text-sm font-medium text-gray-600">Zobrazit:</span>
       <div id="cnc-stavy" class="flex gap-1 flex-wrap">
         ${[
-          ['Čeká',         'Čeká na řezání'],
-          ['CNC hotovo',   'CNC hotovo'],
-          ['Čeká,CNC hotovo', 'Všechny casy'],
+          ['Čeká',                    'Čeká na řezání'],
+          ['CNC hotovo',              'CNC hotovo'],
+          ['Čeká,CNC hotovo,Výroba',  'Všechny casy'],
         ].map(([val, label]) =>
           '<button class="tab-btn' + (val === _cncStavFiltr ? ' active' : '') + '" ' +
           'onclick="_cncSetStav(this,\'' + val + '\')">' + label + '</button>'
