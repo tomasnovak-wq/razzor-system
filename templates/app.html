@@ -3026,7 +3026,7 @@ function _dilnaRow(z) {
   ).join('');
 
   // Banner pro stav Hotovo
-  const bannerRow = z.stav === 'Hotovo' ? `<tr><td colspan="10" style="padding:0">
+  const bannerRow = z.stav === 'Hotovo' ? `<tr><td colspan="9" style="padding:0">
     <div style="background:#fef3c7;color:#92400e;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #fde68a">
       ⏳ VYČKEJTE NA KONTROLU CASE
     </div></td></tr>` : '';
@@ -3048,7 +3048,6 @@ function _dilnaRow(z) {
       ${(() => { const d = z.destinace||'Zákazník'; return `<span style="font-size:.7rem;padding:1px 7px;border-radius:999px;font-weight:600;${d==='Sklad'?'background:#dbeafe;color:#1d4ed8':'background:#dcfce7;color:#15803d'}">${d}</span>`; })()}
       ${z.zakaznik ? `<p class="text-xs text-gray-400 mt-0.5">${z.zakaznik}</p>` : ''}
     </td>
-    <td class="text-center font-semibold">${z.pocet_ks}</td>
     <td class="text-center">${cncBadge}</td>
     <td class="text-xs" style="${terminCls}">${z.termin||'–'}</td>
     <td onclick="event.stopPropagation()">
@@ -3084,7 +3083,7 @@ function _dilnaFilter() {
   );
   const tbody   = document.getElementById('dilna-tbody');
   const counter = document.getElementById('dilna-count');
-  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="11" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="10" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
   if (counter) counter.textContent = filtered.length;
 }
 
@@ -3171,7 +3170,6 @@ async function dilna() {
         <th>Název</th>
         <th class="no-sort">Poznámka (z kanceláře)</th>
         <th>Zákazník/Sklad</th>
-        <th class="text-center">Ks</th>
         <th class="text-center">CNC</th>
         <th>Termín</th>
         <th>Stav</th>
@@ -7473,14 +7471,13 @@ async function _cncLoad() {
       '<td class="font-medium text-gray-800">' + (z.case_nazev||z.nazev||'–') +
         (z.zakaznik ? '<p class="text-xs text-gray-400">' + z.zakaznik + '</p>' : '') + '</td>' +
       '<td style="min-width:150px">' + poznamkaTa + '</td>' +
+      '<td class="text-xs ' + terminClass + '">' + (z.termin||'–') + '</td>' +
+      '<td class="max-w-xs">' + matInfo + '</td>' +
+      '<td><div class="flex flex-col gap-1.5 py-0.5">' + checklistHtml + '</div></td>' +
       '<td style="min-width:150px"><textarea rows="2" placeholder="Co ještě chybí nařezat…" ' +
         'onblur="cncSavePoznamkaOperator(' + z.id + ',this.value)" ' +
         'style="width:100%;font-size:.72rem;padding:4px 6px;border-radius:6px;border:1.5px solid #e2e8f0;resize:vertical;background:white">' +
         (z.poznamka_cnc_operator || '') + '</textarea></td>' +
-      '<td class="text-center font-semibold">' + z.pocet_ks + '</td>' +
-      '<td class="text-xs ' + terminClass + '">' + (z.termin||'–') + '</td>' +
-      '<td class="max-w-xs">' + matInfo + '</td>' +
-      '<td><div class="flex flex-col gap-1.5 py-0.5">' + checklistHtml + '</div></td>' +
       '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + btnCncHotovo + '</div></td>' +
     '</tr>';
   });
@@ -7495,9 +7492,8 @@ async function _cncLoad() {
       <table class="w-full">
         <thead><tr>
           <th>HN</th><th>Název / Zákazník</th><th>Poznámka (z kanceláře)</th>
-          <th>Poznámka operátora</th>
-          <th class="text-center">Ks</th><th>Termín</th><th>Materiály (info)</th>
-          <th>Checklist</th><th class="text-right">Akce</th>
+          <th>Termín</th><th>Materiály (info)</th>
+          <th>Checklist</th><th>Poznámka operátora</th><th class="text-right">Akce</th>
         </tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>

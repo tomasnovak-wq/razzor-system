@@ -1,8 +1,8 @@
 {
-  "verze": 27,
-  "popis": "CNC: přidána editovatelná poznámka operátora (poznamka_cnc_operator) vedle needitovatelné poznámky z kanceláře",
+  "verze": 28,
+  "popis": "CNC: poznámka operátora přesunuta za checklist, odstraněn sloupec Ks z CNC i Dílny",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:58",
-  "git_commit": "b4b4a49"
+  "cas": "17:01",
+  "git_commit": "36474df"
 }
