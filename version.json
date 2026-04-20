@@ -1,8 +1,8 @@
 {
-  "verze": 19,
-  "popis": "CNC: tlacitko CNC hotovo aktivni jen po zaскrtnutí všech polozek",
+  "verze": 20,
+  "popis": "CNC: barevne odliseni materialu (fenol, peny, plast, premium, natural)",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:27",
-  "git_commit": "b15e9b6"
+  "cas": "16:30",
+  "git_commit": "1f8b4ce"
 }

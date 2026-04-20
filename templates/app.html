@@ -7347,6 +7347,17 @@ async function _cncLoad() {
     return;
   }
 
+  // Barva chipu podle názvu materiálu
+  function _cncMatStyle(nazev) {
+    const n = (nazev || '').toLowerCase();
+    if (n.includes('prémio') || n.includes('premium')) return 'background:#fee2e2;color:#991b1b'; // prémiové — červená
+    if (n.includes('natural'))  return 'background:#fed7aa;color:#c2410c';   // natural — žluto-oranžová
+    if (n.includes('plast'))    return 'background:#fef9c3;color:#854d0e';   // plastové — žlutá
+    if (n.includes('fenol'))    return 'background:#f5dfc0;color:#7c2d12';   // fenol — hnědá
+    if (n.includes('pěna') || n.includes('pena')) return 'background:#e2e8f0;color:#475569'; // pěny — šedá
+    return 'background:#dbeafe;color:#1d4ed8'; // ostatní desky — modrá
+  }
+
   const rows = items.map(z => {
     const dnes = new Date().toISOString().slice(0,10);
     const isPrio = z.prioritni == 1;
@@ -7355,8 +7366,8 @@ async function _cncLoad() {
       ? 'text-red-600 font-bold' : 'text-gray-500';
 
     // Materiály – informativní seznam (jen desky a pěny, bez zaškrtávání)
-    const deskyChips = (z.desky_mats||[]).map(n => '<span class="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">' + n + '</span>');
-    const penyChips  = (z.peny_mats  ||[]).map(n => '<span class="text-xs bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded">' + n + '</span>');
+    const deskyChips = (z.desky_mats||[]).map(n => '<span style="' + _cncMatStyle(n) + ';font-size:.72rem;padding:2px 7px;border-radius:4px;font-weight:500">' + n + '</span>');
+    const penyChips  = (z.peny_mats  ||[]).map(n => '<span style="' + _cncMatStyle(n) + ';font-size:.72rem;padding:2px 7px;border-radius:4px;font-weight:500">' + n + '</span>');
     const allChips = [...deskyChips, ...penyChips];
     const matInfo = allChips.length === 0
       ? '<span class="text-xs text-gray-400 italic">BOM nenastaven</span>'
