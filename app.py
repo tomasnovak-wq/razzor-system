@@ -20,6 +20,10 @@ from pdf_faktura import vygeneruj_pdf
 app = Flask(__name__)
 app.secret_key = 'flightcase-system-2026'
 
+# ─── DATABÁZE – inicializace při startu (gunicorn i přímé spuštění) ──────
+init_db()
+auto_migrate()
+
 # ─── GLOBÁLNÍ ERROR HANDLER ──────────────────────────────────────────────
 # Zajistí, že server vždy vrátí JSON (nikdy HTML stránku s chybou)
 import traceback as _tb

@@ -1,8 +1,8 @@
 {
-  "verze": 28,
-  "popis": "CNC: poznámka operátora přesunuta za checklist, odstraněn sloupec Ks z CNC i Dílny",
+  "verze": 29,
+  "popis": "Fix: auto_migrate() na úrovni modulu (funguje i pod gunicorn/Fly.io)",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "17:01",
-  "git_commit": "36474df"
+  "cas": "17:16",
+  "git_commit": "c9b8f56"
 }
