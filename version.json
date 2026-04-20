@@ -1,8 +1,8 @@
 {
-  "verze": 14,
-  "popis": "fix: datova migrace odeslano_do_vyroby – existujici zakazky se znovu zobrazuji v CNC a Dilne",
+  "verze": 15,
+  "popis": "CNC: stav badge v radku + error handling pri zmene stavu",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:01",
-  "git_commit": "39445e3"
+  "cas": "16:11",
+  "git_commit": "0b5df93"
 }

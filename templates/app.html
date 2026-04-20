@@ -7409,8 +7409,12 @@ async function _cncLoad() {
     const cncPozn = z.poznamka_cnc
       ? '<p class="text-xs text-blue-600 mt-1">⚙ ' + z.poznamka_cnc + '</p>' : '';
 
+    // Stav badge — viditelný přímo v řádku, aby bylo jasné v jakém stavu case je
+    const stavColors = {'Čeká':'background:#dbeafe;color:#1d4ed8','CNC hotovo':'background:#ede9fe;color:#7c3aed','Výroba':'background:#fef3c7;color:#92400e','Hotovo':'background:#dcfce7;color:#15803d','Zkontrolováno':'background:#f0fdf4;color:#166534','Expedováno':'background:#f1f5f9;color:#475569'};
+    const stavBadgeCnc = '<span style="' + (stavColors[z.stav]||'background:#f1f5f9;color:#475569') + ';font-size:.68rem;padding:2px 7px;border-radius:999px;font-weight:600;white-space:nowrap">' + (z.stav||'?') + '</span>';
+
     return '<tr class="' + (isPrio ? 'prioritni-row' : '') + '">' +
-      '<td class="font-mono text-xs text-blue-600 font-semibold">' + prioIcon + (z.hn_cislo||'–') + '</td>' +
+      '<td class="font-mono text-xs text-blue-600 font-semibold">' + prioIcon + (z.hn_cislo||'–') + '<br>' + stavBadgeCnc + '</td>' +
       '<td class="font-medium text-gray-800">' + (z.case_nazev||z.nazev||'–') +
         (z.zakaznik ? '<p class="text-xs text-gray-400">' + z.zakaznik + '</p>' : '') + cncPozn + '</td>' +
       '<td class="text-center font-semibold">' + z.pocet_ks + '</td>' +
@@ -7456,7 +7460,11 @@ async function cncToggleAll(zakId, kody, rezano, btn) {
 }
 
 async function cncZmenaStavu(zakId, novyStav) {
-  await api('/api/zakazky/' + zakId, 'PUT', { stav: novyStav });
+  const r = await api('/api/zakazky/' + zakId, 'PUT', { stav: novyStav });
+  if (r && r.error) {
+    alert('Chyba při změně stavu: ' + r.error);
+    return;
+  }
   await _cncLoad();
 }
 
