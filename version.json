@@ -1,8 +1,8 @@
 {
-  "verze": 18,
-  "popis": "CNC: zalozka CNC hotovo zahrnuje i stav Vyroba",
+  "verze": 19,
+  "popis": "CNC: tlacitko CNC hotovo aktivni jen po zaскrtnutí všech polozek",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:25",
-  "git_commit": "6b8b439"
+  "cas": "16:27",
+  "git_commit": "b15e9b6"
 }
