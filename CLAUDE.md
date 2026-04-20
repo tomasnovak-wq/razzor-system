@@ -47,6 +47,16 @@ fly ssh sftp get /data/system.db -a razzor-system && mv system.db data/system.db
 
 Mac užívá `./deploy.sh` místo .bat skriptů. Oba skripty volají stejný `update_version.py "POPIS" "AUTOR"`, takže formát `version.json` je identický a štítek verze v aplikaci je konzistentní.
 
+### Workflow při spolupráci s Claude (Cowork)
+
+Claude (v Cowork módu) může autonomně editovat soubory, commitovat a volat `update_version.py`. **Nemůže** pushovat na GitHub ani nasazovat na Fly.io — jeho sandbox nemá síťový přístup ven.
+
+Workflow:
+1. Claude udělá změny + spustí `update_version.py "popis" "Ludek"` + commitne
+2. Ludek spustí v terminálu: `git push && fly deploy`
+
+GitHub token je uložen v `.git/config` (remote URL) — `git push` na Macu proto nevyžaduje heslo.
+
 ### Autentizace na GitHub (Mac)
 
 GitHub od roku 2021 nepřijímá git push s heslem. Nejjednodušší řešení:
@@ -78,16 +88,19 @@ data/system.db      — SQLite databáze (lokálně)
 
 Schéma se nikdy neupravuje ručně. Nové sloupce a tabulky se přidávají výhradně přes funkci `auto_migrate()` v `database.py` — ta se volá automaticky při každém startu serveru. **Nikdy nemazat existující tabulky ani sloupce.**
 
+**Důležité:** `auto_migrate()` a `init_db()` se volají na úrovni modulu v `app.py` (hned po vytvoření `app`), **ne** jen uvnitř `if __name__ == '__main__':`. Díky tomu migrace proběhne i pod gunicorn na Fly.io. Pokud bys viděl chybu `no such column` po uploadu DB na cloud, stačí restartovat Fly.io machine příkazem `fly machine restart -a razzor-system` — `auto_migrate()` přidá chybějící sloupce při dalším startu.
+
 Klíčové tabulky:
 - `materialy` — katalog materiálů (desky, profily, HW)
 - `typy_casu` — typy casů (HN221250 apod.)
 - `kusovniky` — BOM: kolik jakého materiálu jde do každého typu casu
-- `zakazky` — výrobní zakázky
+- `zakazky` — výrobní zakázky (nové sloupce: `odeslano_do_vyroby`, `destinace`, `poznamka_cnc_operator`)
 - `sklad` + `pohyby_skladu` — stavy skladu a pohyby
 - `nabidky` — cenové nabídky zákazníkům
 - `faktury` — vystavené faktury
 - `dochazka` / `dochazka_zaznamy` — docházka pracovníků
 - `fifo_davky` — FIFO evidence nákupních cen
+- `_migrations` — tracking tabulka pro jednorázové datové migrace (pattern: `SELECT 1 FROM _migrations WHERE name='...'`)
 
 ### Výrobní zakázky — workflow stavů
 
@@ -105,13 +118,54 @@ Bannery pod řádkem zakázky (viditelné v hlavním seznamu):
 
 Sloupec `foceni` (INTEGER DEFAULT 0) v tabulce `zakazky` — zaškrtávátko přímo v řádku seznamu.
 
+### Zakázky — pole relevantní pro výrobní karty
+
+- `odeslano_do_vyroby` (INTEGER DEFAULT 0) — 1 = zakázka je viditelná v CNC a Dílně. Nastavuje se v kartě Příprava výroby tlačítkem „Do výroby". Existující zakázky před zavedením tohoto pole mají hodnotu 1 díky jednorázové migraci `odeslano_init_v1`.
+- `destinace` (TEXT DEFAULT 'Zákazník') — kam case míří: `'Zákazník'` nebo `'Sklad'`. Nastavuje se v Přípravě výroby, zobrazuje se v CNC i Dílně (read-only).
+- `poznamka_cnc` (TEXT) — poznámka z kanceláře pro CNC operátora. Píše se v Přípravě výroby, zobrazuje se v CNC jako needitovatelný text.
+- `poznamka_dilna` (TEXT) — poznámka z kanceláře pro dílnu. Píše se v Přípravě výroby, zobrazuje se v Dílně jako needitovatelný text.
+- `poznamka_cnc_operator` (TEXT) — soukromá editovatelná poznámka operátora CNC (co ještě chybí nařezat). Viditelná a editovatelná pouze v kartě CNC.
+
 ### Fakturace — blokace odchylkami
 
 Zakázku s otevřenou odchylkou (stav = `Nová` v tabulce `odchylky_karty`) nelze vyfakturovat. Blokace je na dvou úrovních: frontend (zakázka je zašedlá s badge ⚠ Odchylka, checkbox disabled) i backend (endpoint `POST /api/faktury` vrátí 400 pokud zakázka má otevřenou odchylku).
 
+### PDF faktura — layout (pdf_faktura.py)
+
+A4 stránka má 210 mm šířky; okraje jsou `ML = MR_offset = 18 mm`, tedy **dostupná šířka obsahu = 174 mm**. Při úpravách šířek sloupců v ReportLab tabulkách je třeba dodržet:
+
+- **Tabulka položek** (KÓD+NÁZEV | KS | CENA ZA MJ | SAZBA | ZÁKLAD | CELKEM S DPH): součet šířek musí být **174 mm** (aktuální: `70 + 10 + 24 + 16 + 26 + 28`).
+- **Rekapitulace DPH** (Sazba DPH | Základ bez DPH | DPH | Celkem s DPH): šířka **96 mm**, umístěná napravo přes `rek_x = MR - 96 * mm`. Aktuální sloupce: `22 + 26 + 24 + 24`. Pozor: v těchto hodnotách se musí vejít jak bold text v hlavičce, tak max. hodnoty typu „XX XXX,XX Kč" (cca 15 mm textu + 8 mm paddingu = ~23 mm potřeba pro peněžní sloupce).
+- **Pruh „CELKEM K ÚHRADĚ"** musí mít stejnou šířku jako rekapitulace (96 mm) a pravá `drawRightString` pozice je `rek_x + 93 mm` (= 3 mm od pravého okraje pruhu).
+
+Pokud budou v budoucnu přibývat sloupce nebo se prodlužovat hlavičky, vždy přepočítat součet a ověřit, že všechno padne do dostupné šířky stránky. Při testu lze vygenerovat PDF na `/tmp/test.pdf` a převést na PNG přes `pdftoppm -png -r 250 /tmp/test.pdf /tmp/test`.
+
 ### Stav skladu — důležité
 
 Správný výpočet disponibilního množství je vždy `COALESCE(s.naskladneno - s.pouzito, 0)`. Sloupec `skutecny_stav` obsahuje fyzicky napočítaný stav z inventury — může být 0 i když materiál na skladě je. Nikdy nepoužívat `skutecny_stav` jako hlavní ukazatel dostupnosti.
+
+### Karta CNC (cnc sekce v app.html)
+
+Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Filtr nahoře:
+- **Čeká na řezání** — stav `Čeká`
+- **CNC hotovo** — stav `CNC hotovo` nebo `Výroba`
+- **Všechny casy** — stav `Čeká`, `CNC hotovo`, nebo `Výroba`
+
+Sloupce: HN+badge | Název/Zákazník | Poznámka z kanceláře (`poznamka_cnc`, read-only) | Termín | Materiály | Checklist | Poznámka operátora (`poznamka_cnc_operator`, editovatelná) | Akce
+
+Barevné kódování materiálových chipů (funkce `_cncMatStyle`): prémiové=červená, natural=žluto-oranžová, plast=žlutá, fenol=hnědá, pěna=šedá, ostatní=modrá.
+
+Tlačítko „⚙ CNC hotovo" je aktivní pouze pokud jsou zaškrtnuty všechny položky checklistu (desky, podvozky, pěny) — nebo pokud zakázka nemá žádné BOM položky pro CNC.
+
+### Karta Příprava výroby (priprava-vyroby sekce)
+
+Zobrazuje zakázky před odesláním do výroby. Sloupce: ★ | HN/Typ | Název | Zákazník/Sklad (dropdown `destinace`) | Poznámky (dva textarea: pro CNC + pro Dílnu) | BOM | Přidáno | Termín (editovatelný date input) | 📷 | Stav | Pracovník | Do výroby | Akce
+
+Kliknutí na řádek **neotevírá detail** — detail se otvírá jen tlačítkem „Detail". Inline edity (termín, destinace, poznámky) ukládají přes `pripravaSetTermin()`, `pripravaSetDestinace()`, `pripravaSetPoznamka()`.
+
+### Karta Dílna (dilna sekce)
+
+Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Sloupce: ★ | HN/Typ | Název | Poznámka z kanceláře (`poznamka_dilna`, read-only) | Zákazník/Sklad (badge) | CNC (checklist chipů) | Termín | Stav | Pracovník | Akce
 
 ### Frontend (app.html)
 
