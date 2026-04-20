@@ -1,8 +1,8 @@
 {
-  "verze": 25,
-  "popis": "Dílna: přidán sloupec Poznámka (z kanceláře) pro poznamka_dilna",
+  "verze": 26,
+  "popis": "Dílna + CNC: poznámky jsou needitovatelné (jen čtení z Přípravy výroby)",
   "autor": "Ludek",
   "datum": "20.04.2026",
-  "cas": "16:54",
-  "git_commit": "5e7e82c"
+  "cas": "16:57",
+  "git_commit": "9af7793"
 }
