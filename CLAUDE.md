@@ -167,17 +167,19 @@ Kliknutí na řádek **neotevírá detail** — detail se otvírá jen tlačítk
 Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Sloupce: ★ | HN/Typ | Název | Poznámka z kanceláře (`poznamka_dilna`, read-only) | Zákazník/Sklad (badge) | CNC (checklist chipů) | Termín | Stav | Pracovník | Akce
 
 **Barevné kódování řádků:**
+- Zkontrolováno → sytá zelená (`#86efac`, CSS třída `.dilna-zkontrolovano-row !important` — přebíjí vše)
+- Hotovo → světlá zelená (`#ecfccb`, CSS třída `.dilna-hotovo-row !important` — přebíjí i `.prioritni-row`)
 - Prioritní zakázka (hvězdička) → světle modrý podklad (`#eff6ff`, CSS třída `.prioritni-row !important`)
-- Výroba / CNC hotovo → světle modrý podklad (stejná barva, inline `style`)
-- Hotovo → světle zelený podklad (`#ecfccb`, CSS třída `.dilna-hotovo-row !important` — přebíjí i `.prioritni-row`)
+- Výroba / CNC hotovo → světle modrý podklad (stejná barva `#eff6ff`, inline `style`)
 - Ostatní stavy → bílý podklad
 
 **Svislá barevná čára vlevo** (na první `<td>` — hvězdičce):
 - Výroba / CNC hotovo → tmavě modrá (`border-left: 4px solid #1d4ed8`)
 - Hotovo → olivově zelená (`border-left: 4px solid #65a30d`)
+- Zkontrolováno → tmavě zelená (`border-left: 4px solid #15803d`)
 - Ostatní → průhledná
 
-**Řazení řádků** (funkce `_dilnaFilter`): 1. prioritní+Výroba, 2. prioritní, 3. Výroba, 4. ostatní. Implementováno přes `.sort()` s rank skóre `(prioritni ? 2 : 0) + (isVyroba ? 1 : 0)`.
+**Řazení řádků** (funkce `_dilnaFilter`): 1. Zkontrolováno, 2. Hotovo, 3. prioritní+Výroba, 4. prioritní, 5. Výroba, 6. ostatní. Implementováno přes `.sort()` s rank skóre. **Důležité:** `dilna()` renderuje `<tbody>` prázdný a ihned volá `_dilnaFilter()` — sort se tak aplikuje i při prvním načtení stránky.
 
 **Workflow stavů v Dílně** — dropdown `<select>` obsahuje pouze: Čeká, Výroba, Hotovo. Stavy Zkontrolováno a Expedováno se nastavují výhradně tlačítky:
 - Stav `Hotovo` → zobrazí se zelené tlačítko **Kontrola** (skryjí se Detail a 🖨). Po kliknutí vyskočí modal s potvrzením a informací kam case odnést (📷 Focení nebo 📦 Přejímku dle pole `foceni`). Potvrzení nastaví stav na `Zkontrolováno` (funkce `_dilnaKontrolaPotvrzeni`).

@@ -40,6 +40,8 @@ td { padding:8px 12px; font-size:.875rem; color:#374151; border-bottom:1px solid
 .prioritni-row:hover { background: #dbeafe !important; }
 .dilna-hotovo-row { background: #ecfccb !important; }
 .dilna-hotovo-row:hover { background: #d9f99d !important; }
+.dilna-zkontrolovano-row { background: #86efac !important; }
+.dilna-zkontrolovano-row:hover { background: #4ade80 !important; }
 .stav-OK { background:#dcfce7; color:#15803d; }
 .stav-Málo { background:#fef3c7; color:#b45309; }
 .stav-Nedostatek { background:#fee2e2; color:#b91c1c; }
@@ -2250,8 +2252,8 @@ async function zakazkaDetail(id) {
     }
     return [...map.values()];
   }
-  const profilyLDedup = _dedupProfily(profilyL);
-  const profilyHDedup = _dedupProfily(profilyH);
+  const profilyLDedup = _dedupProfily(profilyL).sort((a,b) => (b.rozmer_mm||0) - (a.rozmer_mm||0));
+  const profilyHDedup = _dedupProfily(profilyH).sort((a,b) => (b.rozmer_mm||0) - (a.rozmer_mm||0));
 
   const kytaryLink = vhwUrl(z.hn_cislo);
   const rozmerStr = (z.vnitrni_sirka && z.vnitrni_vyska && z.vnitrni_hloubka)
@@ -3076,8 +3078,9 @@ function _dilnaRow(z) {
     `<option value="${s}" ${stavProDropdown===s?'selected':''}>${s}</option>`
   ).join('');
 
-  // Barva pozadí: Hotovo = zelená, Výroba = světle modrá, ostatní bílé
-  const rowBg = z.stav === 'Hotovo' ? 'background:#ecfccb'
+  // Barva pozadí: Zkontrolováno = sytá zelená, Hotovo = světlá zelená, Výroba = světle modrá, ostatní bílé
+  const rowBg = z.stav === 'Zkontrolováno' ? 'background:#86efac'
+    : z.stav === 'Hotovo' ? 'background:#ecfccb'
     : (z.stav === 'Výroba' || z.stav === 'CNC hotovo') ? 'background:#eff6ff'
     : 'background:white';
   const textMuted = (z.stav === 'Čeká') ? 'opacity:.55' : '';
@@ -3087,6 +3090,8 @@ function _dilnaRow(z) {
     ? 'border-left:4px solid #1d4ed8'
     : z.stav === 'Hotovo'
     ? 'border-left:4px solid #65a30d'
+    : z.stav === 'Zkontrolováno'
+    ? 'border-left:4px solid #15803d'
     : 'border-left:4px solid transparent';
 
   const terminCls = z.termin && z.termin < dnes && !['Hotovo','Zkontrolováno','Expedováno'].includes(z.stav)
@@ -3106,7 +3111,7 @@ function _dilnaRow(z) {
     ? `<button class="btn py-1 px-2 text-xs font-semibold" style="background:#7c3aed;color:white;border-radius:6px" onclick="event.stopPropagation();_dilnaOdneseno(${z.id})">Odneseno</button>`
     : '';
 
-  const mainRow = `<tr class="tr-hover cursor-pointer${isPrio?' prioritni-row':''}${z.stav==='Hotovo'?' dilna-hotovo-row':''}" style="${rowBg}" onclick="zakazkaDetail(${z.id})">
+  const mainRow = `<tr class="tr-hover cursor-pointer${isPrio?' prioritni-row':''}${z.stav==='Hotovo'?' dilna-hotovo-row':''}${z.stav==='Zkontrolováno'?' dilna-zkontrolovano-row':''}" style="${rowBg}" onclick="zakazkaDetail(${z.id})">
     <td class="w-8 text-center pr-0" style="${stavBarStyle}" onclick="event.stopPropagation()">${prioBtn}</td>
     <td style="${textMuted}">
       <p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
@@ -3158,8 +3163,10 @@ function _dilnaFilter() {
     // Tab "Čeká" zobrazí i CNC hotovo (montér ještě nezačal)
     (!st || z.stav === st || (st === 'Čeká' && z.stav === 'CNC hotovo'))
   ).sort((a, b) => {
-    // Řazení: 1. prioritní+Výroba, 2. prioritní, 3. Výroba, 4. ostatní
-    const rank = z => (z.prioritni ? 2 : 0) + (isVyroba(z) ? 1 : 0);
+    // Řazení: 1. Zkontrolováno, 2. Hotovo, 3. prioritní+Výroba, 4. prioritní, 5. Výroba, 6. ostatní
+    const rank = z => z.stav === 'Zkontrolováno' ? 10
+      : z.stav === 'Hotovo' ? 8
+      : (z.prioritni ? 2 : 0) + (isVyroba(z) ? 1 : 0);
     return rank(b) - rank(a);
   });
   const tbody   = document.getElementById('dilna-tbody');
@@ -3289,9 +3296,10 @@ async function dilna() {
         <th>Pracovník</th>
         <th class="no-sort">Akce</th>
       </tr></thead>
-      <tbody id="dilna-tbody">${_cache.dilna.map(_dilnaRow).join('')}</tbody>
+      <tbody id="dilna-tbody"></tbody>
     </table>
     </div>`);
+  _dilnaFilter();
 }
 
 async function hlasitOdchylku(zakId, typId, hnCislo) {

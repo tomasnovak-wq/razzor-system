@@ -1,8 +1,8 @@
 {
-  "verze": 31,
-  "popis": "Dilna: barevne kodovani radku, workflow Kontrola/Odneseno, razeni Vyroba nahoru, detail modal vycisten, profily deduplikovany, zarazky jako text s fallback vypoctem",
+  "verze": 32,
+  "popis": "Dilna: razeni Hotovo/Zkontrolovano nahoru, svisla cara u Zkontrolovano, fix inicialniho renderu pres _dilnaFilter",
   "autor": "Ludek",
   "datum": "21.04.2026",
-  "cas": "09:26",
-  "git_commit": "699b599"
+  "cas": "10:05",
+  "git_commit": "b35b9ec"
 }
