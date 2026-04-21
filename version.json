@@ -1,8 +1,8 @@
 {
-  "verze": 30,
-  "popis": "CLAUDE.md: zdokumentovány nové karty CNC, Příprava výroby, Dílna + nová DB pole",
+  "verze": 31,
+  "popis": "Dilna: barevne kodovani radku, workflow Kontrola/Odneseno, razeni Vyroba nahoru, detail modal vycisten, profily deduplikovany, zarazky jako text s fallback vypoctem",
   "autor": "Ludek",
-  "datum": "20.04.2026",
-  "cas": "17:19",
-  "git_commit": "1aa890d"
+  "datum": "21.04.2026",
+  "cas": "09:26",
+  "git_commit": "699b599"
 }

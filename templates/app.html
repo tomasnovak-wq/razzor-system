@@ -36,8 +36,10 @@ td { padding:8px 12px; font-size:.875rem; color:#374151; border-bottom:1px solid
 .stav-Expedováno { background:#ede9fe; color:#6d28d9; }
 .stav-Zrušeno { background:#fee2e2; color:#b91c1c; }
 .stav-Zkontrolováno { background:#e0e7ff; color:#3730a3; }
-.prioritni-row { background: #fffbeb !important; }
-.prioritni-row:hover { background: #fef3c7 !important; }
+.prioritni-row { background: #eff6ff !important; }
+.prioritni-row:hover { background: #dbeafe !important; }
+.dilna-hotovo-row { background: #ecfccb !important; }
+.dilna-hotovo-row:hover { background: #d9f99d !important; }
 .stav-OK { background:#dcfce7; color:#15803d; }
 .stav-Málo { background:#fef3c7; color:#b45309; }
 .stav-Nedostatek { background:#fee2e2; color:#b91c1c; }
@@ -2235,6 +2237,22 @@ async function zakazkaDetail(id) {
   const desky_peny = bom.filter(b => _sekce(b) === 'deska');
   const ostatni    = bom.filter(b => _sekce(b) === 'ostatni');
 
+  // Sloučení duplicitních profilů se stejným rozměrem — sečte ks, zarážky zachová (závisí jen na délce)
+  function _dedupProfily(arr) {
+    const map = new Map();
+    for (const p of arr) {
+      const key = p.rozmer_mm ?? p.rozmer ?? '_';
+      if (map.has(key)) {
+        map.get(key).ks += (p.ks || 0);
+      } else {
+        map.set(key, { ...p });
+      }
+    }
+    return [...map.values()];
+  }
+  const profilyLDedup = _dedupProfily(profilyL);
+  const profilyHDedup = _dedupProfily(profilyH);
+
   const kytaryLink = vhwUrl(z.hn_cislo);
   const rozmerStr = (z.vnitrni_sirka && z.vnitrni_vyska && z.vnitrni_hloubka)
     ? `${z.vnitrni_sirka}×${z.vnitrni_vyska}×${z.vnitrni_hloubka} mm`
@@ -2262,24 +2280,35 @@ async function zakazkaDetail(id) {
     </tr>`;
   }
 
-  function _zarazkaCell(pid, val, fieldName, label) {
-    // Jedno editovatelné pole zarážky s popiskem nad ním
-    const v = val != null ? val : '';
-    return `<div style="display:inline-flex;flex-direction:column;align-items:flex-end;gap:1px;margin:0 2px">
+  // Výpočet zarážky děrovačky z délky profilu (rozteč 128 mm) — záloha když backend nemá hodnotu
+  function _calcZarazka(mm) {
+    if (!mm || mm < 128) return null;
+    const n = Math.floor(mm / 128);
+    const margin = (mm - (n - 1) * 128) / 2;
+    return Math.round(margin * 100) / 100;
+  }
+  function _calcZarazka2(mm) {
+    if (!mm || mm < 128) return null;
+    const n = Math.floor(mm / 128);
+    if (n <= 6) return null; // druhý průchod až od 7+ otvorů
+    const margin = (mm - (n - 1) * 128) / 2;
+    return Math.round((margin + 6 * 128) * 100) / 100;
+  }
+
+  function _zarazkaText(label, val) {
+    const v = val != null && val !== '' ? val : '–';
+    return `<div style="display:inline-flex;flex-direction:column;align-items:flex-end;gap:1px;margin:0 6px">
       <span style="font-size:.6rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">${label}</span>
-      <input type="number" step="0.5" value="${v}"
-        class="zarazka-input no-print"
-        style="width:66px;text-align:right;padding:2px 5px;border:1px solid #d1d5db;border-radius:4px;font-size:.82rem;background:#fafafa;font-weight:600"
-        onchange="_vlSaveZarazka(${pid},'${fieldName}',this.value,this)"
-        title="${label} – zarážka děrovačky (mm)">
-      <span class="print-only" style="font-size:.78rem;font-weight:600;color:#374151">${v !== '' ? v : '–'}</span>
+      <span style="font-size:.88rem;font-weight:700;color:${v==='–'?'#d1d5db':'#1a3a5c'};min-width:50px;text-align:right">${v}</span>
     </div>`;
   }
 
   function profilLRow(p) {
     const rez = p.rez || '| |';
-    const z1 = p.pid ? _zarazkaCell(p.pid, p.zarazka,   'zarazka',   'Děr. 1') : '<span style="color:#d1d5db">–</span>';
-    const z2 = p.pid ? _zarazkaCell(p.pid, p.zarazka_2, 'zarazka_2', 'Děr. 2') : '';
+    const z1val = (p.zarazka != null && p.zarazka !== '') ? p.zarazka : _calcZarazka(p.rozmer_mm);
+    const z2val = (p.zarazka_2 != null && p.zarazka_2 !== '') ? p.zarazka_2 : _calcZarazka2(p.rozmer_mm);
+    const z1 = _zarazkaText('Děr. 1', z1val);
+    const z2 = _zarazkaText('Děr. 2', z2val);
     return `<tr class="border-b border-gray-50">
       <td class="py-1 text-right font-bold pr-2">${p.ks}×</td>
       <td class="py-1 text-right font-bold pr-3">${p.rozmer_mm ? fmt(p.rozmer_mm,1) : '–'}</td>
@@ -2317,12 +2346,16 @@ async function zakazkaDetail(id) {
     }
     .print-only { display:none; }
     .varna { background:#dc2626; color:white; font-weight:700; font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; text-align:center; padding:5px; margin-bottom:12px; border-radius:4px; }
+    details[open] summary span:last-child { content:'▼ sbalit'; }
+    details[open] summary span:last-child::before { content:'▼ sbalit'; }
+    details summary::-webkit-details-marker { display:none; }
+    details[open] summary .desky-arrow { opacity:0; }
   </style>
 
   <div class="vl-header">
     <div class="flex items-start justify-between">
       <div>
-        <p class="text-xs opacity-60 font-mono">${z.hn_cislo||''} · Zakázka #${z.id}</p>
+        <p class="text-xs opacity-60 font-mono">${z.hn_cislo||''} · Zakázka #${z.id} &nbsp;${badge(z.stav)}</p>
         <h2 class="text-xl font-bold mt-0.5">${z.case_nazev||z.nazev||'–'}</h2>
         <p class="text-sm opacity-70 mt-0.5">${z.typ_korpusu||''}</p>
       </div>
@@ -2336,10 +2369,7 @@ async function zakazkaDetail(id) {
 
   <!-- Akční tlačítka -->
   <div class="flex gap-2 mb-4 no-print flex-wrap">
-    <button class="btn btn-warning text-xs" onclick="zmenaStavu(${z.id}, '${z.stav}')">Změnit stav</button>
-    <button class="btn btn-danger text-xs" onclick="zrusitZakazku(${z.id})">✕ Zrušit zakázku</button>
     <button class="btn btn-primary text-xs" onclick="window.print()">🖨 Tisk výrobního listu</button>
-    ${badge(z.stav)}
   </div>
 
   ${links.length ? `
@@ -2374,7 +2404,7 @@ async function zakazkaDetail(id) {
         ${z.sn_cislo ? `<p class="text-xs text-gray-500">S/N: ${z.sn_cislo}</p>` : ''}
       </div>
     </div>
-    ${z.poznamka_dilna ? `<div class="bg-yellow-50 border border-yellow-200 rounded p-2 mb-2 text-sm">⚒ <strong>Dílna:</strong> ${z.poznamka_dilna}</div>` : ''}
+    ${z.poznamka_dilna ? `<div class="bg-yellow-50 border border-yellow-200 rounded p-2 mb-2 text-sm"><strong>Dílna:</strong> ${z.poznamka_dilna}</div>` : ''}
     ${z.poznamka_cnc  ? `<div class="bg-blue-50 border border-blue-200 rounded p-2 mb-2 text-sm">⚙ <strong>CNC:</strong> ${z.poznamka_cnc}</div>` : ''}
     ${(z.prisl_1||z.prisl_2||z.prisl_3||z.prisl_4) ? `<div class="bg-gray-50 rounded p-2 text-xs text-gray-600">Příslušenství: ${[z.prisl_1,z.prisl_2,z.prisl_3,z.prisl_4].filter(Boolean).join(' · ')}</div>` : ''}
     ${kytaryLink ? `<p class="text-xs text-gray-400 mt-1">Kytary.cz: <a href="${kytaryLink}" target="_blank" class="text-blue-500 no-print">${kytaryLink}</a><span class="print-only">${kytaryLink}</span></p>` : ''}
@@ -2419,18 +2449,35 @@ async function zakazkaDetail(id) {
     </table>
   </div>` : ''}
 
-  <!-- DESKY A PĚNY -->
+  <!-- DESKY A PĚNY (sbalené) -->
   ${desky_peny.length ? `
-  <div class="vl-section">
+  <div class="vl-section no-print">
+    <details>
+      <summary style="background:#065f46;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+        <span>Desky a pěny</span><span style="font-size:.8rem;opacity:.7">▶ rozbalit</span>
+      </summary>
+      <table class="vl-table" style="margin-top:4px">
+        <thead><tr>
+          <th style="width:18px"></th>
+          <th style="width:70px">Kód</th><th>Název</th>
+          <th class="r" style="width:50px">Mn.</th>
+          <th style="width:60px">Umístění</th>
+          <th style="width:50px">Web</th>
+          <th class="r" style="width:50px">Sklad</th>
+        </tr></thead>
+        <tbody>${desky_peny.map(bomRow).join('')}</tbody>
+      </table>
+    </details>
+  </div>
+  <div class="print-only vl-section">
     <div class="vl-section-title" style="background:#065f46;color:white">Desky a pěny</div>
     <table class="vl-table">
       <thead><tr>
-        <th style="width:18px" class="no-print"></th>
+        <th style="width:18px"></th>
         <th style="width:70px">Kód</th><th>Název</th>
         <th class="r" style="width:50px">Mn.</th>
         <th style="width:60px">Umístění</th>
-        <th style="width:50px" class="no-print">Web</th>
-        <th class="r no-print" style="width:50px">Sklad</th>
+        <th class="r" style="width:50px">Sklad</th>
       </tr></thead>
       <tbody>${desky_peny.map(bomRow).join('')}</tbody>
     </table>
@@ -2490,7 +2537,7 @@ async function zakazkaDetail(id) {
         <th class="r">Ks</th><th class="r">Rozměr (mm)</th><th style="text-align:center">Řez</th>
         <th class="r">Zarážky děrovačky</th>
       </tr></thead>
-      <tbody>${profilyL.map(profilLRow).join('')}</tbody>
+      <tbody>${profilyLDedup.map(profilLRow).join('')}</tbody>
     </table>` : ''}
     ${profilyH.length ? `
     <p class="text-xs font-semibold text-gray-600 mb-1 mt-3">Hybrid / H profil</p>
@@ -2498,7 +2545,7 @@ async function zakazkaDetail(id) {
       <thead><tr>
         <th class="r">Ks</th><th class="r">Rozměr (mm)</th><th style="text-align:center">Zakončení</th>
       </tr></thead>
-      <tbody>${profilyH.map(profilHRow).join('')}</tbody>
+      <tbody>${profilyHDedup.map(profilHRow).join('')}</tbody>
     </table>` : ''}
   </div>` : ''}
 
@@ -3019,42 +3066,68 @@ function _dilnaRow(z) {
   const pracovnikOpts = `<option value="">– Nikdo –</option>` +
     users.map(u => `<option value="${u.jmeno}" ${z.pracovnik===u.jmeno?'selected':''}>${u.jmeno.split(' ')[0]}</option>`).join('');
 
-  // Stav dropdown — bez CNC hotovo; zakázka v CNC hotovo se zobrazí jako Výroba (připraveno k sestavení)
+  // Stav dropdown — bez CNC hotovo, bez Zkontrolováno a Expedováno (nastavují se tlačítky)
   const stavProDropdown = (z.stav === 'CNC hotovo') ? 'Výroba' : z.stav;
-  const stavOpts = ['Čeká','Výroba','Hotovo','Zkontrolováno','Expedováno'].map(s =>
+  const stavOptsValues = ['Čeká','Výroba','Hotovo'];
+  // Pokud je zakázka ve stavu mimo dropdown, přidáme ji jako disabled option
+  const extraOpt = !stavOptsValues.includes(stavProDropdown)
+    ? `<option value="${stavProDropdown}" selected disabled>${stavProDropdown}</option>` : '';
+  const stavOpts = extraOpt + stavOptsValues.map(s =>
     `<option value="${s}" ${stavProDropdown===s?'selected':''}>${s}</option>`
   ).join('');
 
-  // Banner pro stav Hotovo
-  const bannerRow = z.stav === 'Hotovo' ? `<tr><td colspan="9" style="padding:0">
-    <div style="background:#fef3c7;color:#92400e;text-align:center;font-weight:800;font-size:.82rem;padding:5px 8px;letter-spacing:.08em;border-bottom:2px solid #fde68a">
-      ⏳ VYČKEJTE NA KONTROLU CASE
-    </div></td></tr>` : '';
+  // Barva pozadí: Hotovo = zelená, Výroba = světle modrá, ostatní bílé
+  const rowBg = z.stav === 'Hotovo' ? 'background:#ecfccb'
+    : (z.stav === 'Výroba' || z.stav === 'CNC hotovo') ? 'background:#eff6ff'
+    : 'background:white';
+  const textMuted = (z.stav === 'Čeká') ? 'opacity:.55' : '';
+
+  // Svislá barevná čára vlevo podle stavu
+  const stavBarStyle = (z.stav === 'Výroba' || z.stav === 'CNC hotovo')
+    ? 'border-left:4px solid #1d4ed8'
+    : z.stav === 'Hotovo'
+    ? 'border-left:4px solid #65a30d'
+    : 'border-left:4px solid transparent';
 
   const terminCls = z.termin && z.termin < dnes && !['Hotovo','Zkontrolováno','Expedováno'].includes(z.stav)
     ? 'color:#dc2626;font-weight:600' : 'color:#6b7280';
 
-  const mainRow = `<tr class="tr-hover cursor-pointer${isPrio?' prioritni-row':''}" onclick="zakazkaDetail(${z.id})">
-    <td class="w-8 text-center pr-0" onclick="event.stopPropagation()">${prioBtn}</td>
-    <td>
+  // Inline info pro Zkontrolováno
+  const zkontrolovanoInfo = z.stav === 'Zkontrolováno'
+    ? (z.foceni
+        ? '<div style="font-size:.65rem;color:#1e40af;background:#dbeafe;border:1px solid #bfdbfe;border-radius:4px;padding:2px 5px;margin-top:3px;font-weight:700;white-space:nowrap">📷 Odneste na focení</div>'
+        : '<div style="font-size:.65rem;color:#15803d;background:#dcfce7;border:1px solid #bbf7d0;border-radius:4px;padding:2px 5px;margin-top:3px;font-weight:700;white-space:nowrap">📦 Odneste na přejímku</div>')
+    : '';
+
+  // Akční tlačítka na konci řádku
+  const akceButtons = z.stav === 'Hotovo'
+    ? `<button class="btn py-1 px-2 text-xs font-semibold" style="background:#65a30d;color:white;border-radius:6px" onclick="event.stopPropagation();_dilnaKontrola(${z.id})">Kontrola</button>`
+    : z.stav === 'Zkontrolováno'
+    ? `<button class="btn py-1 px-2 text-xs font-semibold" style="background:#7c3aed;color:white;border-radius:6px" onclick="event.stopPropagation();_dilnaOdneseno(${z.id})">Odneseno</button>`
+    : '';
+
+  const mainRow = `<tr class="tr-hover cursor-pointer${isPrio?' prioritni-row':''}${z.stav==='Hotovo'?' dilna-hotovo-row':''}" style="${rowBg}" onclick="zakazkaDetail(${z.id})">
+    <td class="w-8 text-center pr-0" style="${stavBarStyle}" onclick="event.stopPropagation()">${prioBtn}</td>
+    <td style="${textMuted}">
       <p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
       <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p>
     </td>
-    <td class="text-gray-700 text-sm font-medium">${z.case_nazev||z.nazev||'–'}</td>
-    <td style="min-width:160px">
+    <td class="text-gray-700 text-sm font-medium" style="${textMuted}">${z.case_nazev||z.nazev||'–'}</td>
+    <td style="min-width:160px;${textMuted}">
       <span style="font-size:.75rem;color:#374151;white-space:pre-wrap;line-height:1.4">${z.poznamka_dilna||'<span style="color:#9ca3af">–</span>'}</span>
     </td>
-    <td>
+    <td style="${textMuted}">
       ${(() => { const d = z.destinace||'Zákazník'; return `<span style="font-size:.7rem;padding:1px 7px;border-radius:999px;font-weight:600;${d==='Sklad'?'background:#dbeafe;color:#1d4ed8':'background:#dcfce7;color:#15803d'}">${d}</span>`; })()}
       ${z.zakaznik ? `<p class="text-xs text-gray-400 mt-0.5">${z.zakaznik}</p>` : ''}
     </td>
-    <td class="text-center">${cncBadge}</td>
-    <td class="text-xs" style="${terminCls}">${z.termin||'–'}</td>
+    <td class="text-center" style="${textMuted}">${cncBadge}</td>
+    <td class="text-xs" style="${terminCls};${textMuted}">${z.termin||'–'}</td>
     <td onclick="event.stopPropagation()">
       <select onchange="_dilnaSetStav(${z.id}, this.value)"
         style="font-size:.75rem;padding:2px 4px;border-radius:6px;border:1.5px solid #e2e8f0;cursor:pointer;background:white;max-width:120px">
         ${stavOpts}
       </select>
+      ${zkontrolovanoInfo}
     </td>
     <td onclick="event.stopPropagation()">
       <select onchange="_dilnaPracovnikChange(${z.id}, this.value)"
@@ -3063,24 +3136,32 @@ function _dilnaRow(z) {
       </select>
     </td>
     <td onclick="event.stopPropagation()">
-      <div class="flex gap-1">
-        <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
-        <button class="btn btn-secondary py-1 px-2 text-xs" onclick="tiskVyrobniListZakazka(${z.id})">🖨</button>
+      <div class="flex gap-1 flex-wrap">
+        ${!['Hotovo','Zkontrolováno'].includes(z.stav) ? `
+          <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
+          <button class="btn btn-secondary py-1 px-2 text-xs" onclick="tiskVyrobniListZakazka(${z.id})">🖨</button>
+        ` : ''}
+        ${akceButtons}
       </div>
     </td>
   </tr>`;
-  return mainRow + bannerRow;
+  return mainRow;
 }
 
 function _dilnaFilter() {
   const s  = (document.getElementById('dilna-search')||{value:''}).value.toLowerCase();
   const st = document.querySelector('#dilna-stavy .tab-btn.active')?.dataset.stav ?? '';
   const data = _cache.dilna || [];
+  const isVyroba = z => z.stav === 'Výroba' || z.stav === 'CNC hotovo';
   const filtered = data.filter(z =>
     (!s  || (z.hn_cislo||'').toLowerCase().includes(s) || (z.zakaznik||'').toLowerCase().includes(s) || (z.case_nazev||z.nazev||'').toLowerCase().includes(s)) &&
     // Tab "Čeká" zobrazí i CNC hotovo (montér ještě nezačal)
     (!st || z.stav === st || (st === 'Čeká' && z.stav === 'CNC hotovo'))
-  );
+  ).sort((a, b) => {
+    // Řazení: 1. prioritní+Výroba, 2. prioritní, 3. Výroba, 4. ostatní
+    const rank = z => (z.prioritni ? 2 : 0) + (isVyroba(z) ? 1 : 0);
+    return rank(b) - rank(a);
+  });
   const tbody   = document.getElementById('dilna-tbody');
   const counter = document.getElementById('dilna-count');
   if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="10" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
@@ -3101,11 +3182,43 @@ async function _dilnaSetStav(id, stav) {
     zak.stav = stav;
     if (stav === 'Hotovo' && !zak.datum_dokonceni) zak.datum_dokonceni = new Date().toISOString().slice(0,10);
     _dilnaFilter();
-    if (stav === 'Hotovo') _dilnaHotovoBanner(zak);
   } else {
     _cache.dilna = null;
     dilna();
   }
+}
+
+function _dilnaKontrola(id) {
+  const z = (_cache.dilna || []).find(z => z.id === id);
+  if (!z) return;
+  const smer = z.foceni
+    ? `<div style="background:#1e3a5f;color:white;border-radius:8px;padding:10px 20px;font-weight:800;font-size:.95rem;letter-spacing:.06em;display:inline-block;margin-top:8px">📷 ODNESTE NA FOCENÍ</div>`
+    : `<div style="background:#14532d;color:white;border-radius:8px;padding:10px 20px;font-weight:800;font-size:.95rem;letter-spacing:.06em;display:inline-block;margin-top:8px">📦 ODNESTE NA PŘEJÍMKU</div>`;
+  openModal(`
+    <div class="text-center py-4">
+      <h3 class="text-lg font-bold mb-2">Zkontrolovat case</h3>
+      <p class="text-gray-500 text-sm mb-3">Potvrďte, že je case kompletně zkontrolován a připraven k předání.</p>
+      ${smer}
+      <div class="flex gap-2 mt-5 justify-center">
+        <button class="btn btn-secondary px-5" onclick="closeModal()">Zpět</button>
+        <button class="btn btn-primary px-5" onclick="_dilnaKontrolaPotvrzeni(${id})">Zkontrolováno</button>
+      </div>
+    </div>
+  `);
+}
+
+async function _dilnaKontrolaPotvrzeni(id) {
+  closeModal();
+  await api(`/api/zakazky/${id}`, 'PUT', { stav: 'Zkontrolováno' });
+  const zak = (_cache.dilna || []).find(z => z.id === id);
+  if (zak) { zak.stav = 'Zkontrolováno'; _dilnaFilter(); }
+  else { _cache.dilna = null; dilna(); }
+}
+
+async function _dilnaOdneseno(id) {
+  await api(`/api/zakazky/${id}`, 'PUT', { stav: 'Expedováno' });
+  _cache.dilna = (_cache.dilna || []).filter(z => z.id !== id);
+  _dilnaFilter();
 }
 
 async function _dilnaPracovnikChange(id, pracovnik) {

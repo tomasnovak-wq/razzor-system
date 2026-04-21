@@ -172,7 +172,8 @@ def vygeneruj_pdf(faktura: dict, polozky: list) -> bytes:
 
     # ── Tabulka položek ────────────────────────────────────────────────────
     # Šířky sloupců: KÓD+NÁZEV | KS | CENA ZA MJ | SAZBA | ZÁKLAD | CELKEM S DPH
-    col_w = [86 * mm, 12 * mm, 28 * mm, 18 * mm, 28 * mm, 28 * mm]
+    # Součet = 174 mm (přesně šířka obsahu A4 při okrajích 18 mm)
+    col_w = [70 * mm, 10 * mm, 24 * mm, 16 * mm, 26 * mm, 28 * mm]
 
     tbl_data = [['KÓD + NÁZEV', 'KS', 'CENA ZA MJ', 'SAZBA', 'ZÁKLAD', 'CELKEM S DPH']]
     for p in polozky:
@@ -214,7 +215,7 @@ def vygeneruj_pdf(faktura: dict, polozky: list) -> bytes:
     y = y - tbl_h - 6 * mm
 
     # ── Rekapitulace DPH ──────────────────────────────────────────────────
-    rek_x = MR - 88 * mm
+    rek_x = MR - 96 * mm
     rek_data = [
         ['Sazba DPH', 'Základ bez DPH', 'DPH', 'Celkem s DPH'],
         [
@@ -224,7 +225,8 @@ def vygeneruj_pdf(faktura: dict, polozky: list) -> bytes:
             _fmt_czk(faktura.get('celkem_s_dph', 0)) + ' Kč',
         ],
     ]
-    rtbl = Table(rek_data, colWidths=[22 * mm, 24 * mm, 22 * mm, 22 * mm])
+    # Součet = 96 mm (shodně s šířkou pruhu "CELKEM K ÚHRADĚ" i s rek_x = MR - 96 mm)
+    rtbl = Table(rek_data, colWidths=[22 * mm, 26 * mm, 24 * mm, 24 * mm])
     rtbl.setStyle(TableStyle([
         ('FONT',       (0, 0), (-1, 0),  FONT_B, 8),
         ('FONT',       (0, 1), (-1, -1), FONT,   8),
@@ -242,11 +244,11 @@ def vygeneruj_pdf(faktura: dict, polozky: list) -> bytes:
     # Celkem k úhradě – barevný pruh
     cy = y - rh - 4 * mm
     cv.setFillColorRGB(0.12, 0.27, 0.55)
-    cv.rect(rek_x, cy - 8 * mm, 90 * mm, 10 * mm, fill=1, stroke=0)
+    cv.rect(rek_x, cy - 8 * mm, 96 * mm, 10 * mm, fill=1, stroke=0)
     cv.setFont(FONT_B, 10)
     cv.setFillColorRGB(1, 1, 1)
     cv.drawString(rek_x + 3 * mm, cy - 5.5 * mm, 'CELKEM K ÚHRADĚ:')
-    cv.drawRightString(rek_x + 87 * mm, cy - 5.5 * mm,
+    cv.drawRightString(rek_x + 93 * mm, cy - 5.5 * mm,
                        _fmt_czk(faktura.get('celkem_s_dph', 0)) + ' Kč')
     cv.setFillColorRGB(0, 0, 0)
 

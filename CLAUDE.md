@@ -110,8 +110,7 @@ Stav „Zrušeno" neexistuje — zrušená zakázka se fyzicky smaže (`DELETE /
 
 Stav lze měnit přímo v seznamu zakázek přes inline `<select>` v řádku — bez otevírání dialogu. Změna se projeví okamžitě (cache se aktualizuje v JS bez reloadu).
 
-Bannery pod řádkem zakázky (viditelné v hlavním seznamu):
-- `Hotovo` → žlutý: „VYČKEJTE NA KONTROLU CASE"
+Bannery pod řádkem zakázky (viditelné v hlavním seznamu zakázek v kanceláři):
 - `Zkontrolováno` + `foceni=1` → černý: „ODNESTE NA FOCENÍ"
 - `Zkontrolováno` + `fakturovano=1` → zelený: „ODNESTE NEPRODLENĚ NA PŘEJÍMKU"
 - `Zkontrolováno` + `fakturovano=0` → červený: „VYČKEJTE NA VYSTAVENÍ FAKTURY"
@@ -166,6 +165,31 @@ Kliknutí na řádek **neotevírá detail** — detail se otvírá jen tlačítk
 ### Karta Dílna (dilna sekce)
 
 Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Sloupce: ★ | HN/Typ | Název | Poznámka z kanceláře (`poznamka_dilna`, read-only) | Zákazník/Sklad (badge) | CNC (checklist chipů) | Termín | Stav | Pracovník | Akce
+
+**Barevné kódování řádků:**
+- Prioritní zakázka (hvězdička) → světle modrý podklad (`#eff6ff`, CSS třída `.prioritni-row !important`)
+- Výroba / CNC hotovo → světle modrý podklad (stejná barva, inline `style`)
+- Hotovo → světle zelený podklad (`#ecfccb`, CSS třída `.dilna-hotovo-row !important` — přebíjí i `.prioritni-row`)
+- Ostatní stavy → bílý podklad
+
+**Svislá barevná čára vlevo** (na první `<td>` — hvězdičce):
+- Výroba / CNC hotovo → tmavě modrá (`border-left: 4px solid #1d4ed8`)
+- Hotovo → olivově zelená (`border-left: 4px solid #65a30d`)
+- Ostatní → průhledná
+
+**Řazení řádků** (funkce `_dilnaFilter`): 1. prioritní+Výroba, 2. prioritní, 3. Výroba, 4. ostatní. Implementováno přes `.sort()` s rank skóre `(prioritni ? 2 : 0) + (isVyroba ? 1 : 0)`.
+
+**Workflow stavů v Dílně** — dropdown `<select>` obsahuje pouze: Čeká, Výroba, Hotovo. Stavy Zkontrolováno a Expedováno se nastavují výhradně tlačítky:
+- Stav `Hotovo` → zobrazí se zelené tlačítko **Kontrola** (skryjí se Detail a 🖨). Po kliknutí vyskočí modal s potvrzením a informací kam case odnést (📷 Focení nebo 📦 Přejímku dle pole `foceni`). Potvrzení nastaví stav na `Zkontrolováno` (funkce `_dilnaKontrolaPotvrzeni`).
+- Stav `Zkontrolováno` → zobrazí se fialové tlačítko **Odneseno** + inline badge „Odneste na focení" nebo „Odneste na přejímku". Kliknutí nastaví stav na `Expedováno` a case zmizí ze seznamu (funkce `_dilnaOdneseno`).
+
+**Detail modal v Dílně** (funkce `zakazkaDetail`):
+- Stav zakázky je zobrazen jako badge přímo v záhlaví (tmavý pruh) vedle HN čísla
+- Tlačítka „Změnit stav" a „Zrušit zakázku" jsou odstraněna — zobrazuje se pouze „Tisk výrobního listu"
+- Sekce **Desky a pěny** je sbalená (`<details>/<summary>`) — kliknutím se rozbalí; při tisku se zobrazí standardně
+- Poznámka pro Dílnu (`poznamka_dilna`) se zobrazuje bez emoji kladívka
+- **Profily – formátování**: duplicitní řádky se stejným `rozmer_mm` jsou sloučeny (sečtou se ks) přes funkci `_dedupProfily()` ve frontendu
+- **Zarážky děrovačky** jsou zobrazeny jako prostý text (ne editovatelná pole). Pokud backend nemá hodnotu (NULL), frontend ji dopočítá z délky profilu funkcemi `_calcZarazka(mm)` a `_calcZarazka2(mm)` (rozteč 128 mm, druhý průchod od 7+ otvorů). Profily kratší než 128 mm zarážky nemají záměrně.
 
 ### Frontend (app.html)
 
