@@ -6378,6 +6378,8 @@ async function _kanSaveField(id, field, value) {
       const z = d.zakazky.find(x => x.id === id);
       if (z) z[field] = value || null;
     }
+    // při změně priority okamžitě překresli (barva + řazení)
+    if (field === 'priorita') _kanRender();
   }
 }
 

@@ -1,8 +1,8 @@
 {
-  "verze": 33,
-  "popis": "Příprava zakázek: řazení všech sloupců, datum DD.MM.YYYY, výchozí sort podle priority, sloupec Aktivní, přepínač Zobrazit vše",
+  "verze": 1,
+  "popis": "Příprava zakázek: okamžitá aktualizace barvy a řazení po změně priority",
   "autor": "Tomas",
   "datum": "22.04.2026",
-  "cas": "16:24",
-  "git_commit": "692a9d4"
+  "cas": "17:21",
+  "git_commit": "4211641"
 }
