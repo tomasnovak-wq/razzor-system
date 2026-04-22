@@ -6342,7 +6342,7 @@ async function _dochSave(uid, datum, field, value) {
 // ── KANCELÁŘ ──────────────────────────────────────────────────────────────
 
 let _kanStitkFilter = [];
-let _kanShowInactive = false;
+let _kanShowAll = false;
 
 function _kanStitkBadge(s) {
   return `<span class="badge" style="background:${s.barva};color:${_textColor(s.barva)};font-size:.7rem;padding:2px 8px">${s.nazev.replace(/_/g,' ')}</span>`;
@@ -6399,7 +6399,7 @@ async function kancelar() {
   setFilter('');
   setContent(`<div class="flex items-center justify-center h-32"><div class="text-gray-400">Načítám…</div></div>`);
 
-  const aktivniParam = _kanShowInactive ? '0' : '1';
+  const aktivniParam = _kanShowAll ? '' : '1';
   const [rZak, rSt, rUz, rStav] = await Promise.all([
     api('/api/kancelar/zakazky?aktivni=' + aktivniParam),
     api('/api/kancelar/stitky'),
@@ -6426,7 +6426,7 @@ async function kancelar() {
       <div class="flex-1"></div>
       <input id="kan-search" class="input" style="max-width:180px;padding:4px 10px" placeholder="Hledat…" oninput="_kanRender()">
       <label class="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
-        <input type="checkbox" ${_kanShowInactive?'checked':''} onchange="_kanToggleInactive(this.checked)"> Neaktivní
+        <input type="checkbox" ${_kanShowAll?'checked':''} onchange="_kanToggleShowAll(this.checked)"> Zobrazit vše
       </label>
       <button class="btn btn-primary" onclick="kanNovaModal()">+ Nová zakázka</button>
     </div>`);
@@ -6441,7 +6441,7 @@ function _kanToggleFilter(id) {
   kancelar();
 }
 function _kanClearFilter() { _kanStitkFilter = []; kancelar(); }
-function _kanToggleInactive(v) { _kanShowInactive = v; _cache.kancelar = null; kancelar(); }
+function _kanToggleShowAll(v) { _kanShowAll = v; _cache.kancelar = null; kancelar(); }
 
 function _kanEsc(s) { return (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
@@ -6488,24 +6488,27 @@ function _kanRender() {
       `<option value="${s.id}">${s.nazev}</option>`).join('');
     const stPick = addSt ? `<select class="kan-input" style="width:auto;font-size:.65rem;padding:1px 4px" onchange="_kanAddStitok(${z.id},this)"><option value="">+ štítek</option>${addSt}</select>` : '';
     const hotovo = z.vyrobni_zakazka_id;
-    const datum = (z.created_at||'').slice(0,10);
+    const datumIso = (z.created_at||'').slice(0,10);
+    const datumDisp = datumIso ? datumIso.slice(8)+'.'+datumIso.slice(5,7)+'.'+datumIso.slice(0,4) : '';
     const prioStyle = (_KAN_PRIO[z.priorita]||{bg:'#e5e7eb',fg:'#374151'});
+    const prioOrder = {'Řešit okamžitě':1,'Vysoká':2,'Střední':3,'Nízká':4};
+    const resitelJmeno = uzivatele.find(u=>u.id==z.resitel_id)?.jmeno || '';
 
     return `<tr class="border-b border-gray-50 hover:bg-gray-50/50" style="${!z.aktivni?'opacity:.5':''}">
-      <td class="text-xs text-gray-400 whitespace-nowrap">${datum}</td>
+      <td data-sort="${datumIso}" class="text-xs text-gray-400 whitespace-nowrap">${datumDisp}</td>
       <td style="min-width:160px">
         <span class="font-medium text-blue-600 hover:underline cursor-pointer" onclick="kanDetail(${z.id})" title="Otevřít detail">${z.nazev||'<em class=text-gray-400>bez názvu</em>'}</span>
       </td>
-      <td style="min-width:130px">
+      <td data-sort="${_kanEsc(z.zakaznik||'')}" style="min-width:130px">
         ${_kanInlineText(z.id,'zakaznik',z.zakaznik,'Zákazník')}
         <div class="flex gap-1 mt-0.5">
           ${_kanInlineText(z.id,'tel',z.tel,'Tel')}
           ${_kanInlineText(z.id,'mail',z.mail,'Mail')}
         </div>
       </td>
-      <td style="min-width:90px">${_kanInlineText(z.id,'hn_kod',z.hn_kod,'HN kód')}</td>
-      <td>${_kanInlineSel(z.id,'resitel_id',z.resitel_id,uzOpts)}</td>
-      <td>
+      <td data-sort="${_kanEsc(z.hn_kod||'')}" style="min-width:90px">${_kanInlineText(z.id,'hn_kod',z.hn_kod,'HN kód')}</td>
+      <td data-sort="${_kanEsc(resitelJmeno)}">${_kanInlineSel(z.id,'resitel_id',z.resitel_id,uzOpts)}</td>
+      <td data-sort="${prioOrder[z.priorita]||9}">
         <select class="kan-input" data-id="${z.id}" data-field="priorita" onchange="_kanBlur(this)"
           style="background:${prioStyle.bg};color:${prioStyle.fg};font-weight:600;font-size:.72rem;border-radius:6px;padding:2px 6px">
           ${prioOpts.map(o=>`<option value="${o.v}" ${z.priorita==o.v?'selected':''}>${o.l}</option>`).join('')}
@@ -6514,7 +6517,7 @@ function _kanRender() {
       <td>
         <div class="flex flex-wrap gap-1 items-center">${sB}${stPick}</div>
       </td>
-      <td>${_kanInlineSel(z.id,'co_hotovo',z.co_hotovo||'',stavOpts)}</td>
+      <td data-sort="${_kanEsc(z.co_hotovo||'')}">${_kanInlineSel(z.id,'co_hotovo',z.co_hotovo||'',stavOpts)}</td>
       <td>
         <input type="checkbox" ${z.aktivni!=0?'checked':''} title="Aktivní"
           onchange="_kanSaveField(${z.id},'aktivni',this.checked?1:0)">
@@ -6537,7 +6540,7 @@ function _kanRender() {
     </style>
     <div class="flex items-center justify-between mb-3">
       <div>
-        <h2 class="text-xl font-bold text-gray-800">${_kanShowInactive ? 'Neaktivní zakázky' : 'Příprava zakázek'}</h2>
+        <h2 class="text-xl font-bold text-gray-800">Příprava zakázek${_kanShowAll ? ' – vše' : ''}</h2>
         <p class="text-sm text-gray-400">${filtered.length} z ${zakazky.length} záznamů</p>
       </div>
     </div>
@@ -6546,11 +6549,14 @@ function _kanRender() {
         <thead><tr>
           <th>Datum</th><th>Název zakázky</th><th>Zákazník / Kontakt</th><th>HN kód</th>
           <th>Řeší</th><th>Priorita</th><th class="no-sort">Štítky</th>
-          <th>Stav</th><th class="no-sort">✓</th><th class="no-sort">Akce</th>
+          <th>Stav</th><th class="no-sort">Aktivní</th><th class="no-sort">Akce</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`);
+  // Výchozí řazení podle Priority (Řešit okamžitě nahoře)
+  const _kt = document.querySelector('#page-content table.tbl-sort');
+  if (_kt) _sortTable(_kt, 5);
 }
 
 async function _kanRemoveStitok(zakId, stitokId) {

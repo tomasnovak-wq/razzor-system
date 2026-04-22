@@ -1,8 +1,8 @@
 {
-  "verze": 32,
-  "popis": "Dilna: razeni Hotovo/Zkontrolovano nahoru, svisla cara u Zkontrolovano, fix inicialniho renderu pres _dilnaFilter",
-  "autor": "Ludek",
-  "datum": "21.04.2026",
-  "cas": "10:05",
-  "git_commit": "b35b9ec"
+  "verze": 33,
+  "popis": "Příprava zakázek: řazení všech sloupců, datum DD.MM.YYYY, výchozí sort podle priority, sloupec Aktivní, přepínač Zobrazit vše",
+  "autor": "Tomas",
+  "datum": "22.04.2026",
+  "cas": "16:24",
+  "git_commit": "692a9d4"
 }
