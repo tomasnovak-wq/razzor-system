@@ -6994,7 +6994,8 @@ async function kanPrevestModal(id) {
   const rZ    = await api(`/api/kancelar/zakazky/${id}`);
   const z     = rZ.zakazka || {};
 
-  const typyOpts = `<option value="">— Vybrat typ casu —</option>` +
+  // Typ casu options — předvybrání pokud hn_kod sedí
+  const typyOpts = `<option value="">— Vyberte typ casu ze seznamu —</option>` +
     typy.map(t => `<option value="${t.id}" ${(z.hn_kod&&t.hn_cislo===z.hn_kod)?'selected':''}>${t.hn_cislo} – ${t.nazev}</option>`).join('');
 
   openModal(`
@@ -7002,24 +7003,39 @@ async function kanPrevestModal(id) {
     <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm">
       <strong>${z.nazev}</strong>${z.zakaznik ? ` · ${z.zakaznik}` : ''}
     </div>
-    <div class="mb-3"><label class="text-xs text-gray-500 block mb-1">Typ casu (HN číslo)</label>
-      <select id="kp-typ" class="select">${typyOpts}</select></div>
-    <div class="mb-3"><label class="text-xs text-gray-500 block mb-1">Nebo vlastní HN číslo</label>
-      <input id="kp-hn" class="input" value="${z.hn_kod||''}" placeholder="HN123456"></div>
-    <div class="mb-4"><label class="text-xs text-gray-500 block mb-1">Počet kusů</label>
-      <input id="kp-ks" type="number" class="input" value="1" min="1" style="max-width:100px"></div>
+    <div class="mb-2">
+      <label class="text-xs text-gray-500 block mb-1">Hledat typ casu</label>
+      <input id="kp-search" class="input" placeholder="HN číslo nebo název…" oninput="_kanTypSearch(this.value)">
+    </div>
+    <div class="mb-4">
+      <label class="text-xs text-gray-500 block mb-1">Typ casu (HN číslo) <span class="text-red-500">*</span></label>
+      <select id="kp-typ" class="select" size="6" style="height:auto;min-height:130px">${typyOpts}</select>
+      <p class="text-xs text-gray-400 mt-1">HN číslo se vždy vybírá ze seznamu — ruční zadání není povoleno.</p>
+    </div>
     <div class="flex gap-3 justify-end">
       <button class="btn btn-secondary" onclick="closeModal()">Zrušit</button>
       <button class="btn btn-success" onclick="_kanPrevest(${id})">✓ Vytvořit výrobní zakázku</button>
     </div>`, true);
+
+  // Ulož všechny typy pro filtrování
+  window._kanTypyAll = typy;
+}
+
+function _kanTypSearch(q) {
+  const sel = document.getElementById('kp-typ');
+  if (!sel) return;
+  const typy = window._kanTypyAll || [];
+  const ql = q.toLowerCase();
+  sel.innerHTML = `<option value="">— Vyberte typ casu ze seznamu —</option>` +
+    typy.filter(t => !ql || t.hn_cislo.toLowerCase().includes(ql) || (t.nazev||'').toLowerCase().includes(ql))
+        .map(t => `<option value="${t.id}">${t.hn_cislo} – ${t.nazev}</option>`).join('');
 }
 
 async function _kanPrevest(id) {
   const typ_casu_id = document.getElementById('kp-typ')?.value;
-  const hn_cislo    = document.getElementById('kp-hn')?.value?.trim() || '';
-  const pocet_ks    = parseInt(document.getElementById('kp-ks')?.value) || 1;
+  if (!typ_casu_id) return alert('Vyberte typ casu ze seznamu (HN číslo).');
   const r = await api(`/api/kancelar/zakazky/${id}/prevest`, 'POST',
-    { typ_casu_id: typ_casu_id ? parseInt(typ_casu_id) : null, hn_cislo, pocet_ks });
+    { typ_casu_id: parseInt(typ_casu_id) });
   if (r.error) return alert('Chyba: ' + r.error);
   closeModal();
   alert(`✓ Výrobní zakázka #${r.vyrobni_zakazka_id} vytvořena`);

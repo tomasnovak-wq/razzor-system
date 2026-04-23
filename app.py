@@ -2162,8 +2162,11 @@ def api_kan_zakaznik_delete(zid):
 
 @app.route('/api/kancelar/zakazky/<int:kid>/prevest', methods=['POST'])
 def api_kancelar_prevest(kid):
-    """Převede kancelářskou zakázku na výrobní zakázku."""
+    """Převede kancelářskou zakázku na výrobní zakázku (vždy 1 ks, HN z BOM)."""
     d = request.get_json() or {}
+    typ_casu_id = d.get('typ_casu_id')
+    if not typ_casu_id:
+        return jsonify({'error': 'Vyberte typ casu ze seznamu — HN číslo musí pocházet z BOM.'}), 400
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT * FROM kancelar_zakazky WHERE id=?", (kid,))
@@ -2171,16 +2174,22 @@ def api_kancelar_prevest(kid):
     if not kz:
         conn.close()
         return jsonify({'error': 'Zakázka nenalezena'}), 404
+    # Načti HN číslo z katalogu typů casů — ruční zadávání není povoleno
+    c.execute("SELECT hn_cislo FROM typy_casu WHERE id=?", (typ_casu_id,))
+    row_typ = c.fetchone()
+    if not row_typ:
+        conn.close()
+        return jsonify({'error': 'Vybraný typ casu neexistuje.'}), 400
+    hn_cislo = row_typ['hn_cislo']
+    # Vždy vytvořit 1 zakázku (1 zakázka = 1 ks)
     c.execute("""
         INSERT INTO zakazky (nazev, zakaznik, hn_cislo, typ_casu_id, stav, pocet_ks, termin, poznamka_dilna)
         VALUES (?,?,?,?,?,?,?,?)
-    """, (kz['nazev'], kz['zakaznik'] or '', d.get('hn_cislo',''),
-          d.get('typ_casu_id') or None, 'Čeká',
-          d.get('pocet_ks', 1), kz['termin'], kz['popis'] or ''))
+    """, (kz['nazev'], kz['zakaznik'] or '', hn_cislo,
+          typ_casu_id, 'Čeká', 1, kz['termin'], kz['popis'] or ''))
     zak_id = c.lastrowid
     c.execute("UPDATE kancelar_zakazky SET vyrobni_zakazka_id=?, updated_at=? WHERE id=?",
               (zak_id, datetime.now().isoformat(), kid))
-    # Přidej štítek Potvrzeno_zákazníkem pokud existuje
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'vyrobni_zakazka_id': zak_id})

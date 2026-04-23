@@ -1,8 +1,8 @@
 {
-  "verze": 1,
-  "popis": "Příprava zakázek: okamžitá aktualizace barvy a řazení po změně priority",
+  "verze": 3,
+  "popis": "Prevod na vyrobni zakazku: HN vzdy z BOM, zrušen počet ks, 1 zakázka = 1 ks",
   "autor": "Tomas",
-  "datum": "22.04.2026",
-  "cas": "17:21",
-  "git_commit": "4211641"
+  "datum": "23.04.2026",
+  "cas": "08:58",
+  "git_commit": "2e23ea8"
 }
