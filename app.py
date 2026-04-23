@@ -362,15 +362,25 @@ def api_bom_debug_spojeniky(typ_id):
 @app.route('/api/typy-casu', methods=['POST'])
 def api_typ_casu_create():
     data = request.json
+    hn_cislo = (data.get('hn_cislo') or '').strip()
+    nazev    = (data.get('nazev') or '').strip()
+    if not hn_cislo or not nazev:
+        return jsonify({'error': 'HN číslo a název jsou povinné.'}), 400
     conn = get_db()
     c = conn.cursor()
+    # Kontrola duplicitního HN čísla
+    c.execute("SELECT id, nazev FROM typy_casu WHERE hn_cislo=?", (hn_cislo,))
+    existing = c.fetchone()
+    if existing:
+        conn.close()
+        return jsonify({'error': f'HN číslo {hn_cislo} již existuje v BOM (typ: "{existing["nazev"]}")'}), 409
     try:
         c.execute("""
             INSERT INTO typy_casu (hn_cislo, nazev, typ_korpusu, vnitrni_sirka,
             vnitrni_vyska, vnitrni_hloubka, cena_vyroby, cas_narocnost,
             hmotnost, prodej_ap_bez_dph, poznamka)
             VALUES (?,?,?,?,?,?,?,?,?,?,?)
-        """, (data['hn_cislo'], data['nazev'], data.get('typ_korpusu',''),
+        """, (hn_cislo, nazev, data.get('typ_korpusu',''),
               data.get('vnitrni_sirka',0), data.get('vnitrni_vyska',0),
               data.get('vnitrni_hloubka',0), data.get('cena_vyroby',0),
               data.get('cas_narocnost',0), data.get('hmotnost',0),

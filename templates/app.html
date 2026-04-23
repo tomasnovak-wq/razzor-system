@@ -1288,12 +1288,39 @@ function _tcRow(i) {
   </tr>`;
 }
 
+// ── HN HELPERS ────────────────────────────────────────────────────────────
+// Porovnání HN bez ohledu na "HN" prefix: "221250" i "HN221250" najde "HN221250"
+function _hnFilter(t, q) {
+  if (!q) return true;
+  const ql = q.toLowerCase();
+  const qlNum = ql.replace(/^hn/i, '');  // strip "HN" prefix z query
+  const hn = (t.hn_cislo || '').toLowerCase();
+  const hnNum = hn.replace(/^hn/, '');   // strip "HN" prefix z hodnoty
+  const nazev = (t.nazev || '').toLowerCase();
+  return hnNum.includes(qlNum) || hn.includes(ql) || nazev.includes(ql);
+}
+
+// Live kontrola duplicit při zadávání HN čísla v BOM formuláři
+function _tcHnCheck(num) {
+  const status = document.getElementById('tc-hn-status');
+  if (!status) return;
+  if (!num || num.length === 0) { status.textContent = ''; return; }
+  if (num.length < 6) { status.innerHTML = `<span style="color:#9ca3af">${6 - num.length} číslic zbývá</span>`; return; }
+  const hn = 'HN' + num;
+  const existuje = (_cache.typy || []).find(t => t.hn_cislo === hn);
+  if (existuje) {
+    status.innerHTML = `<span style="color:#dc2626">⚠ ${hn} již existuje — "${existuje.nazev}"</span>`;
+  } else {
+    status.innerHTML = `<span style="color:#16a34a">✓ ${hn} je volné</span>`;
+  }
+}
+
 function _tcFilter() {
   const s = (document.getElementById('tc-search')||{value:''}).value.toLowerCase();
   const t = (document.getElementById('tc-typ')||{value:''}).value;
   const data = _cache.typy || [];
   const filtered = data.filter(i =>
-    (!s || i.hn_cislo.toLowerCase().includes(s) || i.nazev.toLowerCase().includes(s)) &&
+    _hnFilter(i, s) &&
     (!t || i.typ_korpusu === t)
   );
   const tbody = document.getElementById('tc-tbody');
@@ -1863,7 +1890,20 @@ async function editTypCasu(id) {
     </div>
     <div class="space-y-3">
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="text-xs text-gray-500">HN číslo *</label><input class="input" id="tc-hn" value="${t.hn_cislo}" ${isEdit?'disabled':''}></div>
+        <div>
+          <label class="text-xs text-gray-500">HN číslo * <span class="text-gray-400 font-normal">${isEdit?'':'(zadej 6 číslic)'}</span></label>
+          ${isEdit
+            ? `<input class="input" id="tc-hn" value="${t.hn_cislo}" disabled style="background:#f8fafc;color:#64748b">`
+            : `<div style="display:flex;align-items:stretch;border:1.5px solid #e2e8f0;border-radius:8px;overflow:hidden;background:white">
+                <span style="display:flex;align-items:center;padding:0 10px;background:#f1f5f9;color:#475569;font-weight:700;font-size:.9rem;border-right:1.5px solid #e2e8f0;letter-spacing:.5px">HN</span>
+                <input id="tc-hn-num" maxlength="6" inputmode="numeric"
+                  style="border:none;outline:none;padding:7px 10px;flex:1;font-size:.9rem;font-family:monospace;letter-spacing:1px;min-width:0"
+                  placeholder="221250"
+                  oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,6);_tcHnCheck(this.value)">
+              </div>
+              <div id="tc-hn-status" style="font-size:.72rem;margin-top:3px;min-height:16px"></div>`
+          }
+        </div>
         <div><label class="text-xs text-gray-500">Název *</label><input class="input" id="tc-nazev" value="${t.nazev}"></div>
       </div>
       <div><label class="text-xs text-gray-500">Typ korpusu</label>
@@ -1909,8 +1949,17 @@ async function editTypCasu(id) {
 }
 
 async function saveTypCasu(existingId) {
+  // HN číslo: při editaci disabled input, při novém vytváření 6místný number input
+  let hn_cislo;
+  if (existingId) {
+    hn_cislo = (document.getElementById('tc-hn')?.value || '').trim();
+  } else {
+    const num = (document.getElementById('tc-hn-num')?.value || '').replace(/[^0-9]/g, '');
+    if (!num || num.length !== 6) return alert('HN číslo musí mít přesně 6 číslic (např. 221250).');
+    hn_cislo = 'HN' + num;
+  }
   const data = {
-    hn_cislo:          document.getElementById('tc-hn').value.trim(),
+    hn_cislo,
     nazev:             document.getElementById('tc-nazev').value.trim(),
     typ_korpusu:       document.getElementById('tc-typ').value,
     vnitrni_sirka:     parseInt(document.getElementById('tc-s').value)||0,
@@ -7088,8 +7137,7 @@ async function _kanHnModal(zakId, aktualniHn) {
 function _kanHnOpts(q) {
   const typy = window._kanHnTypy || [];
   const aktHn = window._kanHnAktualniHn || '';
-  const ql = (q||'').toLowerCase();
-  const filtered = typy.filter(t => !ql || t.hn_cislo.toLowerCase().includes(ql) || (t.nazev||'').toLowerCase().includes(ql));
+  const filtered = typy.filter(t => _hnFilter(t, q));
   return `<option value="">— Odebrat HN / zatím neznámý —</option>` +
     filtered.map(t => `<option value="${t.hn_cislo}" ${t.hn_cislo===aktHn?'selected':''}>${t.hn_cislo} – ${t.nazev}</option>`).join('');
 }
@@ -7106,8 +7154,7 @@ function _kanTypSearch(q) {
   const sel = document.getElementById('kp-typ');
   if (!sel) return;
   const typy = window._kanTypyAll || [];
-  const ql = q.toLowerCase();
-  const filtered = typy.filter(t => !ql || t.hn_cislo.toLowerCase().includes(ql) || (t.nazev||'').toLowerCase().includes(ql));
+  const filtered = typy.filter(t => _hnFilter(t, q));
   sel.innerHTML = `<option value="">— Vyberte typ casu ze seznamu —</option>` +
     filtered.map(t => `<option value="${t.id}">${t.hn_cislo} – ${t.nazev}</option>`).join('');
   // Pokud zbyde právě 1 výsledek, rovnou ho vyber

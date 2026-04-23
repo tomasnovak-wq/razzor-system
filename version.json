@@ -1,8 +1,8 @@
 {
-  "verze": 5,
-  "popis": "HN kód vždy z BOM – zrušeno ruční zadávání ve výrobní zakázce, kanceláři a tabulce",
+  "verze": 6,
+  "popis": "BOM: HN prefix auto, live duplikát check, vyhledávání bez HN prefixu",
   "autor": "Tomas",
   "datum": "23.04.2026",
-  "cas": "09:15",
-  "git_commit": "2945257"
+  "cas": "09:27",
+  "git_commit": "6aa0424"
 }
