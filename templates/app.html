@@ -2114,14 +2114,17 @@ async function editZakazka(id, prefill={}) {
       <button onclick="closeModal()" class="btn btn-secondary py-1 px-2">✕</button>
     </div>
     <div class="space-y-3">
-      <div><label class="text-xs text-gray-500">Typ casu (BOM)</label>
+      <div><label class="text-xs text-gray-500">Typ casu (BOM) <span class="text-red-500">*</span></label>
         <select class="select" id="zak-typ" onchange="zakTypChange(this)">
-          <option value="">– Ruční zadání –</option>
+          <option value="">— Vyberte typ casu ze seznamu —</option>
           ${typyItems.map(t=>`<option value="${t.id}" data-hn="${t.hn_cislo}" data-nazev="${t.nazev.replace(/"/g,'&quot;')}" ${z.typ_casu_id==t.id?'selected':''}>${t.hn_cislo} – ${t.nazev}</option>`).join('')}
         </select>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="text-xs text-gray-500">HN číslo</label><input class="input" id="zak-hn" value="${z.hn_cislo}"></div>
+        <div><label class="text-xs text-gray-500">HN číslo</label>
+          <input class="input" id="zak-hn" value="${z.hn_cislo}" readonly
+            style="background:#f8fafc;color:#64748b;cursor:default"
+            title="HN číslo se vyplní automaticky po výběru typu casu ze seznamu výše"></div>
         <div><label class="text-xs text-gray-500">Název / popis</label><input class="input" id="zak-nazev" value="${z.nazev}"></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
@@ -2158,6 +2161,7 @@ function zakTypChange(sel) {
 async function saveZakazka(existingId, typId) {
   const selTyp = document.getElementById('zak-typ');
   const finalTypId = selTyp.value ? parseInt(selTyp.value) : (typId || null);
+  if (!finalTypId) return alert('Vyberte typ casu ze seznamu — HN číslo musí pocházet z BOM.');
   const data = {
     typ_casu_id: finalTypId,
     hn_cislo: document.getElementById('zak-hn').value.trim(),
@@ -6508,7 +6512,13 @@ function _kanRender() {
           ${_kanInlineText(z.id,'mail',z.mail,'Mail')}
         </div>
       </td>
-      <td data-sort="${_kanEsc(z.hn_kod||'')}" style="min-width:90px">${_kanInlineText(z.id,'hn_kod',z.hn_kod,'HN kód')}</td>
+      <td data-sort="${_kanEsc(z.hn_kod||'')}" style="min-width:90px">
+        <button class="kan-hn-btn" onclick="_kanHnModal(${z.id},'${_kanEsc(z.hn_kod||'')}')"
+          title="Kliknout pro výběr HN z BOM"
+          style="background:${z.hn_kod?'#eff6ff':'#f8fafc'};color:${z.hn_kod?'#1d4ed8':'#94a3b8'};border:1px solid ${z.hn_kod?'#bfdbfe':'#e2e8f0'};border-radius:6px;padding:2px 8px;font-size:.75rem;cursor:pointer;white-space:nowrap">
+          ${z.hn_kod || '— přiřadit —'}
+        </button>
+      </td>
       <td data-sort="${_kanEsc(resitelJmeno)}">${_kanInlineSel(z.id,'resitel_id',z.resitel_id,uzOpts)}</td>
       <td data-sort="${prioOrder[z.priorita]||9}">
         <select class="kan-input" data-id="${z.id}" data-field="priorita" onchange="_kanBlur(this)"
@@ -6587,12 +6597,15 @@ async function kanNovaModal() {
   const allSt = stitky || (await api('/api/kancelar/stitky')).stitky || [];
   const allUz = uzivatele || (await api('/api/uzivatele')).uzivatele || [];
   const allStav = stavList || (await api('/api/kancelar/stav-hotovo')).items || [];
+  const allTypy = ((await api('/api/typy-casu?limit=2000')).items || []);
 
   const uzEl = `<option value="">— Nepřiřazeno —</option>` +
     allUz.filter(u=>u.aktivni).map(u=>`<option value="${u.id}">${u.jmeno}</option>`).join('');
   const prioEl = ['Řešit okamžitě','Vysoká','Střední','Nízká'].map(p=>
     `<option value="${p}" ${p==='Střední'?'selected':''}>${p}</option>`).join('');
   const stavEl = `<option value="">—</option>` + allStav.map(s=>`<option value="${s.nazev}">${s.nazev}</option>`).join('');
+  const hnEl = `<option value="">— Zatím neznámý / nevybráno —</option>` +
+    allTypy.map(t=>`<option value="${t.hn_cislo}">${t.hn_cislo} – ${t.nazev}</option>`).join('');
   const stEl = allSt.filter(s=>s.aktivni).map(s=>`
     <label class="flex items-center gap-2 cursor-pointer py-1 px-2 rounded hover:bg-gray-50">
       <input type="checkbox" class="kan-st-chk" value="${s.id}"> ${_kanStitkBadge(s)}
@@ -6607,8 +6620,8 @@ async function kanNovaModal() {
         <input id="kf-zakaznik" class="input" placeholder="Firma / jméno"
           oninput="_kanZakaznikAutofill(this.value)" list="kan-zakaznici-list">
         <datalist id="kan-zakaznici-list"></datalist></div>
-      <div><label class="text-xs text-gray-500 block mb-1">HN kód</label>
-        <input id="kf-hn" class="input" placeholder="HN123456"></div>
+      <div><label class="text-xs text-gray-500 block mb-1">HN kód (z BOM)</label>
+        <select id="kf-hn" class="select">${hnEl}</select></div>
       <div><label class="text-xs text-gray-500 block mb-1">Telefon</label>
         <input id="kf-tel" class="input" placeholder="+420…"></div>
       <div><label class="text-xs text-gray-500 block mb-1">E-mail</label>
@@ -7038,6 +7051,55 @@ function _kanTypSelect(sel) {
   if (!search || !sel.value) return;
   const hnPart = (sel.options[sel.selectedIndex]?.text || '').split(' – ')[0].trim();
   search.value = hnPart;
+}
+
+// ── HN KÓD — mini-modal výběru z BOM (pro hlavní tabulku kanceláře) ──────
+async function _kanHnModal(zakId, aktualniHn) {
+  const typy = window._kanTypyAll || ((await api('/api/typy-casu?limit=2000')).items || []);
+  window._kanTypyAll = typy;
+
+  const renderOpts = (q='') => {
+    const ql = q.toLowerCase();
+    const filtered = typy.filter(t => !ql || t.hn_cislo.toLowerCase().includes(ql) || (t.nazev||'').toLowerCase().includes(ql));
+    return `<option value="">— Odebrat HN / zatím neznámý —</option>` +
+      filtered.map(t => `<option value="${t.hn_cislo}" ${t.hn_cislo===aktualniHn?'selected':''}>${t.hn_cislo} – ${t.nazev}</option>`).join('');
+  };
+
+  openModal(`
+    <h3 class="text-base font-bold mb-3">Vybrat HN kód z BOM</h3>
+    <div class="mb-2">
+      <input id="khn-search" class="input" placeholder="Hledat HN nebo název…" oninput="document.getElementById('khn-sel').innerHTML=_kanHnOpts(this.value)">
+    </div>
+    <select id="khn-sel" class="select" size="7" style="height:auto;min-height:150px">${renderOpts()}</select>
+    <div class="flex gap-3 justify-end mt-4">
+      <button class="btn btn-secondary" onclick="closeModal()">Zrušit</button>
+      <button class="btn btn-primary" onclick="_kanHnUlozit(${zakId})">✓ Uložit</button>
+    </div>`, true);
+
+  window._kanHnTypy = typy;
+  window._kanHnAktualniHn = aktualniHn;
+  // Předvyber
+  if (aktualniHn) {
+    const sel = document.getElementById('khn-sel');
+    if (sel) sel.value = aktualniHn;
+  }
+}
+
+function _kanHnOpts(q) {
+  const typy = window._kanHnTypy || [];
+  const aktHn = window._kanHnAktualniHn || '';
+  const ql = (q||'').toLowerCase();
+  const filtered = typy.filter(t => !ql || t.hn_cislo.toLowerCase().includes(ql) || (t.nazev||'').toLowerCase().includes(ql));
+  return `<option value="">— Odebrat HN / zatím neznámý —</option>` +
+    filtered.map(t => `<option value="${t.hn_cislo}" ${t.hn_cislo===aktHn?'selected':''}>${t.hn_cislo} – ${t.nazev}</option>`).join('');
+}
+
+async function _kanHnUlozit(zakId) {
+  const val = document.getElementById('khn-sel')?.value || '';
+  await _kanSaveField(zakId, 'hn_kod', val || null);
+  closeModal();
+  _cache.kancelar = null;
+  kancelar();
 }
 
 function _kanTypSearch(q) {
