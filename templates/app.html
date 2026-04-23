@@ -6994,9 +6994,12 @@ async function kanPrevestModal(id) {
   const rZ    = await api(`/api/kancelar/zakazky/${id}`);
   const z     = rZ.zakazka || {};
 
-  // Typ casu options — předvybrání pokud hn_kod sedí
+  // Najdi předvybraný typ podle hn_kod ze zakázky
+  const presel = z.hn_kod ? typy.find(t => t.hn_cislo === z.hn_kod) : null;
+  const searchVal = presel ? presel.hn_cislo : '';
+
   const typyOpts = `<option value="">— Vyberte typ casu ze seznamu —</option>` +
-    typy.map(t => `<option value="${t.id}" ${(z.hn_kod&&t.hn_cislo===z.hn_kod)?'selected':''}>${t.hn_cislo} – ${t.nazev}</option>`).join('');
+    typy.map(t => `<option value="${t.id}" ${presel && t.id === presel.id ? 'selected' : ''}>${t.hn_cislo} – ${t.nazev}</option>`).join('');
 
   openModal(`
     <h3 class="text-lg font-bold mb-3">Převést na výrobní zakázku</h3>
@@ -7005,11 +7008,13 @@ async function kanPrevestModal(id) {
     </div>
     <div class="mb-2">
       <label class="text-xs text-gray-500 block mb-1">Hledat typ casu</label>
-      <input id="kp-search" class="input" placeholder="HN číslo nebo název…" oninput="_kanTypSearch(this.value)">
+      <input id="kp-search" class="input" placeholder="HN číslo nebo název…"
+             value="${searchVal}" oninput="_kanTypSearch(this.value)">
     </div>
     <div class="mb-4">
       <label class="text-xs text-gray-500 block mb-1">Typ casu (HN číslo) <span class="text-red-500">*</span></label>
-      <select id="kp-typ" class="select" size="6" style="height:auto;min-height:130px">${typyOpts}</select>
+      <select id="kp-typ" class="select" size="6" style="height:auto;min-height:130px"
+              onchange="_kanTypSelect(this)">${typyOpts}</select>
       <p class="text-xs text-gray-400 mt-1">HN číslo se vždy vybírá ze seznamu — ruční zadání není povoleno.</p>
     </div>
     <div class="flex gap-3 justify-end">
@@ -7017,8 +7022,22 @@ async function kanPrevestModal(id) {
       <button class="btn btn-success" onclick="_kanPrevest(${id})">✓ Vytvořit výrobní zakázku</button>
     </div>`, true);
 
-  // Ulož všechny typy pro filtrování
   window._kanTypyAll = typy;
+
+  // Scrolluj dropdown na předvybranou položku
+  if (presel) {
+    const sel = document.getElementById('kp-typ');
+    const opt = sel?.querySelector(`option[value="${presel.id}"]`);
+    if (opt) opt.scrollIntoView({ block: 'nearest' });
+  }
+}
+
+// Při výběru ze seznamu → vyplň search pole HN číslem vybrané položky
+function _kanTypSelect(sel) {
+  const search = document.getElementById('kp-search');
+  if (!search || !sel.value) return;
+  const hnPart = (sel.options[sel.selectedIndex]?.text || '').split(' – ')[0].trim();
+  search.value = hnPart;
 }
 
 function _kanTypSearch(q) {
@@ -7026,9 +7045,15 @@ function _kanTypSearch(q) {
   if (!sel) return;
   const typy = window._kanTypyAll || [];
   const ql = q.toLowerCase();
+  const filtered = typy.filter(t => !ql || t.hn_cislo.toLowerCase().includes(ql) || (t.nazev||'').toLowerCase().includes(ql));
   sel.innerHTML = `<option value="">— Vyberte typ casu ze seznamu —</option>` +
-    typy.filter(t => !ql || t.hn_cislo.toLowerCase().includes(ql) || (t.nazev||'').toLowerCase().includes(ql))
-        .map(t => `<option value="${t.id}">${t.hn_cislo} – ${t.nazev}</option>`).join('');
+    filtered.map(t => `<option value="${t.id}">${t.hn_cislo} – ${t.nazev}</option>`).join('');
+  // Pokud zbyde právě 1 výsledek, rovnou ho vyber
+  if (filtered.length === 1) {
+    sel.value = String(filtered[0].id);
+    const search = document.getElementById('kp-search');
+    if (search) search.value = filtered[0].hn_cislo;
+  }
 }
 
 async function _kanPrevest(id) {

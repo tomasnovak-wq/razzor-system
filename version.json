@@ -1,8 +1,8 @@
 {
-  "verze": 3,
-  "popis": "Prevod na vyrobni zakazku: HN vzdy z BOM, zrušen počet ks, 1 zakázka = 1 ks",
+  "verze": 4,
+  "popis": "Modal Výroba: search pole se vyplní z dropdownu i z HN kódu zakázky",
   "autor": "Tomas",
   "datum": "23.04.2026",
-  "cas": "08:58",
-  "git_commit": "2e23ea8"
+  "cas": "09:08",
+  "git_commit": "9772322"
 }
