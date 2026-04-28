@@ -1860,11 +1860,7 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
   return `
   <div class="flex gap-2 mb-2 flex-wrap">
     <button class="btn btn-primary text-xs" onclick="addBomItem(${typId})">+ Přidat materiál</button>
-    <button class="btn btn-secondary text-xs" onclick="_buSwitchTab(3)" style="border-color:#6b2040;color:#6b2040">
-      ✏ Profily – rozměry${profilyCount === 0
-        ? ' <span style="background:#dc2626;color:#fff;border-radius:4px;padding:0 5px;font-size:10px;margin-left:4px">nevyplněno</span>'
-        : ` <span style="background:#d1fae5;color:#065f46;border-radius:4px;padding:0 5px;font-size:10px;margin-left:4px">${profilyCount} ks</span>`}
-    </button>
+
     <button class="btn btn-secondary text-xs" onclick="debugBomSpojeniky(${typId})" title="Ukáže které materiály mají/nemají nastavené spojeniky">🔍 Náhled spojeníků</button>
   </div>
   ${bom.length === 0 ? '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#b91c1c">⚠ Kusovník je prázdný — přidejte materiály tlačítkem výše.</div>' : ''}
