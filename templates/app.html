@@ -1814,7 +1814,10 @@ function _buRender() {
       <h3 class="text-lg font-bold text-gray-800">${t.nazev}</h3>
       <p class="text-sm text-gray-500">${t.typ_korpusu||''} · ${t.vnitrni_sirka||'?'}×${t.vnitrni_vyska||'?'}×${t.vnitrni_hloubka||'?'} mm</p>
     </div>
-    <button onclick="_buClose()" class="btn btn-secondary py-1 px-2">✕</button>
+    <div class="flex gap-2 items-center">
+      <button onclick="_buClose();novaZakazkaZTypu(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}');" class="btn btn-success py-1 px-3 text-sm">+ Nová zakázka</button>
+      <button onclick="_buClose()" class="btn btn-secondary py-1 px-2">✕</button>
+    </div>
   </div>
   ${statsBar}
   ${tabNav}
@@ -1953,7 +1956,7 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
   </table>
   </div>` : '<p class="text-xs text-gray-400 mt-3 italic">Žádné automatické spojeniky (nastavte v detailu každého materiálu)</p>'}
   <div class="pt-4 mt-2 border-t border-gray-100">
-    <button class="btn btn-success w-full" onclick="_buClose();novaZakazkaZTypu(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}')">+ Nová zakázka do výroby</button>
+    <button class="btn btn-primary w-full" onclick="_buClose()">💾 Uložit</button>
   </div>`;
 }
 
