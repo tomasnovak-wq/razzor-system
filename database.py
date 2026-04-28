@@ -1000,6 +1000,7 @@ def auto_migrate():
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_typy_casu_dxf ON typy_casu_dxf(typ_casu_id)")
     add_column('typy_casu_dxf', 'overrides_json', "TEXT NOT NULL DEFAULT '{}'")
+    add_column('typy_casu_dxf', 'polygony_json',  "TEXT NOT NULL DEFAULT '{}'")
     log.append("  [OK] typy_casu_dxf")
 
     conn.commit()

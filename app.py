@@ -601,7 +601,7 @@ def api_dxf_get(typ_id):
     conn = get_db()
     c = conn.cursor()
     c.execute("""
-        SELECT id, nazev_souboru, vrstvy_json, varovani_json, overrides_json, nahrano
+        SELECT id, nazev_souboru, vrstvy_json, varovani_json, overrides_json, polygony_json, nahrano
         FROM typy_casu_dxf WHERE typ_casu_id=?
         ORDER BY id DESC LIMIT 1
     """, (typ_id,))
@@ -617,6 +617,7 @@ def api_dxf_get(typ_id):
             'vrstvy':         _json.loads(row['vrstvy_json']    or '[]'),
             'varovani':       _json.loads(row['varovani_json']  or '[]'),
             'overrides':      _json.loads(row['overrides_json'] or '{}'),
+            'polygony':       _json.loads(row['polygony_json']  or '{}'),
             'nahrano':        row['nahrano'],
         }
     })
@@ -914,6 +915,7 @@ def api_dxf_post(typ_id):
 
     # Zpracuj každou vrstvu
     result_layers = []
+    result_polygony = {}  # {layerName: [[pt, ...], ...]} — všechny valid polygony pro SVG náhled
     for lname, ldata in layers.items():
         chained, leftover = _chain(ldata['open'])
         if leftover:
@@ -975,6 +977,12 @@ def api_dxf_post(typ_id):
             'skryta':        typ == 'jine',
         })
 
+        # Ulož všechny valid polygony pro SVG náhled (souřadnice zaokrouhleny na 1 desetinné místo)
+        result_polygony[lname] = [
+            [[round(x, 1), round(y, 1)] for x, y in poly]
+            for poly, _ in valid
+        ]
+
     typ_order = {'deska': 0, 'pena': 1, 'jine': 2}
     result_layers.sort(key=lambda x: (typ_order.get(x['typ'], 9), x['nazev']))
 
@@ -983,10 +991,11 @@ def api_dxf_post(typ_id):
     c = conn.cursor()
     c.execute("DELETE FROM typy_casu_dxf WHERE typ_casu_id=?", (typ_id,))
     c.execute("""
-        INSERT INTO typy_casu_dxf (typ_casu_id, nazev_souboru, vrstvy_json, varovani_json)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO typy_casu_dxf (typ_casu_id, nazev_souboru, vrstvy_json, varovani_json, polygony_json)
+        VALUES (?, ?, ?, ?, ?)
     """, (typ_id, f.filename, _json.dumps(result_layers, ensure_ascii=False),
-          _json.dumps(warnings, ensure_ascii=False)))
+          _json.dumps(warnings, ensure_ascii=False),
+          _json.dumps(result_polygony, ensure_ascii=False)))
     conn.commit()
     conn.close()
 
@@ -994,6 +1003,7 @@ def api_dxf_post(typ_id):
         'ok':       True,
         'vrstvy':   result_layers,
         'varovani': warnings,
+        'polygony': result_polygony,
     })
 
 

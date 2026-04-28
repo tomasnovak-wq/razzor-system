@@ -2326,6 +2326,12 @@ function _dxfOverrideChange(sel, layerName) {
     badge.textContent = label;
   }
   _dxfRecalcSummary();
+  // Překresli SVG náhled (barvy vrstev se mohly změnit)
+  const wrap = document.getElementById('dxf-preview-wrap');
+  if (wrap && _buData?.dxfData?.polygony) {
+    const newSvg = _dxfRenderSvg(_buData.dxfData.polygony, _buData.dxfData.vrstvy || [], _dxfOverrides);
+    if (newSvg) wrap.outerHTML = newSvg;
+  }
 }
 
 /** Uloží přiřazení vrstev na server. */
@@ -2339,10 +2345,116 @@ async function _dxfSaveOverrides(typId) {
 }
 
 /** Sestaví HTML tabulky vrstev včetně override dropdownů (sdíleno pro init i refresh). */
+/** Vykreslí SVG náhled DXF výkresu. Polygony jsou barveny dle typu vrstvy (deska/pěna/jiné).
+ *  Díry jsou ošetřeny fill-rule="evenodd" — každá vrstva = jeden <path> se všemi subpolygony.
+ *  @param {Object} polygony   {layerName: [[x,y], ...][]} — z API
+ *  @param {Array}  vrstvy     — pole vrstvových objektů (nazev, typ)
+ *  @param {Object} overrides  — _dxfOverrides pro správné přiřazení barev
+ *  @returns {string} HTML se <svg> elementem
+ */
+function _dxfRenderSvg(polygony, vrstvy, overrides) {
+  if (!polygony || !Object.keys(polygony).length) return '';
+
+  // Barvy dle typu vrstvy
+  const FILL  = { deska: '#fcd34d', pena: '#86efac', jine: '#e5e7eb' };
+  const STRK  = { deska: '#92400e', pena: '#166534', jine: '#9ca3af' };
+  const OPAC  = { deska: '0.75',    pena: '0.75',    jine: '0.35'   };
+
+  // Mapa: layerName → efektivní typ (respektuje overrides)
+  const typMap = {};
+  for (const v of vrstvy) {
+    const ov = overrides[v.nazev];
+    if (!ov || ov === 'auto') typMap[v.nazev] = v.typ;
+    else if (ov === 'ignore')  typMap[v.nazev] = 'ignore';
+    else typMap[v.nazev] = ov.split(':')[0]; // 'deska:9' → 'deska'
+  }
+
+  // Globální bounding box přes všechny vrstvy
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const [lname, polys] of Object.entries(polygony)) {
+    if (typMap[lname] === 'ignore') continue;
+    for (const poly of polys)
+      for (const [x, y] of poly) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+  }
+  if (!isFinite(minX)) return '';
+
+  const W = maxX - minX, H = maxY - minY;
+  if (W < 1 || H < 1) return '';
+
+  const PAD   = W * 0.03;  // 3% padding
+  const VW    = W + 2*PAD;
+  const VH    = H + 2*PAD;
+
+  // Pomocná funkce: [x,y] → SVG souřadnice (Y je převráceno, DXF má Y nahoru)
+  const sx = x => x - minX + PAD;
+  const sy = y => VH - (y - minY + PAD);  // flip Y
+
+  // Sestav <path> za každou vrstvu
+  const paths = [];
+  // Seřaď vrstvy: jiné první (pod ostatními), pak pěna, deska navrch
+  const order = { jine: 0, pena: 1, deska: 2 };
+  const sortedLayers = Object.keys(polygony).sort(
+    (a, b) => (order[typMap[a]] ?? -1) - (order[typMap[b]] ?? -1)
+  );
+
+  for (const lname of sortedLayers) {
+    const polys = polygony[lname];
+    const typ   = typMap[lname];
+    if (typ === 'ignore') continue;
+
+    // Každý polygon → "M x,y L x,y ... Z" subpath (evenodd zpracuje díry)
+    const d = polys.map(poly =>
+      'M ' + poly.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' L ') + ' Z'
+    ).join(' ');
+
+    const fill  = FILL[typ]  || '#ddd';
+    const strk  = STRK[typ]  || '#888';
+    const opac  = OPAC[typ]  || '0.5';
+    const sw    = Math.max(0.5, VW / 500); // tloušťka čáry relativní k výkresu
+    const dash  = typ === 'jine' ? `stroke-dasharray="${(sw*3).toFixed(1)} ${(sw*2).toFixed(1)}"` : '';
+    paths.push(`<path d="${d}" fill="${fill}" fill-opacity="${opac}" fill-rule="evenodd"
+      stroke="${strk}" stroke-width="${sw.toFixed(2)}" ${dash}
+      opacity="1"><title>${lname}</title></path>`);
+  }
+
+  // Legenda
+  const visibleLayers = vrstvy.filter(v => typMap[v.nazev] !== 'ignore');
+  const legendItems = visibleLayers.map(v => {
+    const typ = typMap[v.nazev] || v.typ;
+    const col = FILL[typ] || '#ddd';
+    const bdr = STRK[typ] || '#888';
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#374151">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};border:1px solid ${bdr}"></span>
+      ${v.nazev}${v.ks ? ` (${v.ks} ks)` : ''}
+    </span>`;
+  }).join('');
+
+  return `
+  <div id="dxf-preview-wrap" style="margin-bottom:16px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;background:#f8fafc">
+    <div style="padding:6px 12px;border-bottom:1px solid #e2e8f0;font-size:.75rem;font-weight:600;color:#64748b;letter-spacing:.04em;text-transform:uppercase">
+      Náhled výkresu
+    </div>
+    <div style="padding:10px;background:#fff">
+      <svg viewBox="0 0 ${VW.toFixed(1)} ${VH.toFixed(1)}" xmlns="http://www.w3.org/2000/svg"
+           style="width:100%;max-height:380px;display:block">
+        <rect width="${VW.toFixed(1)}" height="${VH.toFixed(1)}" fill="#f9fafb"/>
+        ${paths.join('\n')}
+      </svg>
+    </div>
+    <div id="dxf-preview-legend" style="padding:6px 12px;border-top:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:10px">
+      ${legendItems}
+    </div>
+  </div>`;
+}
+
 function _dxfBuildTable(dxfData, typId) {
   const vrstvy  = dxfData.vrstvy  || [];
   const varovan = dxfData.varovani || [];
   const ovr     = dxfData.overrides || {};
+  const polygony = dxfData.polygony || {};
   // Inicializuj _dxfOverrides z DB (jen pokud nejsou lokálně změněny)
   for (const v of vrstvy) {
     if (_dxfOverrides[v.nazev] === undefined) _dxfOverrides[v.nazev] = ovr[v.nazev] || 'auto';
@@ -2393,8 +2505,11 @@ function _dxfBuildTable(dxfData, typId) {
 
   const hasUnsaved = Object.values(_dxfOverrides).some(v => v !== 'auto');
 
+  const svgHtml = _dxfRenderSvg(polygony, vrstvy, _dxfOverrides);
+
   return `
     ${warnHtml}
+    ${svgHtml}
     <div id="dxf-summary-bar" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:.84rem;color:#14532d;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
       <div>📁 <strong>${dxfData.nazev_souboru || '–'}</strong></div>
       <div>📅 ${(dxfData.nahrano||'').slice(0,16)}</div>
@@ -2484,7 +2599,8 @@ async function _buDxfUpload(typId) {
     // Nový upload → resetuj overrides (nové vrstvy)
     _dxfOverrides = {};
     _buData.dxfData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
-                        varovani: json.varovani, overrides: {}, nahrano: new Date().toISOString().slice(0,16) };
+                        varovani: json.varovani, overrides: {}, polygony: json.polygony || {},
+                        nahrano: new Date().toISOString().slice(0,16) };
     const resultsDiv = document.getElementById('dxf-results');
     if (resultsDiv) resultsDiv.innerHTML = _dxfBuildTable(_buData.dxfData, typId);
     if (btn) btn.disabled = false;

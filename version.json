@@ -1,8 +1,8 @@
 {
-  "verze": 24,
-  "popis": "DXF parser: podpora staršího formátu AC1009 (POLYLINE+VERTEX) - nutné pro výkresy z AutoCAD R12",
+  "verze": 25,
+  "popis": "DXF: SVG náhled výkresu s barevným rozlišením vrstev (deska=žlutá, pěna=zelená); překreslí se při změně přiřazení",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "15:59",
-  "git_commit": "0d70ef2"
+  "cas": "16:06",
+  "git_commit": "759e58d"
 }
