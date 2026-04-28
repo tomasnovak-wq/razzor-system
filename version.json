@@ -1,8 +1,8 @@
 {
-  "verze": 26,
-  "popis": "DXF: desky světle hnědá barva; zachování přiřazení při přepínání karet; tlačítko Uložit i dole",
+  "verze": 27,
+  "popis": "DXF: oprava SyntaxError v onchange atributu (JSON.stringify v double-quoted attr); hnědá barva badge pro desky",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "16:39",
-  "git_commit": "500070e"
+  "cas": "17:24",
+  "git_commit": "3737ee3"
 }

@@ -2263,7 +2263,7 @@ function _buLinkRowHtml(nazev, url) {
 // ─── Konstanty pro DXF záložku ────────────────────────────────────────────────
 const _DXF_TYP_LABEL = { deska: '🪵 Deska', pena: '🟡 Pěna', jine: '📦 Jiné' };
 const _DXF_TYP_COLOR = {
-  deska: 'background:#fef3c7;color:#92400e;border-color:#fde68a',
+  deska: 'background:#e8c9a0;color:#7c4a1e;border-color:#c8986a',
   pena:  'background:#d1fae5;color:#065f46;border-color:#a7f3d0',
   jine:  'background:#f1f5f9;color:#475569;border-color:#e2e8f0',
 };
@@ -2495,7 +2495,7 @@ function _dxfBuildTable(dxfData, typId) {
       <td style="padding:5px 8px;text-align:right;color:#64748b;font-size:.82rem">${v.tloustka_mm != null ? v.tloustka_mm+' mm' : '–'}</td>
       <td style="padding:5px 8px">
         <select style="font-size:.78rem;padding:3px 5px;border-radius:5px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;max-width:150px"
-                onchange="_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})">${selOpts}</select>
+                onchange='_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})'>${selOpts}</select>
       </td>
     </tr>`;
   }).join('');
