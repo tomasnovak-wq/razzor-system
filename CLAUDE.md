@@ -93,7 +93,7 @@ Schéma se nikdy neupravuje ručně. Nové sloupce a tabulky se přidávají vý
 Klíčové tabulky:
 - `materialy` — katalog materiálů (desky, profily, HW)
 - `typy_casu` — typy casů (HN221250 apod.)
-- `kusovniky` — BOM: kolik jakého materiálu jde do každého typu casu
+- `kusovniky` — BOM: kolik jakého materiálu jde do každého typu casu; sloupec `prorez_procento` (REAL) pro individuální prořez na položku
 - `zakazky` — výrobní zakázky (nové sloupce: `odeslano_do_vyroby`, `destinace`, `poznamka_cnc_operator`)
 - `sklad` + `pohyby_skladu` — stavy skladu a pohyby
 - `nabidky` — cenové nabídky zákazníkům
@@ -101,6 +101,7 @@ Klíčové tabulky:
 - `dochazka` / `dochazka_zaznamy` — docházka pracovníků
 - `fifo_davky` — FIFO evidence nákupních cen
 - `_migrations` — tracking tabulka pro jednorázové datové migrace (pattern: `SELECT 1 FROM _migrations WHERE name='...'`)
+- `typy_casu_dxf` — výsledky parsování DXF souborů pro typ casu (viz sekce DXF níže)
 
 ### Výrobní zakázky — workflow stavů
 
@@ -242,6 +243,52 @@ Příklady endpointů:
 - `GET /api/zakazky` — výrobní zakázky
 - `GET /api/verze` — aktuální verze systému (z version.json)
 - `POST /admin/upload-db` + `GET /admin/download-db` — synchronizace DB (secret: `razzor-upload-2026`)
+
+### DXF parser — záložka v BOM editoru
+
+Záložka **DXF** (tab 4) v BOM editoru (`bomDetailUnified`) umožňuje nahrát DXF výkres, analyzovat vrstvy a získat počty kusů + plochy materiálů.
+
+**Tabulka `typy_casu_dxf`** (database.py):
+```
+id, typ_casu_id, nazev_souboru, vrstvy_json, varovani_json, nahrano, overrides_json, polygony_json
+```
+
+**Endpointy** (app.py):
+- `GET  /api/typy-casu/<id>/dxf` — načte uložené výsledky + overrides + polygony pro SVG
+- `POST /api/typy-casu/<id>/dxf` — nahraje DXF soubor (multipart), spustí parser, uloží výsledky
+- `PATCH /api/typy-casu/<id>/dxf` — uloží manuální přiřazení vrstev (`overrides_json`)
+
+**Parser** (inline funkce v `api_dxf_post()`):
+- Podporuje **LWPOLYLINE** (moderní AC1015+) i starší **POLYLINE + VERTEX** (AC1009, AutoCAD R12)
+- Shoelace formula pro plochu polygonů
+- Nesting algoritmus per-vrstva: polygony na sudé hloubce = kusy, liché = díry
+- Klíčová oprava nestingu: polygon může obsahovat jen VĚTŠÍ polygon (`oa > area`) — malý otvor na šroub nemůže „obsahovat" velký kus
+- `_interior_point()`: area-weighted centroid + horizontal ray fallback pro konkávní tvary
+- `_chain()`: spojuje otevřené segmenty do uzavřených smyček (starší výkresy)
+- Detekce typu vrstvy z názvu: `D XYmm` → deska, `P XYmm` → pěna, ostatní → jiné
+- Tloušťka z názvu vrstvy regex: `^[DP]\s+(\d+(?:[.,]\d+)?)mm`
+
+**Frontend** (app.html):
+- `_dxfOverrides` — globální objekt `{layerName: 'deska:9' | 'pena:50' | 'ignore' | 'auto'}`; resetuje se jen při nahrání nového souboru nebo otevření jiného typu casu
+- `_dxfEffective(vrstva)` — vrátí efektivní `{typ, tloustka_mm}` s ohledem na override
+- `_dxfBuildTable(dxfData, typId)` — sestaví HTML tabulky vrstev + summary bar + SVG + spodní tlačítko Uložit
+- `_dxfRenderSvg(polygony, vrstvy, overrides)` — SVG náhled: deska=světle hnědá (`#c8986a`), pěna=zelená (`#86efac`), jiné=šedá; fill-rule=evenodd pro správné díry
+- `_dxfOverrideChange(sel, layerName)` — handler dropdownu; aktualizuje badge, summary, překreslí SVG
+- `_dxfRecalcSummary()` — přepočítá m² desek/pěn, zobrazí obě tlačítka Uložit (nahoře i dole)
+- `_dxfSaveOverrides(typId)` — PATCH na server, schová tlačítka po uložení
+
+**Důležité gotcha — HTML atributy s JSON.stringify:**
+V `onchange` atributu selectu MUSÍ být použity jednoduché uvozovky jako delimiter atributu, protože `JSON.stringify` produkuje dvojité uvozovky které by atribut předčasně uzavřely:
+```html
+<!-- SPRÁVNĚ: -->
+onchange='_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})'
+<!-- ŠPATNĚ (SyntaxError: Unexpected token '}' v console): -->
+onchange="_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})"
+```
+
+**Barvy v UI:**
+- Badge v tabulce (`_DXF_TYP_COLOR`): deska = `background:#e8c9a0;color:#7c4a1e`, pěna = `background:#d1fae5;color:#065f46`
+- SVG náhled (`FILL` v `_dxfRenderSvg`): deska = `#c8986a`, pěna = `#86efac`, jiné = `#e5e7eb`
 
 ### Verze
 

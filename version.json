@@ -1,8 +1,8 @@
 {
-  "verze": 27,
-  "popis": "DXF: oprava SyntaxError v onchange atributu (JSON.stringify v double-quoted attr); hnědá barva badge pro desky",
+  "verze": 28,
+  "popis": "Aktualizace CLAUDE.md: DXF parser, typy_casu_dxf, JSON.stringify gotcha, barvy UI",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "17:24",
-  "git_commit": "3737ee3"
+  "cas": "17:31",
+  "git_commit": "f9c3702"
 }
