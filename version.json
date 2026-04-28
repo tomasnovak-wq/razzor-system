@@ -1,8 +1,8 @@
 {
-  "verze": 21,
-  "popis": "DXF parser: oprava počtu kusů u desek/pěn (žádný nesting filtr), skrytí vrstev gravírů",
+  "verze": 23,
+  "popis": "DXF: manuální přiřazení vrstev - dropdown pro přiřazení materiálu (deska/pěna) ke každé vrstvě, uložení přiřazení do DB",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "15:35",
-  "git_commit": "98ffbe1"
+  "cas": "15:53",
+  "git_commit": "aca8d39"
 }

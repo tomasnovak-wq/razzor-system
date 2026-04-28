@@ -1736,6 +1736,7 @@ let _buData   = null;   // cached data for unified BOM detail popup
 let _buTab    = 2;      // 1=Specifikace, 2=Materiály, 3=Profily
 let _buActive = false;  // true while unified popup is open
 let _buDraft  = {};     // unsaved form values per tab (spec, profily)
+let _dxfOverrides = {}; // {layerName: 'deska:9' | 'pena:50' | 'ignore' | 'auto'} – přiřazení vrstev
 
 async function bomDetailUnified(typId, tab) {
   if (tab === undefined) tab = 2;
@@ -2257,93 +2258,188 @@ function _buLinkRowHtml(nazev, url) {
   </div>`;
 }
 
-function _buTabDxf(typId, dxfData) {
-  const TYP_LABEL = { deska: '🪵 Deska', pena: '🟡 Pěna', jine: '📦 Jiné' };
-  const TYP_COLOR = {
-    deska: 'background:#fef3c7;color:#92400e;border-color:#fde68a',
-    pena:  'background:#d1fae5;color:#065f46;border-color:#a7f3d0',
-    jine:  'background:#f1f5f9;color:#475569;border-color:#e2e8f0',
-  };
+// ─── Konstanty pro DXF záložku ────────────────────────────────────────────────
+const _DXF_TYP_LABEL = { deska: '🪵 Deska', pena: '🟡 Pěna', jine: '📦 Jiné' };
+const _DXF_TYP_COLOR = {
+  deska: 'background:#fef3c7;color:#92400e;border-color:#fde68a',
+  pena:  'background:#d1fae5;color:#065f46;border-color:#a7f3d0',
+  jine:  'background:#f1f5f9;color:#475569;border-color:#e2e8f0',
+};
+// Dropdown options pro přiřazení vrstvy
+const _DXF_PRIRAZENI_OPTIONS = `
+  <option value="auto">— Auto (dle názvu vrstvy) —</option>
+  <optgroup label="Deska">
+    <option value="deska:6.5">Deska 6,5 mm</option>
+    <option value="deska:9">Deska 9 mm</option>
+    <option value="deska:12">Deska 12 mm</option>
+    <option value="deska:15">Deska 15 mm</option>
+    <option value="deska:18">Deska 18 mm</option>
+  </optgroup>
+  <optgroup label="Pěna">
+    <option value="pena:10">Pěna 10 mm</option>
+    <option value="pena:20">Pěna 20 mm</option>
+    <option value="pena:30">Pěna 30 mm</option>
+    <option value="pena:50">Pěna 50 mm</option>
+  </optgroup>
+  <option value="ignore">Ignorovat</option>`;
 
-  const resultHtml = dxfData ? (() => {
-    const vrstvy      = dxfData.vrstvy  || [];
-    const varovan     = dxfData.varovani || [];
-    const viditelne   = vrstvy.filter(v => !v.skryta);
-    const skryte      = vrstvy.filter(v => v.skryta);
+/** Vrátí efektivní {typ, tloustka_mm} s ohledem na override. */
+function _dxfEffective(vrstva) {
+  const ov = _dxfOverrides[vrstva.nazev];
+  if (!ov || ov === 'auto') return { typ: vrstva.typ, tloustka_mm: vrstva.tloustka_mm };
+  if (ov === 'ignore')      return { typ: 'ignore',  tloustka_mm: null };
+  const [typ, th] = ov.split(':');
+  return { typ, tloustka_mm: parseFloat(th) };
+}
 
-    const warnHtml = varovan.length ? `
-      <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#713f12">
-        ⚠ <strong>${varovan.length} varování:</strong>
-        ${varovan.map(w => `<div class="mt-1">• ${w}</div>`).join('')}
-      </div>` : '';
+/** Přepočítá souhrnný pruh na základě aktuálních _dxfOverrides. */
+function _dxfRecalcSummary() {
+  const vrstvy = _buData?.dxfData?.vrstvy || [];
+  let deskyM2 = 0, penyM2 = 0;
+  for (const v of vrstvy) {
+    const eff = _dxfEffective(v);
+    if (eff.typ === 'deska') deskyM2 += v.plocha_m2;
+    else if (eff.typ === 'pena') penyM2 += v.plocha_m2;
+  }
+  const bar = document.getElementById('dxf-summary-bar');
+  if (!bar) return;
+  const parts = [];
+  if (deskyM2 > 0) parts.push(`🪵 Desky celkem: <strong>${deskyM2.toFixed(4)} m²</strong>`);
+  if (penyM2  > 0) parts.push(`🟡 Pěny celkem: <strong>${penyM2.toFixed(4)} m²</strong>`);
+  bar.querySelector('.dxf-summary-totals').innerHTML = parts.join('<span style="margin:0 8px;color:#a7f3d0">|</span>');
+  // Indikátor neuloženého přiřazení
+  const saveBtn = document.getElementById('dxf-save-overrides-btn');
+  if (saveBtn) saveBtn.style.display = '';
+}
 
-    const deskyM2 = viditelne.filter(v=>v.typ==='deska').reduce((s,v)=>s+v.plocha_m2,0);
-    const penyM2  = viditelne.filter(v=>v.typ==='pena').reduce((s,v)=>s+v.plocha_m2,0);
+/** Handler změny dropdownu přiřazení. */
+function _dxfOverrideChange(sel, layerName) {
+  _dxfOverrides[layerName] = sel.value;
+  // Aktualizuj badge efektivního typu v tomto řádku
+  const badge = sel.closest('tr')?.querySelector('.dxf-typ-badge');
+  if (badge) {
+    const eff = _dxfEffective({ nazev: layerName, typ: sel.closest('tr').dataset.autoTyp });
+    const label = eff.typ === 'ignore' ? '🚫 Ignorovat' : (_DXF_TYP_LABEL[eff.typ] || eff.typ);
+    const style = eff.typ === 'ignore' ? 'background:#fee2e2;color:#991b1b;border-color:#fca5a5'
+                                        : (_DXF_TYP_COLOR[eff.typ] || _DXF_TYP_COLOR.jine);
+    badge.setAttribute('style', `display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;border:1px solid;${style}`);
+    badge.textContent = label;
+  }
+  _dxfRecalcSummary();
+}
 
-    const makeRow = v => {
-      const style    = TYP_COLOR[v.typ] || TYP_COLOR.jine;
-      const repaired = v.repaired > 0
-        ? `<span title="${v.repaired} segment(ů) bylo spojeno do uzavřené křivky" style="font-size:.72rem;color:#7c3aed;margin-left:4px">🔧${v.repaired}</span>`
-        : '';
-      return `
-      <tr>
-        <td style="padding:6px 10px">
-          <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;border:1px solid;${style}">${TYP_LABEL[v.typ]||v.typ}</span>
-        </td>
-        <td style="padding:6px 10px;font-family:monospace;font-size:.88rem">${v.nazev}${repaired}</td>
-        <td style="padding:6px 10px;text-align:right;font-weight:600">${v.ks}</td>
-        <td style="padding:6px 10px;text-align:right;font-family:monospace">${v.plocha_m2.toFixed(4)} m²</td>
-        <td style="padding:6px 10px;text-align:right;color:#64748b;font-size:.82rem">${v.tloustka_mm != null ? v.tloustka_mm+' mm' : '–'}</td>
-      </tr>`;
-    };
+/** Uloží přiřazení vrstev na server. */
+async function _dxfSaveOverrides(typId) {
+  const btn = document.getElementById('dxf-save-overrides-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Ukládám…'; }
+  const r = await api(`/api/typy-casu/${typId}/dxf`, 'PATCH', { overrides: _dxfOverrides });
+  if (r.error) { alert('Chyba: ' + r.error); if (btn) { btn.disabled=false; btn.textContent='💾 Uložit přiřazení'; } return; }
+  if (_buData?.dxfData) _buData.dxfData.overrides = { ..._dxfOverrides };
+  if (btn) { btn.disabled=false; btn.textContent='✓ Uloženo'; btn.style.display='none'; }
+}
 
-    const summaryRows = [];
-    if (deskyM2 > 0) summaryRows.push(`<div>🪵 Desky celkem: <strong>${deskyM2.toFixed(4)} m²</strong></div>`);
-    if (penyM2  > 0) summaryRows.push(`<div>🟡 Pěny celkem: <strong>${penyM2.toFixed(4)} m²</strong></div>`);
+/** Sestaví HTML tabulky vrstev včetně override dropdownů (sdíleno pro init i refresh). */
+function _dxfBuildTable(dxfData, typId) {
+  const vrstvy  = dxfData.vrstvy  || [];
+  const varovan = dxfData.varovani || [];
+  const ovr     = dxfData.overrides || {};
+  // Inicializuj _dxfOverrides z DB (jen pokud nejsou lokálně změněny)
+  for (const v of vrstvy) {
+    if (_dxfOverrides[v.nazev] === undefined) _dxfOverrides[v.nazev] = ovr[v.nazev] || 'auto';
+  }
 
-    // Skryté vrstvy (gravíry, zahloubení) — výklopný detail
-    const skryteHtml = skryte.length ? `
-      <details style="margin-top:10px">
-        <summary style="font-size:.78rem;color:#94a3b8;cursor:pointer;user-select:none">
-          ${skryte.length} skrytá vrstva/vrstvy (gravíry, zahloubení — nezapočítávají se do materiálu)
-        </summary>
-        <table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-top:6px;opacity:.7">
-          <tbody>${skryte.map(makeRow).join('')}</tbody>
-        </table>
-      </details>` : '';
+  const warnHtml = varovan.length ? `
+    <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#713f12">
+      ⚠ <strong>${varovan.length} varování:</strong>
+      ${varovan.map(w => `<div class="mt-1">• ${w}</div>`).join('')}
+    </div>` : '';
 
+  const rows = vrstvy.map(v => {
+    const eff      = _dxfEffective(v);
+    const label    = eff.typ === 'ignore' ? '🚫 Ignorovat' : (_DXF_TYP_LABEL[eff.typ] || eff.typ);
+    const style    = eff.typ === 'ignore' ? 'background:#fee2e2;color:#991b1b;border-color:#fca5a5'
+                                           : (_DXF_TYP_COLOR[eff.typ] || _DXF_TYP_COLOR.jine);
+    const repaired = v.repaired > 0
+      ? `<span title="${v.repaired} segment(ů) spojeno" style="font-size:.72rem;color:#7c3aed;margin-left:4px">🔧${v.repaired}</span>` : '';
+    const curOv    = _dxfOverrides[v.nazev] || 'auto';
+    const selOpts  = _DXF_PRIRAZENI_OPTIONS.replace(
+      `value="${curOv}"`, `value="${curOv}" selected`);
     return `
-      ${warnHtml}
-      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:.84rem;color:#14532d;display:flex;gap:24px;flex-wrap:wrap">
-        <div>📁 <strong>${dxfData.nazev_souboru || '–'}</strong></div>
-        <div>📅 ${(dxfData.nahrano||'').slice(0,16)}</div>
-        ${summaryRows.join('')}
+    <tr data-auto-typ="${v.typ}">
+      <td style="padding:5px 8px">
+        <span class="dxf-typ-badge" style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;border:1px solid;${style}">${label}</span>
+      </td>
+      <td style="padding:5px 8px;font-family:monospace;font-size:.85rem">${v.nazev}${repaired}</td>
+      <td style="padding:5px 8px;text-align:right;font-weight:600">${v.ks}</td>
+      <td style="padding:5px 8px;text-align:right;font-family:monospace;font-size:.85rem">${v.plocha_m2.toFixed(4)} m²</td>
+      <td style="padding:5px 8px;text-align:right;color:#64748b;font-size:.82rem">${v.tloustka_mm != null ? v.tloustka_mm+' mm' : '–'}</td>
+      <td style="padding:5px 8px">
+        <select style="font-size:.78rem;padding:3px 5px;border-radius:5px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;max-width:150px"
+                onchange="_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})">${selOpts}</select>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Souhrnný pruh
+  let deskyM2 = 0, penyM2 = 0;
+  for (const v of vrstvy) {
+    const eff = _dxfEffective(v);
+    if (eff.typ === 'deska') deskyM2 += v.plocha_m2;
+    else if (eff.typ === 'pena') penyM2 += v.plocha_m2;
+  }
+  const summaryParts = [];
+  if (deskyM2 > 0) summaryParts.push(`🪵 Desky celkem: <strong>${deskyM2.toFixed(4)} m²</strong>`);
+  if (penyM2  > 0) summaryParts.push(`🟡 Pěny celkem: <strong>${penyM2.toFixed(4)} m²</strong>`);
+
+  const hasUnsaved = Object.values(_dxfOverrides).some(v => v !== 'auto');
+
+  return `
+    ${warnHtml}
+    <div id="dxf-summary-bar" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:.84rem;color:#14532d;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+      <div>📁 <strong>${dxfData.nazev_souboru || '–'}</strong></div>
+      <div>📅 ${(dxfData.nahrano||'').slice(0,16)}</div>
+      <div class="dxf-summary-totals" style="display:flex;gap:16px;flex-wrap:wrap">${summaryParts.join('<span style="margin:0 8px;color:#a7f3d0">|</span>')}</div>
+      <div style="margin-left:auto">
+        <button id="dxf-save-overrides-btn" class="btn btn-primary py-1 px-3 text-xs"
+                style="${hasUnsaved ? '' : 'display:none'}"
+                onclick="_dxfSaveOverrides(${typId})">💾 Uložit přiřazení</button>
       </div>
-      <table style="width:100%;border-collapse:collapse;font-size:.85rem">
-        <thead>
-          <tr style="border-bottom:2px solid #e2e8f0;color:#64748b;font-size:.78rem;text-transform:uppercase">
-            <th style="padding:4px 10px;text-align:left">Typ</th>
-            <th style="padding:4px 10px;text-align:left">Vrstva</th>
-            <th style="padding:4px 10px;text-align:right">Ks</th>
-            <th style="padding:4px 10px;text-align:right">Plocha</th>
-            <th style="padding:4px 10px;text-align:right">Tloušťka</th>
-          </tr>
-        </thead>
-        <tbody>${viditelne.map(makeRow).join('')}</tbody>
-      </table>
-      ${skryteHtml}`;
-  })() : `<p class="text-sm text-gray-400 italic text-center py-6">Zatím nebyl nahrán žádný DXF soubor.</p>`;
+    </div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+      <thead>
+        <tr style="border-bottom:2px solid #e2e8f0;color:#64748b;font-size:.75rem;text-transform:uppercase">
+          <th style="padding:4px 8px;text-align:left">Typ</th>
+          <th style="padding:4px 8px;text-align:left">Vrstva</th>
+          <th style="padding:4px 8px;text-align:right">Ks</th>
+          <th style="padding:4px 8px;text-align:right">Plocha</th>
+          <th style="padding:4px 8px;text-align:right">Tloušťka</th>
+          <th style="padding:4px 8px;text-align:left">Přiřadit jako</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>`;
+}
+
+function _buTabDxf(typId, dxfData) {
+  // Reset override stavu při každém otevření záložky (přenačítáme z DB)
+  _dxfOverrides = {};
+
+  const resultHtml = dxfData
+    ? _dxfBuildTable(dxfData, typId)
+    : `<p class="text-sm text-gray-400 italic text-center py-6">Zatím nebyl nahrán žádný DXF soubor.</p>`;
 
   return `
   <div>
     <p class="text-xs text-gray-500 mb-3">
-      Nahraj DXF výkres řezaných dílů. Systém automaticky rozpozná vrstvy desek (<code>D XYmm …</code>)
-      a pěn (<code>P XYmm …</code>), spočítá kusy a plochu.
+      Nahraj DXF výkres. Systém rozpozná vrstvy <code>D XYmm …</code> (desky) a <code>P XYmm …</code> (pěny).
+      U starých výkresů s jinak pojmenovanými hladinami použij sloupec <strong>Přiřadit jako</strong>.
     </p>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
       <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;
-                    background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;
-                    font-size:.88rem;color:#374151" title="Vybrat DXF soubor">
+                    background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:7px 14px;
+                    font-size:.88rem;color:#374151">
         📎 <span>Vybrat DXF soubor</span>
         <input type="file" accept=".dxf" id="dxf-file-input" style="display:none"
                onchange="_buDxfFileChosen(this, ${typId})">
@@ -2371,100 +2467,31 @@ async function _buDxfUpload(typId) {
   const status = document.getElementById('dxf-upload-status');
   const btn    = document.getElementById('dxf-upload-btn');
   if (!input || !input.files[0]) return;
-
-  status.textContent = '⏳ Analyzuji…';
-  status.style.color = '#6b7280';
+  status.textContent = '⏳ Analyzuji…'; status.style.color = '#6b7280';
   if (btn) btn.disabled = true;
-
   const fd = new FormData();
   fd.append('dxf', input.files[0]);
-
   try {
     const resp = await fetch(`/api/typy-casu/${typId}/dxf`, { method: 'POST', body: fd });
     const json = await resp.json();
     if (!resp.ok || json.error) {
       status.textContent = '✗ Chyba: ' + (json.error || resp.status);
       status.style.color = '#dc2626';
-      if (btn) btn.disabled = false;
-      return;
+      if (btn) btn.disabled = false; return;
     }
     status.textContent = `✓ Hotovo – ${json.vrstvy.length} vrstev`;
     status.style.color = '#16a34a';
-    // Aktualizuj dxfData v _buData a překresli záložku
-    _buData.dxfData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy, varovani: json.varovani, nahrano: new Date().toISOString().slice(0,16) };
+    // Nový upload → resetuj overrides (nové vrstvy)
+    _dxfOverrides = {};
+    _buData.dxfData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
+                        varovani: json.varovani, overrides: {}, nahrano: new Date().toISOString().slice(0,16) };
     const resultsDiv = document.getElementById('dxf-results');
-    if (resultsDiv) resultsDiv.innerHTML = _buTabDxfResultsHtml(_buData.dxfData);
+    if (resultsDiv) resultsDiv.innerHTML = _dxfBuildTable(_buData.dxfData, typId);
     if (btn) btn.disabled = false;
   } catch(e) {
-    status.textContent = '✗ Chyba sítě';
-    status.style.color = '#dc2626';
+    status.textContent = '✗ Chyba sítě'; status.style.color = '#dc2626';
     if (btn) btn.disabled = false;
   }
-}
-
-function _buTabDxfResultsHtml(dxfData) {
-  // Pomocná funkce pro překreslení výsledků bez plného _buRender (stejná logika jako _buTabDxf)
-  const TYP_LABEL = { deska: '🪵 Deska', pena: '🟡 Pěna', jine: '📦 Jiné' };
-  const TYP_COLOR = {
-    deska: 'background:#fef3c7;color:#92400e;border-color:#fde68a',
-    pena:  'background:#d1fae5;color:#065f46;border-color:#a7f3d0',
-    jine:  'background:#f1f5f9;color:#475569;border-color:#e2e8f0',
-  };
-  const vrstvy    = dxfData.vrstvy  || [];
-  const varovan   = dxfData.varovani || [];
-  const viditelne = vrstvy.filter(v => !v.skryta);
-  const skryte    = vrstvy.filter(v => v.skryta);
-  const deskyM2   = viditelne.filter(v=>v.typ==='deska').reduce((s,v)=>s+v.plocha_m2,0);
-  const penyM2    = viditelne.filter(v=>v.typ==='pena').reduce((s,v)=>s+v.plocha_m2,0);
-  const warnHtml  = varovan.length ? `
-    <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#713f12">
-      ⚠ <strong>${varovan.length} varování:</strong>
-      ${varovan.map(w=>`<div class="mt-1">• ${w}</div>`).join('')}
-    </div>` : '';
-  const makeRow = v => {
-    const style    = TYP_COLOR[v.typ] || TYP_COLOR.jine;
-    const repaired = v.repaired > 0
-      ? `<span title="${v.repaired} segmentů spojeno" style="font-size:.72rem;color:#7c3aed;margin-left:4px">🔧${v.repaired}</span>` : '';
-    return `<tr>
-      <td style="padding:6px 10px"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;border:1px solid;${style}">${TYP_LABEL[v.typ]||v.typ}</span></td>
-      <td style="padding:6px 10px;font-family:monospace;font-size:.88rem">${v.nazev}${repaired}</td>
-      <td style="padding:6px 10px;text-align:right;font-weight:600">${v.ks}</td>
-      <td style="padding:6px 10px;text-align:right;font-family:monospace">${v.plocha_m2.toFixed(4)} m²</td>
-      <td style="padding:6px 10px;text-align:right;color:#64748b;font-size:.82rem">${v.tloustka_mm!=null?v.tloustka_mm+' mm':'–'}</td>
-    </tr>`;
-  };
-  const summaryRows = [];
-  if (deskyM2 > 0) summaryRows.push(`<div>🪵 Desky celkem: <strong>${deskyM2.toFixed(4)} m²</strong></div>`);
-  if (penyM2  > 0) summaryRows.push(`<div>🟡 Pěny celkem: <strong>${penyM2.toFixed(4)} m²</strong></div>`);
-  const skryteHtml = skryte.length ? `
-    <details style="margin-top:10px">
-      <summary style="font-size:.78rem;color:#94a3b8;cursor:pointer;user-select:none">
-        ${skryte.length} skrytá vrstva/vrstvy (gravíry, zahloubení — nezapočítávají se do materiálu)
-      </summary>
-      <table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-top:6px;opacity:.7">
-        <tbody>${skryte.map(makeRow).join('')}</tbody>
-      </table>
-    </details>` : '';
-  return `
-    ${warnHtml}
-    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:.84rem;color:#14532d;display:flex;gap:24px;flex-wrap:wrap">
-      <div>📁 <strong>${dxfData.nazev_souboru||'–'}</strong></div>
-      <div>📅 ${(dxfData.nahrano||'').slice(0,16)}</div>
-      ${summaryRows.join('')}
-    </div>
-    <table style="width:100%;border-collapse:collapse;font-size:.85rem">
-      <thead>
-        <tr style="border-bottom:2px solid #e2e8f0;color:#64748b;font-size:.78rem;text-transform:uppercase">
-          <th style="padding:4px 10px;text-align:left">Typ</th>
-          <th style="padding:4px 10px;text-align:left">Vrstva</th>
-          <th style="padding:4px 10px;text-align:right">Ks</th>
-          <th style="padding:4px 10px;text-align:right">Plocha</th>
-          <th style="padding:4px 10px;text-align:right">Tloušťka</th>
-        </tr>
-      </thead>
-      <tbody>${viditelne.map(makeRow).join('')}</tbody>
-    </table>
-    ${skryteHtml}`;
 }
 
 function _buTabSoubory(typId, links) {

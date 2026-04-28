@@ -601,7 +601,7 @@ def api_dxf_get(typ_id):
     conn = get_db()
     c = conn.cursor()
     c.execute("""
-        SELECT id, nazev_souboru, vrstvy_json, varovani_json, nahrano
+        SELECT id, nazev_souboru, vrstvy_json, varovani_json, overrides_json, nahrano
         FROM typy_casu_dxf WHERE typ_casu_id=?
         ORDER BY id DESC LIMIT 1
     """, (typ_id,))
@@ -614,11 +614,26 @@ def api_dxf_get(typ_id):
         'dxf': {
             'id':             row['id'],
             'nazev_souboru':  row['nazev_souboru'],
-            'vrstvy':         _json.loads(row['vrstvy_json'] or '[]'),
-            'varovani':       _json.loads(row['varovani_json'] or '[]'),
+            'vrstvy':         _json.loads(row['vrstvy_json']    or '[]'),
+            'varovani':       _json.loads(row['varovani_json']  or '[]'),
+            'overrides':      _json.loads(row['overrides_json'] or '{}'),
             'nahrano':        row['nahrano'],
         }
     })
+
+
+@app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['PATCH'])
+def api_dxf_patch(typ_id):
+    import json as _json
+    data      = request.get_json() or {}
+    overrides = data.get('overrides', {})
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE typy_casu_dxf SET overrides_json=? WHERE typ_casu_id=?",
+              (_json.dumps(overrides, ensure_ascii=False), typ_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['POST'])
@@ -648,12 +663,6 @@ def api_dxf_post(typ_id):
         s = sum(pts[i][0] * pts[(i+1) % n][1] - pts[(i+1) % n][0] * pts[i][1] for i in range(n))
         return abs(s) / 2.0
 
-    def _centroid(pts):
-        n = len(pts)
-        if n == 0:
-            return (0.0, 0.0)
-        return (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n)
-
     def _dist(a, b):
         return _math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
 
@@ -670,6 +679,62 @@ def api_dxf_post(typ_id):
                 inside = not inside
             j = i
         return inside
+
+    def _interior_point(poly):
+        """Vrátí bod zaručeně uvnitř polygonu.
+
+        Algoritmus:
+        1. Zkus správný geometrický těžiště (vzorec přes plochu, ne průměr vrcholů).
+           Průměr vrcholů leží mimo polygon u tvarů s nerovnoměrným rozložením vrcholů.
+        2. Pokud těžiště leží mimo polygon → horizontální paprsky v několika výškách
+           → střed prvního vnitřního úseku.
+        3. Fallback: aritmetický průměr vrcholů.
+        """
+        n = len(poly)
+        if n < 3:
+            return (poly[0][0], poly[0][1])
+
+        # Správný geometrický těžiště (area-weighted)
+        A = 0.0
+        cx = cy = 0.0
+        for i in range(n):
+            x0, y0 = poly[i]
+            x1, y1 = poly[(i + 1) % n]
+            cross = x0 * y1 - x1 * y0
+            A += cross
+            cx += (x0 + x1) * cross
+            cy += (y0 + y1) * cross
+        A *= 0.5
+        if abs(A) > 1e-10:
+            cx /= 6.0 * A
+            cy /= 6.0 * A
+        else:
+            cx = sum(p[0] for p in poly) / n
+            cy = sum(p[1] for p in poly) / n
+
+        if _pip((cx, cy), poly):
+            return (cx, cy)
+
+        # Těžiště leží mimo polygon (silně konkávní tvar) → horizontální paprsek
+        ys = [p[1] for p in poly]
+        min_y, max_y = min(ys), max(ys)
+        for frac in (0.5, 0.25, 0.75, 0.33, 0.67, 0.1, 0.9):
+            test_y = min_y + (max_y - min_y) * frac
+            xs_cross = []
+            for i in range(n):
+                x0, y0 = poly[i]
+                x1, y1 = poly[(i + 1) % n]
+                if (y0 < test_y <= y1) or (y1 < test_y <= y0):
+                    t = (test_y - y0) / (y1 - y0 + 1e-15)
+                    xs_cross.append(x0 + t * (x1 - x0))
+            xs_cross.sort()
+            for k in range(0, len(xs_cross) - 1, 2):
+                mid_x = (xs_cross[k] + xs_cross[k + 1]) / 2.0
+                if _pip((mid_x, test_y), poly):
+                    return (mid_x, test_y)
+
+        # Fallback
+        return (cx, cy)
 
     def _chain(segments):
         """Spoj otevřené segmenty do uzavřených smyček."""
@@ -821,22 +886,28 @@ def api_dxf_post(typ_id):
         else:
             typ = 'jine'
 
-        # Nesting per-vrstva:
-        #   - Desky (D) a pěny (P): ŽÁDNÝ nesting — na těchto vrstvách jsou výhradně
-        #     řezané kusy, nikdy zahloubení/gravíry. Nesting by chybně vynechával kusy
-        #     ležící geometricky uvnitř jiných (časté u nested layoutů).
-        #   - Ostatní vrstvy: nesting normálně (filtruj engraving kontury).
+        # Nesting per-vrstva — určí hloubku každého polygonu.
+        # Polygony na sudé hloubce (0, 2, …) jsou kusy; liché (1, 3, …) jsou díry/pockety.
+        #
+        # Klíčová oprava: místo průměru vrcholů (_centroid) používáme _interior_point,
+        # který vrátí zaručeně vnitřní bod polygonu. Průměr vrcholů může ležet mimo polygon
+        # u tvarů s nerovnoměrně rozmístěnými vrcholy → chybná klasifikace jako "uvnitř jiného".
+        # Navíc: pokud nenajdeme bod uvnitř vlastního polygonu, tvar počítáme jako kus (buďme
+        # konzervativní a raději kus připočítáme než vynecháme).
         valid.sort(key=lambda x: -x[1])
         pieces = []
-        if typ in ('deska', 'pena'):
-            # Všechny polygony nad MIN_A jsou kusy
-            pieces = [a for _, a in valid]
-        else:
-            for poly, area in valid:
-                cx, cy = _centroid(poly)
-                depth = sum(1 for op, _ in valid if op is not poly and _pip((cx, cy), op))
-                if depth % 2 == 0:
-                    pieces.append(area)
+        for poly, area in valid:
+            pt = _interior_point(poly)
+            if not _pip(pt, poly):
+                # Nedaří se najít vnitřní bod → počítej jako kus (konzervativní přístup)
+                pieces.append(area)
+                continue
+            # Klíč: polygony může obsahovat jen VĚTŠÍ polygon.
+            # Malý otvor (např. otvor na šroub) nemůže "obsahovat" velký kus, přestože
+            # geometrický těžiště kusu leží uvnitř otvoru (otvor je fyzicky v kusu).
+            depth = sum(1 for op, oa in valid if op is not poly and oa > area and _pip(pt, op))
+            if depth % 2 == 0:
+                pieces.append(area)
 
         if not pieces:
             continue
