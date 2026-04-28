@@ -26,6 +26,7 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background:#f1f5f9; }
 .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; }
 .modal { background:white; border-radius:16px; padding:28px; width:100%; max-width:600px; max-height:90vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,.2); }
 .modal-lg { max-width:900px; }
+.modal-xl { max-width:1100px; }
 .tr-hover:hover { background:#f8fafc; }
 th { font-size:.75rem; font-weight:600; color:#6b7280; text-transform:uppercase; padding:10px 12px; text-align:left; }
 td { padding:8px 12px; font-size:.875rem; color:#374151; border-bottom:1px solid #f1f5f9; }
@@ -217,7 +218,7 @@ table.tbl-sort thead th.no-sort::after { content: '' !important; }
 </div>
 
 <!-- MODAL -->
-<div id="modal-overlay" class="modal-overlay hidden" onclick="if(event.target===this)_modalOverlayClose()">
+<div id="modal-overlay" class="modal-overlay hidden" onmousedown="_modalMousedown(event)" onclick="_modalOverlayClick(event)">
   <div id="modal-box" class="modal"></div>
 </div>
 
@@ -373,7 +374,7 @@ function badge(status, cls='') {
 
 function fmt(n, dec=2) {
   if (n === null || n === undefined || n === '') return '–';
-  return Number(n).toLocaleString('cs-CZ', {minimumFractionDigits:dec, maximumFractionDigits:dec});
+  return Number(n).toLocaleString('cs-CZ', {minimumFractionDigits:0, maximumFractionDigits:dec});
 }
 
 function fmtKc(n) {
@@ -406,14 +407,23 @@ function _typJednotka(typ) {
 // ── MODAL ─────────────────────────────────────────────────────────────────
 function openModal(content, large=false) {
   const box = document.getElementById('modal-box');
-  box.className = 'modal' + (large ? ' modal-lg' : '');
+  box.className = 'modal' + (large === 'xl' ? ' modal-xl' : large ? ' modal-lg' : '');
   box.innerHTML = content;
   document.getElementById('modal-overlay').classList.remove('hidden');
 }
 function closeModal() {
   document.getElementById('modal-overlay').classList.add('hidden');
 }
-// Zavření kliknutím mimo modál – pokud jsme na typy-casu, osvěžíme seznam
+// Zavření kliknutím mimo modál — chráníme před zavřením při výběru textu (drag mimo okno)
+let _modalMousedownOnOverlay = false;
+function _modalMousedown(event) {
+  _modalMousedownOnOverlay = (event.target === document.getElementById('modal-overlay'));
+}
+function _modalOverlayClick(event) {
+  if (event.target === document.getElementById('modal-overlay') && _modalMousedownOnOverlay) {
+    _modalOverlayClose();
+  }
+}
 function _modalOverlayClose() {
   closeModal();
   if (currentPage === 'typy-casu') {
@@ -810,6 +820,32 @@ async function materialDetail(kod) {
         <span>${fmt(p.mnozstvi,2)}</span><span class="text-gray-400">${p.datum}</span><span class="text-gray-400">${p.poznamka||''}</span>
       </div>`).join('') || '<p class="text-gray-400">Žádné pohyby</p>'}
     </div>
+
+    ${pou.length > 0 ? `
+    <details class="mt-5 group">
+      <summary class="cursor-pointer text-xs text-red-400 hover:text-red-600 select-none list-none flex items-center gap-1">
+        <span class="group-open:hidden">▶</span><span class="hidden group-open:inline">▼</span>
+        Nebezpečná zóna
+      </summary>
+      <div class="mt-3 border-2 border-red-200 rounded-xl p-4 bg-red-50">
+        <p class="text-sm font-bold text-red-700 mb-1">⚠ Odebrat ze všech kusovníků</p>
+        <p class="text-xs text-red-600 mb-3">
+          Tato akce odebere <strong>${m.nazev}</strong> z <strong>${pou.length} kusovníků</strong> najednou.
+          Operace je nevratná. Pro potvrzení opište kód materiálu:
+        </p>
+        <div class="flex gap-2">
+          <input id="mat-danger-confirm" class="input flex-1 border-red-300 text-sm font-mono"
+                 placeholder="${m.kod}" autocomplete="off"
+                 oninput="document.getElementById('mat-danger-btn').disabled = this.value !== '${m.kod}'">
+          <button id="mat-danger-btn" disabled
+                  class="btn px-4 text-sm font-semibold text-white disabled:opacity-40"
+                  style="background:#dc2626;border-color:#b91c1c"
+                  onclick="_odebratZVsechBOMSecure('${kodEsc}','${m.nazev.replace(/'/g,"\\'")}')">
+            Odebrat ze všech
+          </button>
+        </div>
+      </div>
+    </details>` : ''}
   `, true);
 }
 
@@ -1275,7 +1311,7 @@ function _tcRow(i) {
   const koef  = parseFloat(cp.koeficient_mc)||2.2;
   const dph   = parseFloat(cp.dph)||21;
   const mcTitle = `(${fmtKc(i.cena_dilu||0)} dílů + ${fmt(i.cas_narocnost||0,1)}h × ${sazba} Kč/h) × ${koef} × ${100+dph}%`;
-  return `<tr class="tr-hover cursor-pointer" onclick="bomDetail(${i.id})">
+  return `<tr class="tr-hover cursor-pointer" onclick="bomDetailUnified(${i.id}, 2)">
     <td class="font-mono text-blue-600 text-xs font-semibold">${i.hn_cislo}</td>
     <td class="font-medium">${i.nazev}</td>
     <td class="text-xs text-gray-500">${i.typ_korpusu||'–'}</td>
@@ -1287,8 +1323,8 @@ function _tcRow(i) {
     <td class="text-right font-semibold text-green-700" data-sort="${i.prodej_ap_bez_dph||0}">${i.prodej_ap_bez_dph > 0 ? fmtKc(i.prodej_ap_bez_dph) : '–'}</td>
     <td class="text-right font-semibold text-purple-700" data-sort="${mc}" title="${mcTitle}">${mc > 0 ? fmtKc(mc) : '–'}</td>
     <td onclick="event.stopPropagation()"><div class="flex gap-1">
-      <button class="btn btn-primary py-1 px-2 text-xs" onclick="bomDetail(${i.id})">BOM</button>
-      <button class="btn btn-secondary py-1 px-2 text-xs" onclick="editTypCasu(${i.id})">Upravit</button>
+      <button class="btn btn-primary py-1 px-2 text-xs" onclick="bomDetailUnified(${i.id}, 2)">BOM</button>
+      <button class="btn btn-secondary py-1 px-2 text-xs" onclick="bomDetailUnified(${i.id}, 1)">Upravit</button>
       <button class="btn btn-success py-1 px-2 text-xs" onclick="novaZakazkaZTypu(${i.id},'${i.hn_cislo}','${i.nazev.replace(/'/g,"\\'")}')">+ Zakázka</button>
     </div></td>
   </tr>`;
@@ -1377,6 +1413,7 @@ async function typyCasu() {
 }
 
 async function bomDetail(typId) {
+  if (_buActive) { return bomDetailUnified(typId, 2); }
   const [data, casData] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
@@ -1387,6 +1424,7 @@ async function bomDetail(typId) {
   const cena = data.cena_dilu || 0;
   const hmotnostBom = data.hmotnost_bom || 0;
   const links = data.links || [];
+  const profilyCount = data.profily_count || 0;
   // Hmotnost: preferuj ručně zadanou, fallback na BOM součet
   const hmotnostZobraz = (t.hmotnost > 0) ? `${fmt(t.hmotnost,2)} kg` : (hmotnostBom > 0 ? `~${fmt(hmotnostBom,2)} kg` : '–');
 
@@ -1540,14 +1578,14 @@ async function bomDetail(typId) {
         </div>
       </div>
     </div>` : ''}
-    <div class="flex gap-2 mb-4">
-      <button class="btn btn-primary text-xs" onclick="addBomItem(${typId})">+ Přidat položku</button>
-      <button class="btn btn-success text-xs" onclick="closeModal();novaZakazkaZTypu(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}')">+ Nová zakázka</button>
-      <button class="btn btn-secondary text-xs" onclick="tiskVyrobniList(${typId})">🖨 Výrobní list</button>
-      <button class="btn btn-secondary text-xs" onclick="editProfilyPlan(${typId})" style="border-color:#6b2040;color:#6b2040">✏ Profily</button>
-      <button class="btn btn-secondary text-xs" onclick="editOdkazy(${typId})" style="border-color:#4338ca;color:#4338ca">📎 Postupy</button>
-      <button class="btn btn-secondary text-xs text-orange-600" onclick="debugBomSpojeniky(${typId})" title="Diagnostika: ukáže které materiály mají/nemají spojeniky">🔍 Debug spojeniky</button>
+    <div class="flex gap-2 mb-2">
+      <button class="btn btn-primary text-xs" onclick="addBomItem(${typId})">+ Přidat materiál</button>
+      <button class="btn btn-secondary text-xs" onclick="editProfilyPlan(${typId})" style="border-color:#6b2040;color:#6b2040">
+        ✏ Profily – rozměry${profilyCount === 0 ? ' <span style="background:#dc2626;color:#fff;border-radius:4px;padding:0 5px;font-size:10px;margin-left:4px">nevyplněno</span>' : ' <span style="background:#d1fae5;color:#065f46;border-radius:4px;padding:0 5px;font-size:10px;margin-left:4px">' + profilyCount + ' ks</span>'}
+      </button>
+      <button class="btn btn-secondary text-xs" onclick="debugBomSpojeniky(${typId})" title="Ukáže které materiály mají/nemají nastavené spojeniky">🔍 Náhled spojeníků</button>
     </div>
+    ${bom.length === 0 ? '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#b91c1c">⚠ Kusovník je prázdný — přidejte materiály tlačítkem výše.</div>' : ''}
 
     ${links.length ? `
     <div style="margin-bottom:16px;padding:10px 14px;border-radius:8px;border:1px solid #c7d2fe;background:#eef2ff">
@@ -1577,10 +1615,6 @@ async function bomDetail(typId) {
                 <button class="rounded bg-orange-100 hover:bg-orange-200 px-2 py-0.5 text-orange-700 whitespace-nowrap"
                         onclick="removeBomItem(${typId},'${b.material_kod}')">
                   Odebrat z tohoto BOM
-                </button>
-                <button class="rounded bg-red-100 hover:bg-red-200 px-2 py-0.5 text-red-700 whitespace-nowrap"
-                        onclick="odebratZVsechBOM('${b.material_kod}','${b.nazev.replace(/'/g,"\\'")}')">
-                  Odebrat ze VŠECH BOM
                 </button>
               </div>
             </div>
@@ -1613,7 +1647,6 @@ async function bomDetail(typId) {
           <td>
             <div class="flex gap-1 items-center">
               <button class="text-red-400 hover:text-red-600 text-xs px-1" title="Odebrat z tohoto BOM" onclick="removeBomItem(${typId},'${b.material_kod}')">✕</button>
-              <button class="text-gray-300 hover:text-red-500 text-xs px-1" title="Odebrat ze VŠECH kusovníků" onclick="odebratZVsechBOM('${b.material_kod}','${b.nazev.replace(/'/g,"\\'")}')">✕✕</button>
             </div>
           </td>
         </tr>`;
@@ -1658,15 +1691,396 @@ async function bomDetail(typId) {
       </tbody>
     </table>
     </div>` : `<p class="text-xs text-gray-400 mt-3 italic">Žádné automatické spojeniky (nastavte v detailu každého materiálu)</p>`}
-  `, true);
+
+    <div class="pt-4 mt-2 border-t border-gray-100">
+      <button class="btn btn-success w-full" onclick="closeModal();novaZakazkaZTypu(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}')">+ Nová zakázka do výroby</button>
+    </div>
+  `, 'xl');
+}
+
+// ── UNIFIED BOM DETAIL ────────────────────────────────────────────────────
+let _buData   = null;   // cached data for unified BOM detail popup
+let _buTab    = 2;      // 1=Specifikace, 2=Materiály, 3=Profily–rozměry
+let _buActive = false;  // true while unified popup is open
+
+async function bomDetailUnified(typId, tab) {
+  if (tab === undefined) tab = 2;
+  _buTab    = tab;
+  _buActive = true;
+  openModal('<div class="text-center py-10 text-gray-400">Načítám…</div>', 'xl');
+  const [data, casData, profilyData] = await Promise.all([
+    api(`/api/typy-casu/${typId}`),
+    api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
+    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
+  ]);
+  _buData = { typId, data, casData, profilyData };
+  _buRender();
+}
+
+function _buSwitchTab(tab) {
+  _buTab = tab;
+  _buRender();
+}
+
+function _buClose() {
+  _buActive = false;
+  closeModal();
+  if (currentPage === 'typy-casu') {
+    _cache.typy = null;
+    typyCasu();
+  }
+}
+
+function _buRender() {
+  if (!_buData) return;
+  const { typId, data, casData, profilyData } = _buData;
+  const t = data.typ;
+  const bom = data.bom || [];
+  const spojeniky = data.spojeniky || [];
+  const cena = data.cena_dilu || 0;
+  const hmotnostBom = data.hmotnost_bom || 0;
+  const links = data.links || [];
+  const profilyCount = data.profily_count || 0;
+  const hmotnostZobraz = (t.hmotnost > 0) ? `${fmt(t.hmotnost,2)} kg` : (hmotnostBom > 0 ? `~${fmt(hmotnostBom,2)} kg` : '–');
+
+  // Stats bar (always visible at top)
+  const cp = casData?.ceny_par || _cache.ceny_par || {};
+  const casH = casData ? casData.celkem_s / 3600 : (t.cas_narocnost || 0);
+  const mc = _pocitejMC(cena, casH, cp);
+  const sazba = parseFloat(cp.sazba_prace)||300;
+  const koef  = parseFloat(cp.koeficient_mc)||2.2;
+  const dph   = parseFloat(cp.dph)||21;
+  const cenaPrace = casH * sazba;
+  const tooltip = `(${fmtKc(cena)} dílů + ${fmt(casH,2)}h × ${sazba} Kč/h) × ${koef} × ${100+dph}% = ${fmtKc(mc)} s DPH`;
+
+  const statsBar = `
+  <div class="flex gap-2 flex-wrap mb-4 text-sm">
+    <div class="bg-blue-50 rounded-lg p-3 flex-1 text-center min-w-20">
+      <p class="text-gray-400 text-xs">Cena dílů</p>
+      <p class="font-bold text-blue-600">${fmtKc(cena)}</p>
+    </div>
+    <div class="bg-green-50 rounded-lg p-3 flex-1 text-center min-w-20">
+      <p class="text-gray-400 text-xs">Cena výroby</p>
+      <p class="font-bold text-green-600">${fmtKc(t.cena_vyroby)}</p>
+    </div>
+    <div class="bg-orange-50 rounded-lg p-3 flex-1 text-center min-w-20">
+      <p class="text-gray-400 text-xs">Čas výroby</p>
+      <p class="font-bold text-orange-600">${casData ? casData.celkem_fmt : (t.cas_narocnost > 0 ? fmt(t.cas_narocnost,1)+' h' : '–')}</p>
+      ${casData && casData.ma_defaults ? `<p class="text-xs text-amber-600 mt-0.5">⚠ ${casData.defaults_cnt}× odhad</p>` : ''}
+    </div>
+    <div class="bg-gray-50 rounded-lg p-3 flex-1 text-center min-w-20">
+      <p class="text-gray-400 text-xs">Hmotnost</p>
+      <p class="font-bold text-gray-700">${hmotnostZobraz}</p>
+    </div>
+    ${t.prodej_ap_bez_dph > 0 ? `
+    <div class="bg-yellow-50 rounded-lg p-3 flex-1 text-center min-w-20">
+      <p class="text-gray-400 text-xs">Prodej AP</p>
+      <p class="font-bold text-yellow-700">${fmtKc(t.prodej_ap_bez_dph)}</p>
+    </div>` : ''}
+    ${mc > 0 ? `
+    <div class="bg-purple-50 rounded-lg p-3 flex-1 text-center min-w-20" title="${tooltip}" style="cursor:help">
+      <p class="text-gray-400 text-xs">Správná MC</p>
+      <p class="font-bold text-purple-700">${fmtKc(mc)}</p>
+      <p class="text-purple-400" style="font-size:.6rem">práce ${fmtKc(cenaPrace)}</p>
+    </div>` : ''}
+  </div>`;
+
+  // Tab navigation with left/right arrows
+  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily\u00a0–\u00a0rozměry'];
+  const btnBase = 'border:none;background:none;cursor:pointer;font-size:.85rem;padding:8px 18px;white-space:nowrap;margin-bottom:-2px';
+  const tabNav = `
+  <div style="display:flex;align-items:center;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:16px">
+    <button onclick="_buSwitchTab(${_buTab > 1 ? _buTab - 1 : 3})"
+      style="${btnBase};color:#9ca3af;font-size:1.1rem;padding:6px 10px" title="Předchozí záložka">←</button>
+    ${TAB_NAMES.map((name, i) => {
+      const idx = i + 1;
+      const active = idx === _buTab;
+      return `<button onclick="_buSwitchTab(${idx})"
+        style="${btnBase};font-weight:${active?'700':'500'};color:${active?'#1d4ed8':'#6b7280'};
+               border-bottom:${active?'2px solid #1d4ed8':'2px solid transparent'}">${name}</button>`;
+    }).join('')}
+    <button onclick="_buSwitchTab(${_buTab < 3 ? _buTab + 1 : 1})"
+      style="${btnBase};color:#9ca3af;font-size:1.1rem;padding:6px 10px" title="Další záložka">→</button>
+  </div>`;
+
+  let tabContent = '';
+  if (_buTab === 1)      tabContent = _buTabSpec(t, typId);
+  else if (_buTab === 2) tabContent = _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData);
+  else if (_buTab === 3) tabContent = _buTabProfily(typId, profilyData);
+
+  openModal(`
+  <div class="flex items-start justify-between mb-3">
+    <div>
+      <p class="text-xs font-mono text-gray-400">${t.hn_cislo}</p>
+      <h3 class="text-lg font-bold text-gray-800">${t.nazev}</h3>
+      <p class="text-sm text-gray-500">${t.typ_korpusu||''} · ${t.vnitrni_sirka||'?'}×${t.vnitrni_vyska||'?'}×${t.vnitrni_hloubka||'?'} mm</p>
+    </div>
+    <button onclick="_buClose()" class="btn btn-secondary py-1 px-2">✕</button>
+  </div>
+  ${statsBar}
+  ${tabNav}
+  ${tabContent}
+  `, 'xl');
+}
+
+function _buTabSpec(t, typId) {
+  const typy = ['Rack','Klávesy','Hlava/kombo','Accessory case','Pedalboard','Mikrofony','Ostatní'];
+  return `
+  <div class="space-y-3">
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-xs text-gray-500">HN číslo</label>
+        <input class="input" value="${t.hn_cislo}" disabled style="background:#f8fafc;color:#64748b">
+      </div>
+      <div><label class="text-xs text-gray-500">Název *</label><input class="input" id="bu-nazev" value="${t.nazev.replace(/"/g,'&quot;')}"></div>
+    </div>
+    <div><label class="text-xs text-gray-500">Typ korpusu</label>
+      <select class="select" id="bu-typ">
+        <option value="">– Nevybráno –</option>
+        ${typy.map(tp=>`<option value="${tp}" ${t.typ_korpusu===tp?'selected':''}>${tp}</option>`).join('')}
+      </select>
+    </div>
+    <div class="grid grid-cols-3 gap-3">
+      <div><label class="text-xs text-gray-500">Šířka (mm)</label><input class="input" id="bu-s" type="number" value="${t.vnitrni_sirka||0}"></div>
+      <div><label class="text-xs text-gray-500">Výška (mm)</label><input class="input" id="bu-v" type="number" value="${t.vnitrni_vyska||0}"></div>
+      <div><label class="text-xs text-gray-500">Hloubka (mm)</label><input class="input" id="bu-h" type="number" value="${t.vnitrni_hloubka||0}"></div>
+    </div>
+    <div><label class="text-xs text-gray-500">Poznámka</label><textarea class="input" id="bu-poz" rows="2">${t.poznamka||''}</textarea></div>
+    <div class="flex gap-2 pt-2">
+      <button class="btn btn-primary flex-1" onclick="_buSaveSpec(${typId})">💾 Uložit</button>
+    </div>
+  </div>`;
+}
+
+function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData) {
+  const spojKody = new Set(spojeniky.map(s => s.material_kod));
+  const prekryvy = bom.filter(b => spojKody.has(b.material_kod));
+  const cena = _buData?.data?.cena_dilu || 0;
+  const hmotnostBom = _buData?.data?.hmotnost_bom || 0;
+
+  return `
+  <div class="flex gap-2 mb-2 flex-wrap">
+    <button class="btn btn-primary text-xs" onclick="addBomItem(${typId})">+ Přidat materiál</button>
+    <button class="btn btn-secondary text-xs" onclick="_buSwitchTab(3)" style="border-color:#6b2040;color:#6b2040">
+      ✏ Profily – rozměry${profilyCount === 0
+        ? ' <span style="background:#dc2626;color:#fff;border-radius:4px;padding:0 5px;font-size:10px;margin-left:4px">nevyplněno</span>'
+        : ` <span style="background:#d1fae5;color:#065f46;border-radius:4px;padding:0 5px;font-size:10px;margin-left:4px">${profilyCount} ks</span>`}
+    </button>
+    <button class="btn btn-secondary text-xs" onclick="debugBomSpojeniky(${typId})" title="Ukáže které materiály mají/nemají nastavené spojeniky">🔍 Náhled spojeníků</button>
+  </div>
+  ${bom.length === 0 ? '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#b91c1c">⚠ Kusovník je prázdný — přidejte materiály tlačítkem výše.</div>' : ''}
+  ${links.length ? `
+  <div style="margin-bottom:16px;padding:10px 14px;border-radius:8px;border:1px solid #c7d2fe;background:#eef2ff">
+    <p style="font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4338ca;margin-bottom:8px">📎 Pracovní postupy</p>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      ${links.map(lnk => `<a href="${lnk.url}" target="_blank"
+        style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:1px solid #a5b4fc;background:white;color:#3730a3;font-size:.8rem;font-weight:500;text-decoration:none"
+        onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='white'">
+        📄 ${lnk.nazev}
+      </a>`).join('')}
+    </div>
+  </div>` : ''}
+  ${prekryvy.length ? `<div class="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+    <p class="text-sm font-semibold text-orange-700 mb-1">⚠ Dvojí výskyt – tyto materiály jsou v kusovníku I v spojenikách:</p>
+    <div class="space-y-1">
+      ${prekryvy.map(b => `
+        <div class="flex items-center justify-between text-xs text-orange-800">
+          <span><span class="font-mono">${b.material_kod}</span> – ${b.nazev}</span>
+          <button class="rounded bg-orange-100 hover:bg-orange-200 px-2 py-0.5 text-orange-700 whitespace-nowrap"
+                  onclick="removeBomItem(${typId},'${b.material_kod}')">Odebrat z tohoto BOM</button>
+        </div>`).join('')}
+    </div>
+  </div>` : ''}
+  <h4 class="font-semibold text-sm mb-2">Kusovník (${bom.length} položek)</h4>
+  <div class="max-h-72 overflow-y-auto">
+  <table class="w-full text-sm">
+    <thead class="sticky top-0 bg-white"><tr>
+      <th class="w-6 pb-2 text-center text-amber-300 no-sort">★</th>
+      <th class="text-left pb-2">Materiál</th><th class="text-left pb-2">Typ</th>
+      <th class="text-right pb-2">Množství</th><th class="text-right pb-2">Cena/j</th>
+      <th class="text-right pb-2">Celkem</th><th class="text-right pb-2">Sklad</th><th></th>
+    </tr></thead>
+    <tbody>
+    ${bom.map(b => {
+      const fav = b.oblibeny == 1;
+      const jePrekryv = spojKody.has(b.material_kod);
+      return `<tr class="border-b border-gray-50${fav ? ' bg-amber-50' : ''}${jePrekryv ? ' ring-1 ring-inset ring-orange-300' : ''}">
+        <td class="text-center text-amber-400">${fav ? '★' : ''}</td>
+        <td><p class="font-medium${fav?' text-amber-900':''}${jePrekryv?' text-orange-700':''}">${b.nazev}${jePrekryv?' <span class="text-orange-400 text-xs" title="Tento materiál je i ve spojenikách">⚠</span>':''}</p>
+            <p class="text-xs text-gray-400 font-mono">${b.material_kod}</p></td>
+        <td class="text-xs text-gray-500">${b.typ||''}</td>
+        <td class="text-right font-semibold">${fmt(b.mnozstvi,3)}</td>
+        <td class="text-right text-gray-500">${fmtKc(b.nc_bez_dph)}</td>
+        <td class="text-right font-semibold">${fmtKc(b.cena_polozky)}</td>
+        <td class="text-right text-xs ${b.stav_skladu < b.mnozstvi ? 'text-red-500' : 'text-green-600'}">${fmt(b.stav_skladu,2)}</td>
+        <td><button class="text-red-400 hover:text-red-600 text-xs px-1" title="Odebrat z tohoto BOM"
+                    onclick="removeBomItem(${typId},'${b.material_kod}')">✕</button></td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>
+  </div>
+  ${spojeniky.length ? `
+  <h4 class="font-semibold text-sm mb-2 mt-4 text-gray-500">⚙ Spojovací materiál – automaticky (${spojeniky.length} položek)</h4>
+  <div class="max-h-56 overflow-y-auto">
+  <table class="w-full text-sm">
+    <thead class="sticky top-0 bg-gray-50"><tr>
+      <th class="text-left pb-2 text-gray-500">Materiál</th>
+      <th class="text-right pb-2 text-gray-500">Množství</th>
+      <th class="text-right pb-2 text-gray-500">Celkem</th>
+      <th class="text-right pb-2 text-gray-500">Sklad</th>
+    </tr></thead>
+    <tbody>
+    ${spojeniky.map((s,si) => `
+      <tr class="border-b border-gray-100 bg-gray-50 cursor-pointer hover:bg-gray-100"
+          onclick="document.getElementById('bu-spoj-${si}').classList.toggle('hidden')">
+        <td class="py-1">
+          <p class="font-medium text-gray-500">${s.nazev} <span class="text-gray-300 text-xs">▾</span></p>
+          <p class="text-xs text-gray-400 font-mono">${s.material_kod}</p>
+        </td>
+        <td class="text-right text-gray-500 font-semibold">${fmt(s.mnozstvi,2)}</td>
+        <td class="text-right text-gray-500">${fmtKc(s.cena_polozky)}</td>
+        <td class="text-right text-xs ${s.stav_skladu < s.mnozstvi ? 'text-red-500' : 'text-green-600'}">${fmt(s.stav_skladu,2)}</td>
+      </tr>
+      <tr id="bu-spoj-${si}" class="hidden bg-blue-50">
+        <td colspan="4" class="pb-2 pt-1 px-3">
+          <p class="text-xs text-blue-600 font-semibold mb-1">Přispívající materiály:</p>
+          ${(s.zdroje||[]).map(z => `
+            <div class="flex items-center gap-2 text-xs text-blue-700 py-0.5">
+              <span class="font-mono text-blue-400">${z.material_kod}</span>
+              <span class="text-gray-500">${z.material_nazev}</span>
+              <span class="ml-auto text-gray-400">${fmt(z.bom_mnozstvi,3)} ks × ${fmt(z.mnozstvi_na_kus,2)} = <strong>${fmt(z.celkem,2)} ks</strong></span>
+            </div>`).join('')}
+        </td>
+      </tr>
+    `).join('')}
+    </tbody>
+  </table>
+  </div>` : '<p class="text-xs text-gray-400 mt-3 italic">Žádné automatické spojeniky (nastavte v detailu každého materiálu)</p>'}
+  <div class="pt-4 mt-2 border-t border-gray-100">
+    <button class="btn btn-success w-full" onclick="_buClose();novaZakazkaZTypu(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}')">+ Nová zakázka do výroby</button>
+  </div>`;
+}
+
+function _buTabProfily(typId, profilyData) {
+  const allP = profilyData?.profily || [];
+  const existL = {};
+  const existH = {};
+  allP.filter(p => p.typ_profilu === 'L').forEach(p => { existL[p.poradi - 1] = p; });
+  allP.filter(p => p.typ_profilu === 'H').forEach(p => { existH[p.poradi - 1] = p; });
+  const thStyle = 'font-size:.65rem;font-weight:600;color:#6b7280;text-transform:uppercase;padding:4px 8px;text-align:left;border-bottom:1px solid #e5e7eb';
+  return `
+  <p style="font-size:.75rem;color:#6b7280;margin-bottom:12px">
+    Klikni do prvního pole KS nebo Rozměr a stiskni <strong>Ctrl+V</strong> — hodnoty se automaticky rozdistribuují do řádků pod sebou.
+    Typ řezu / zakončení vyber kliknutím na piktogram u každého řádku.
+  </p>
+  <div style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
+    <button onclick="_pfsImportToggle()" style="width:100%;text-align:left;padding:8px 12px;background:#f9fafb;font-size:.78rem;font-weight:600;color:#374151;border:none;cursor:pointer;display:flex;align-items:center;gap:6px">
+      <span id="pfs-import-arrow">▶</span> 📋 Import z externího softwaru
+    </button>
+    <div id="pfs-import-panel" style="display:none;padding:12px;background:#fff;border-top:1px solid #e5e7eb">
+      <p style="font-size:.72rem;color:#6b7280;margin-bottom:8px">
+        Zkopíruj tabulku z externího programu (Ctrl+C) a vlož ji sem. Systém načte sloupce <strong>Amount</strong> a <strong>Length</strong>.
+        Sloupec Joint (obrázky) se nepřenáší — typ řezu nastav ručně níže.
+      </p>
+      <textarea id="pfs-import-text" style="width:100%;height:100px;font-family:monospace;font-size:.75rem;padding:6px;border:1px solid #d1d5db;border-radius:6px;resize:vertical" placeholder="2&#9;163,5&#9;&#10;1&#9;163,5&#9;&#10;4&#9;516,0&#9;"></textarea>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
+        <span style="font-size:.75rem;color:#374151;font-weight:600">Vložit do:</span>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="L" checked> L profily (hliníkový)</label>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="H"> H profily (Hybrid)</label>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="LH"> Oba — L nejdřív, pak H</label>
+        <button onclick="_pfsImportParse()" style="margin-left:auto;padding:5px 14px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer">✔ Zpracovat</button>
+      </div>
+      <div id="pfs-import-msg" style="display:none;margin-top:6px;font-size:.72rem"></div>
+    </div>
+  </div>
+  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b2040;margin-bottom:6px">L profily (hliníkový)</p>
+  <div style="overflow-x:auto;margin-bottom:20px">
+  <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+    <thead><tr>
+      <th style="${thStyle};width:24px">#</th>
+      <th style="${thStyle}">KS</th>
+      <th style="${thStyle}">Rozměr (mm)</th>
+      <th style="${thStyle}">Typ řezu</th>
+    </tr></thead>
+    <tbody>${_pfsProfilRows('l', existL, L_SLOTS, REZ_TYPES)}</tbody>
+  </table>
+  </div>
+  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1a3a5c;margin-bottom:6px">H profily (Hybrid)</p>
+  <div style="overflow-x:auto;margin-bottom:20px">
+  <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+    <thead><tr>
+      <th style="${thStyle};width:24px">#</th>
+      <th style="${thStyle}">KS</th>
+      <th style="${thStyle}">Rozměr (mm)</th>
+      <th style="${thStyle}">Zakončení</th>
+    </tr></thead>
+    <tbody>${_pfsProfilRows('h', existH, H_SLOTS, ZAKONCENI_TYPES)}</tbody>
+  </table>
+  </div>
+  <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid #e5e7eb">
+    <button class="btn btn-primary flex-1" onclick="_buSaveProfily(${typId})">💾 Uložit profily</button>
+  </div>`;
+}
+
+async function _buSaveSpec(typId) {
+  const data = {
+    nazev:           (document.getElementById('bu-nazev')?.value || '').trim(),
+    typ_korpusu:     document.getElementById('bu-typ')?.value || '',
+    vnitrni_sirka:   parseInt(document.getElementById('bu-s')?.value) || 0,
+    vnitrni_vyska:   parseInt(document.getElementById('bu-v')?.value) || 0,
+    vnitrni_hloubka: parseInt(document.getElementById('bu-h')?.value) || 0,
+    poznamka:        document.getElementById('bu-poz')?.value || ''
+  };
+  if (!data.nazev) return alert('Vyplňte název!');
+  const r = await api(`/api/typy-casu/${typId}`, 'PUT', data);
+  if (r.error) return alert('Chyba: ' + r.error);
+  _cache.typy = null;
+  const [newData, casData, profilyData] = await Promise.all([
+    api(`/api/typy-casu/${typId}`),
+    api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
+    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
+  ]);
+  _buData = { typId, data: newData, casData, profilyData };
+  _buRender();
+}
+
+async function _buSaveProfily(typId) {
+  const profily = [];
+  for (let i = 0; i < L_SLOTS; i++) {
+    const ks = parseInt(document.getElementById(`pfs-l-ks-${i}`)?.value) || 0;
+    const rozmer = parseFloat(document.getElementById(`pfs-l-rozmer-${i}`)?.value) || null;
+    if (!ks && !rozmer) continue;
+    const activeBtn = document.querySelector(`.pfs-rez-btn[data-type="l"][data-idx="${i}"][data-active="1"]`);
+    const zakonceni = activeBtn ? activeBtn.dataset.val.replace(/\\\\/g, '\\') : '| |';
+    profily.push({ typ_profilu: 'L', poradi: i + 1, ks, rozmer_mm: rozmer, zakonceni });
+  }
+  for (let i = 0; i < H_SLOTS; i++) {
+    const ks = parseInt(document.getElementById(`pfs-h-ks-${i}`)?.value) || 0;
+    const rozmer = parseFloat(document.getElementById(`pfs-h-rozmer-${i}`)?.value) || null;
+    if (!ks && !rozmer) continue;
+    const activeBtn = document.querySelector(`.pfs-rez-btn[data-type="h"][data-idx="${i}"][data-active="1"]`);
+    const zakonceni = activeBtn ? activeBtn.dataset.val.replace(/\\\\/g, '\\') : null;
+    profily.push({ typ_profilu: 'H', poradi: i + 1, ks, rozmer_mm: rozmer, zakonceni });
+  }
+  const r = await api(`/api/typy-casu/${typId}/profily-plan`, 'POST', { profily });
+  if (r.error) { alert('Chyba: ' + r.error); return; }
+  const [newData, casData, newProfilyData] = await Promise.all([
+    api(`/api/typy-casu/${typId}`),
+    api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
+    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
+  ]);
+  _buData = { typId, data: newData, casData, profilyData: newProfilyData };
+  _buRender();
 }
 
 // Globální stav BOM editoru (musí přežít re-rendery modálu)
-let _bomEditor = { typId: null, mats: [], staged: [] };
+let _bomEditor = { typId: null, mats: [], staged: [], importMsgs: [], existingBom: [], conflicts: [] };
 
 async function addBomItem(typId) {
   _bomEditor.typId = typId;
   _bomEditor.staged = [];
+  _bomEditor.importMsgs = [];
 
   // Načti materiály + existující BOM najednou
   const [matData, bomData] = await Promise.all([
@@ -1674,8 +2088,9 @@ async function addBomItem(typId) {
     api(`/api/typy-casu/${typId}`)
   ]);
   _bomEditor.mats = matData.items || [];
+  _bomEditor.existingBom = bomData.bom || [];
   // Existující BOM položky (aby nešly přidat znovu)
-  const existing = new Set((bomData.typ?.bom || []).map(b => b.material_kod));
+  const existing = new Set(_bomEditor.existingBom.map(b => b.material_kod));
 
   // Typy materiálů
   const typy = [...new Set(_bomEditor.mats.map(m => m.typ).filter(Boolean))].sort();
@@ -1736,14 +2151,21 @@ function _bomRender(typId, typy, existing, filterTyp) {
 
     <div class="space-y-3">
       <div>
-        <label class="text-xs text-gray-500">Typ materiálu</label>
-        <select class="select" id="bom-typ-filtr" onchange="_bomTypChange()">
-          <option value="">– Všechny typy –</option>
-          ${typy.map(tp => '<option value="' + tp + '"' + (filterTyp === tp ? ' selected' : '') + '>' + tp + '</option>').join('')}
-        </select>
+        <label class="text-xs text-gray-500 block mb-1">Typ materiálu</label>
+        <div class="flex flex-wrap gap-1" id="bom-typ-filtr-btns">
+          <button onclick="_bomTypBtn('')"
+            class="px-3 py-1 rounded-full text-xs border transition-colors ${filterTyp === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'}">
+            Vše
+          </button>
+          ${typy.map(tp => '<button onclick="_bomTypBtn(\'' + tp.replace(/'/g,"\\'") + '\')" ' +
+            'class="px-3 py-1 rounded-full text-xs border transition-colors ' + (filterTyp === tp ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400') + '">' +
+            tp + '</button>').join('')}
+        </div>
+        <input type="hidden" id="bom-typ-filtr" value="${filterTyp}">
       </div>
       <div>
         <label class="text-xs text-gray-500">Materiál</label>
+        <input class="input mb-1 font-mono text-sm" id="bom-mat-search" placeholder="Hledat kód nebo název…" oninput="_bomMatSearch()" autocomplete="off">
         <select class="select" id="bom-mat" onchange="_bomMatChange()">
           ${opts}
         </select>
@@ -1761,22 +2183,222 @@ function _bomRender(typId, typy, existing, filterTyp) {
 
     ${stagedHtml}
 
-    <div class="flex gap-2 pt-4 mt-2 border-t border-gray-100">
-      <button class="btn btn-primary flex-1" onclick="_bomSaveAll()" ${staged.length === 0 ? 'disabled style="opacity:.5"' : ''}>
+    ${(() => {
+      const conflicts = _bomEditor.conflicts || [];
+      if (!conflicts.length) return '';
+      return `<div style="margin:16px -20px; padding:14px 20px; background:#fffbeb; border-top:3px solid #f59e0b; border-bottom:3px solid #f59e0b;">
+        <p class="text-sm font-bold text-amber-800 mb-3">⚠ Vyřešte konflikty — tyto položky jsou již v kusovníku (${conflicts.length})</p>
+        <div class="space-y-2">
+          ${conflicts.map((c, idx) => {
+            const jed = c.jednotka || 'ks';
+            const soucet = fmt(c.mnozstvi_existing + c.mnozstvi_import, 3);
+            const btn = (val, label, title) =>
+              `<button onclick="_bomConflictAction(${idx},'${val}')"
+                class="px-2 py-1 text-xs rounded border transition-colors ${c.action===val ? (val==='prepsat'?'bg-red-100 border-red-400 text-red-700 font-semibold':val==='pridat'?'bg-green-100 border-green-400 text-green-700 font-semibold':'bg-gray-200 border-gray-400 text-gray-600 font-semibold') : 'border-gray-200 text-gray-400 hover:border-gray-300'}"
+                title="${title}">${label}</button>`;
+            return `<div class="bg-white border-2 ${c.action==='ignorovat'?'border-gray-200':'border-amber-300'} rounded-lg px-3 py-2 shadow-sm">
+              <div class="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <span class="font-mono text-xs text-gray-400">${c.kod}</span>
+                  <span class="text-sm font-medium text-gray-800 ml-1">${c.nazev}</span>
+                </div>
+                <div class="text-xs text-right text-gray-500 shrink-0">
+                  v BOM: <strong>${fmt(c.mnozstvi_existing,3)} ${jed}</strong><br>
+                  import: <strong class="text-blue-600">${fmt(c.mnozstvi_import,3)} ${jed}</strong>
+                </div>
+              </div>
+              <div class="flex gap-1 items-center">
+                ${btn('pridat',   '+ Přidat ('  + soucet + ' ' + jed + ')', 'Sečte stávající a importované množství')}
+                ${btn('prepsat',  '↺ Přepsat (' + fmt(c.mnozstvi_import,3) + ' ' + jed + ')', 'Nahradí stávající množství importovaným')}
+                ${btn('ignorovat','✕ Ignorovat', 'Ponechá stávající množství beze změny')}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="mt-3 pt-3" style="border-top:1px solid #fcd34d">
+          <button class="btn btn-primary w-full" onclick="_bomConflictsPotvrdit()" style="background:#d97706;border-color:#b45309">
+            ✔ Potvrdit konflikty a přidat do seznamu
+          </button>
+        </div>
+      </div>`;
+    })()}
+
+    ${(() => {
+      const eb = _bomEditor.existingBom || [];
+      if (!eb.length) return '';
+      return `<div class="mt-4 border-t border-gray-100 pt-3">
+        <p class="text-xs font-semibold text-gray-500 mb-2">Již v kusovníku (${eb.length} položek):</p>
+        <div class="space-y-1 max-h-40 overflow-y-auto">
+          ${eb.map(b => `<div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 rounded-lg text-xs text-gray-500">
+            <span><span class="font-mono text-gray-400 mr-2">${b.material_kod}</span>${b.nazev || ''}</span>
+            <span class="font-semibold text-gray-600">${fmt(b.mnozstvi,3)} ${b.jednotka||'ks'}</span>
+          </div>`).join('')}
+        </div>
+      </div>`;
+    })()}
+
+    <div class="mt-4 border-t border-gray-100 pt-3">
+      <button class="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1" onclick="_bomImportToggle()">
+        📥 <span id="bom-import-label">Zobrazit import z externího programu</span>
+      </button>
+      <div id="bom-import-panel" style="display:none" class="mt-2 space-y-2">
+        <p class="text-xs text-gray-500">Vložte data z externího programu — každý řádek: <code class="bg-gray-100 px-1 rounded">množství&nbsp;&nbsp;kód</code></p>
+        <textarea id="bom-import-text" class="input font-mono text-xs" rows="6" placeholder="3,21  0677&#10;8,52  6105&#10;2  17295"></textarea>
+        <button class="btn btn-success w-full" onclick="_bomImportParse()">✔ Zpracovat import</button>
+        <div id="bom-import-err" class="text-xs text-red-600" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="pt-6 mt-2">
+      <button class="btn btn-primary w-full" onclick="_bomSaveAll()" ${staged.length === 0 ? 'disabled style="opacity:.5"' : ''}>
         💾 Uložit ${staged.length > 0 ? '(' + staged.length + ' položek)' : 'vše'}
       </button>
-      <button class="btn btn-secondary" onclick="_bomEditorClose()">Hotovo bez uložení</button>
     </div>
   `, true);
+
+  // Zobrazit zprávy z posledního importu (přežijí re-render)
+  const msgs = _bomEditor.importMsgs || [];
+  if (msgs.length) {
+    const errEl = document.getElementById('bom-import-err');
+    const panel = document.getElementById('bom-import-panel');
+    const label = document.getElementById('bom-import-label');
+    if (panel)  { panel.style.display = 'block'; }
+    if (label)  { label.textContent = 'Skrýt import'; }
+    if (errEl)  { errEl.style.display = 'block'; errEl.innerHTML = msgs.join('<br>'); }
+  }
+}
+
+function _bomImportToggle() {
+  const panel = document.getElementById('bom-import-panel');
+  const label = document.getElementById('bom-import-label');
+  if (!panel) return;
+  const visible = panel.style.display !== 'none';
+  panel.style.display = visible ? 'none' : 'block';
+  label.textContent = visible ? 'Zobrazit import z externího programu' : 'Skrýt import';
+}
+
+async function _bomImportParse() {
+  const text = (document.getElementById('bom-import-text')?.value || '').trim();
+  const errEl = document.getElementById('bom-import-err');
+  if (!text) return;
+
+  // Načti ignorované kódy a překladač souběžně
+  let ignoreSet = new Set();
+  let prekladac = {};
+  try {
+    const [ignoreList, prekladacData] = await Promise.all([
+      api('/api/bom-import-ignore', 'GET'),
+      api('/api/nabidky/prekladac', 'GET')
+    ]);
+    ignoreSet = new Set((ignoreList || []).map(r => r.kod));
+    for (const p of (prekladacData?.prekladac || [])) {
+      prekladac[p.externi_kod.trim()] = p.interni_kod.trim();
+    }
+  } catch(e) { /* pokračujeme bez překladače */ }
+
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const infos = [];
+  const warnings = [];
+  let added = 0;
+  let skipped = 0;
+  let translated = 0;
+  const existingMap = Object.fromEntries((_bomEditor.existingBom || []).map(b => [b.material_kod, b]));
+  _bomEditor.conflicts = [];
+
+  for (const line of lines) {
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) { warnings.push('Přeskočen řádek (chybí kód): ' + line); continue; }
+    const mnozstvi = parseFloat(parts[0].replace(',', '.'));
+    let kod = parts[1].trim();
+    if (isNaN(mnozstvi) || mnozstvi <= 0) { warnings.push('Neplatné množství: ' + line); continue; }
+    if (ignoreSet.has(kod)) { skipped++; continue; }
+
+    // Přeložit kód přes překladač pokud existuje záznam
+    if (prekladac[kod]) {
+      const kodPrelozeny = prekladac[kod];
+      infos.push('🔄 ' + kod + ' → ' + kodPrelozeny);
+      kod = kodPrelozeny;
+      translated++;
+    }
+
+    if (_bomEditor.staged.find(s => s.kod === kod)) { warnings.push('Již v seznamu: ' + kod); continue; }
+    const mat = _bomEditor.mats.find(m => m.kod === kod);
+    if (!mat) { warnings.push('❓ Nenalezen v katalogu: <strong>' + kod + '</strong> — <a href="#" class="underline" onclick="closeModal();navigate(\'materialy\')">Přidat materiál</a> nebo <a href="#" class="underline" onclick="closeModal();nastaveni(\'prekladac\')">upravit překladač</a>'); continue; }
+
+    // Konflikt — položka již v BOM existuje
+    if (existingMap[kod]) {
+      _bomEditor.conflicts.push({
+        kod, nazev: mat.nazev || kod, jednotka: mat.jednotka || 'ks',
+        mnozstvi_import: mnozstvi,
+        mnozstvi_existing: existingMap[kod].mnozstvi,
+        action: 'pridat'   // výchozí volba
+      });
+      continue;
+    }
+
+    _bomEditor.staged.push({ kod, nazev: mat.nazev || kod, jednotka: mat.jednotka || 'ks', mnozstvi });
+    added++;
+  }
+
+  // Sestavit výpis zpráv
+  const msgs = [];
+  if (skipped > 0)    msgs.push('<span class="text-gray-400">ℹ Přeskočeno ' + skipped + ' auto-dopočítávaných položek</span>');
+  if (translated > 0) msgs.push('<span class="text-blue-600">🔄 Přeloženo ' + translated + ' kódů přes překladač</span>');
+  if (infos.length)   msgs.push(...infos.map(m => '<span class="text-blue-500 text-xs">' + m + '</span>'));
+  if (warnings.length) msgs.push(...warnings.map(m => '<span class="text-red-600">⚠ ' + m + '</span>'));
+
+  // Uložit zprávy do stavu — přežijí re-render modalu
+  _bomEditor.importMsgs = msgs;
+
+  const typFiltr = document.getElementById('bom-typ-filtr')?.value || '';
+  const typy = [...new Set(_bomEditor.mats.map(m => m.typ).filter(Boolean))].sort();
+  _bomRender(_bomEditor.typId, typy, new Set(), typFiltr);
 }
 
 function _bomTypChange() {
   const typEl = document.getElementById('bom-typ-filtr');
   const typ = typEl ? typEl.value : '';
-  // Existující BOM znovu načíst není nutné, stačí ty co máme v _bomEditor
   const typy = [...new Set(_bomEditor.mats.map(m => m.typ).filter(Boolean))].sort();
-  const existing = new Set(); // Nemáme je zde, ale staged postačí jako ochrana
-  _bomRender(_bomEditor.typId, typy, existing, typ);
+  _bomRender(_bomEditor.typId, typy, new Set(), typ);
+}
+
+function _bomTypBtn(typ) {
+  const typy = [...new Set(_bomEditor.mats.map(m => m.typ).filter(Boolean))].sort();
+  // Vymaž search při přepnutí typu
+  const searchEl = document.getElementById('bom-mat-search');
+  if (searchEl) searchEl.value = '';
+  _bomRender(_bomEditor.typId, typy, new Set(), typ);
+}
+
+function _bomMatSearch() {
+  const q = (document.getElementById('bom-mat-search')?.value || '').toLowerCase();
+  const sel = document.getElementById('bom-mat');
+  if (!sel) return;
+  const filterTyp = document.getElementById('bom-typ-filtr')?.value || '';
+  const staged = _bomEditor.staged;
+  const existing = new Set(_bomEditor.existingBom.map(b => b.material_kod));
+
+  // Vyprázdni a naplň dle hledání
+  sel.innerHTML = '';
+  const filtered = _bomEditor.mats.filter(m => {
+    if (filterTyp && m.typ !== filterTyp) return false;
+    if (!q) return true;
+    return m.kod.toLowerCase().includes(q) || m.nazev.toLowerCase().includes(q);
+  });
+
+  if (!filtered.length) {
+    sel.innerHTML = '<option disabled>Žádný výsledek</option>';
+    return;
+  }
+
+  for (const m of filtered) {
+    const dis = existing.has(m.kod) || staged.find(s => s.kod === m.kod);
+    const opt = document.createElement('option');
+    opt.value = m.kod;
+    opt.textContent = (m.oblibeny ? '★ ' : '') + m.kod + ' – ' + m.nazev + (m.jednotka ? ' (' + m.jednotka + ')' : '');
+    if (dis) opt.disabled = true;
+    sel.appendChild(opt);
+  }
 }
 
 function _bomMatChange() {
@@ -1820,18 +2442,46 @@ function _bomStagedRemove(idx) {
   _bomRender(_bomEditor.typId, typy, new Set(), typFiltr);
 }
 
+function _bomConflictAction(idx, action) {
+  if (_bomEditor.conflicts[idx]) {
+    _bomEditor.conflicts[idx].action = action;
+    const typFiltr = document.getElementById('bom-typ-filtr')?.value || '';
+    const typy = [...new Set(_bomEditor.mats.map(m => m.typ).filter(Boolean))].sort();
+    _bomRender(_bomEditor.typId, typy, new Set(), typFiltr);
+  }
+}
+
+function _bomConflictsPotvrdit() {
+  for (const c of _bomEditor.conflicts) {
+    if (c.action === 'ignorovat') continue;
+    const mnozstvi = c.action === 'pridat'
+      ? c.mnozstvi_existing + c.mnozstvi_import
+      : c.mnozstvi_import;
+    const existujeVStaged = _bomEditor.staged.findIndex(s => s.kod === c.kod);
+    if (existujeVStaged >= 0) {
+      _bomEditor.staged[existujeVStaged].mnozstvi = mnozstvi;
+    } else {
+      _bomEditor.staged.push({ kod: c.kod, nazev: c.nazev, jednotka: c.jednotka, mnozstvi });
+    }
+  }
+  _bomEditor.conflicts = [];
+  const typFiltr = document.getElementById('bom-typ-filtr')?.value || '';
+  const typy = [...new Set(_bomEditor.mats.map(m => m.typ).filter(Boolean))].sort();
+  _bomRender(_bomEditor.typId, typy, new Set(), typFiltr);
+}
+
 async function _bomSaveAll() {
   const staged = _bomEditor.staged;
   if (!staged.length) return;
   const typId = _bomEditor.typId;
 
-  // Ulož všechny najednou (sekvenčně, API to tak chce)
-  let ok = 0;
   for (const s of staged) {
-    const r = await api('/api/typy-casu/' + typId + '/bom', 'POST', { material_kod: s.kod, mnozstvi: s.mnozstvi });
-    if (!r.error) ok++;
+    await api('/api/typy-casu/' + typId + '/bom', 'POST', { material_kod: s.kod, mnozstvi: s.mnozstvi });
   }
-  _bomEditor.staged = [];
+
+  _bomEditor.staged     = [];
+  _bomEditor.conflicts  = [];
+  _bomEditor.importMsgs = [];
   _cache.typy = null;
   bomDetail(typId);
 }
@@ -1876,9 +2526,23 @@ async function odebratZVsechBOM(matKod, nazev) {
   const r = await api('/api/kusovniky/hromadne-odeber', 'POST', { material_kod: matKod });
   if (r.error) return alert('Chyba: ' + r.error);
   alert(`Hotovo – materiál ${matKod} odebrán z ${r.pocet_typu} kusovníků.`);
-  // Refresh cache typů (ceny se mohly změnit)
   _cache.typy = null;
   closeModal();
+}
+
+async function _odebratZVsechBOMSecure(matKod, nazev) {
+  const input = document.getElementById('mat-danger-confirm');
+  if (!input || input.value !== matKod) return;
+  const r = await api('/api/kusovniky/hromadne-odeber', 'POST', { material_kod: matKod });
+  if (r.error) { alert('Chyba: ' + r.error); return; }
+  _cache.typy = null;
+  closeModal();
+  // Krátká notifikace
+  const toast = document.createElement('div');
+  toast.textContent = `✔ ${matKod} odebrán z ${r.pocet_typu} kusovníků`;
+  toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3500);
 }
 
 async function editTypCasu(id) {
@@ -2731,6 +3395,27 @@ async function editProfilyPlan(typId) {
     Typ řezu / zakončení vyber kliknutím na piktogram u každého řádku.
   </p>
 
+  <div style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden">
+    <button onclick="_pfsImportToggle()" style="width:100%;text-align:left;padding:8px 12px;background:#f9fafb;font-size:.78rem;font-weight:600;color:#374151;border:none;cursor:pointer;display:flex;align-items:center;gap:6px">
+      <span id="pfs-import-arrow">▶</span> 📋 Import z externího softwaru
+    </button>
+    <div id="pfs-import-panel" style="display:none;padding:12px;background:#fff;border-top:1px solid #e5e7eb">
+      <p style="font-size:.72rem;color:#6b7280;margin-bottom:8px">
+        Zkopíruj tabulku z externího programu (Ctrl+C) a vlož ji sem. Systém načte sloupce <strong>Amount</strong> a <strong>Length</strong>.
+        Sloupec Joint (obrázky) se nepřenáší — typ řezu nastav ručně níže.
+      </p>
+      <textarea id="pfs-import-text" style="width:100%;height:100px;font-family:monospace;font-size:.75rem;padding:6px;border:1px solid #d1d5db;border-radius:6px;resize:vertical" placeholder="2&#9;163,5&#9;&#10;1&#9;163,5&#9;&#10;4&#9;516,0&#9;"></textarea>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
+        <span style="font-size:.75rem;color:#374151;font-weight:600">Vložit do:</span>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="L" checked> L profily (hliníkový)</label>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="H"> H profily (Hybrid)</label>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="LH"> Oba — L nejdřív, pak H</label>
+        <button onclick="_pfsImportParse()" style="margin-left:auto;padding:5px 14px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer">✔ Zpracovat</button>
+      </div>
+      <div id="pfs-import-msg" style="display:none;margin-top:6px;font-size:.72rem"></div>
+    </div>
+  </div>
+
   <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b2040;margin-bottom:6px">L profily (hliníkový)</p>
   <div style="overflow-x:auto;margin-bottom:20px">
   <table style="width:100%;border-collapse:collapse;font-size:.82rem">
@@ -2762,6 +3447,72 @@ async function editProfilyPlan(typId) {
     <button class="btn btn-secondary" onclick="bomDetail(${typId})">Zrušit</button>
   </div>
   `, true);
+}
+
+function _pfsImportToggle() {
+  const panel = document.getElementById('pfs-import-panel');
+  const arrow = document.getElementById('pfs-import-arrow');
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if (arrow) arrow.textContent = open ? '▶' : '▼';
+}
+
+function _pfsImportParse() {
+  const text = (document.getElementById('pfs-import-text')?.value || '').trim();
+  const msgEl = document.getElementById('pfs-import-msg');
+  if (!text) return;
+
+  // Parsuj řádky — tabulátory nebo více mezer jako oddělovač
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const rows = [];
+  for (const line of lines) {
+    const parts = line.split(/\t|  +/);
+    const ks = parseInt(parts[0]);
+    const rozmer = parseFloat((parts[1] || '').replace(',', '.'));
+    if (isNaN(ks) || ks <= 0 || isNaN(rozmer) || rozmer <= 0) continue;
+    rows.push({ ks, rozmer });
+  }
+
+  if (!rows.length) {
+    if (msgEl) { msgEl.style.display='block'; msgEl.style.color='#dc2626'; msgEl.textContent='⚠ Žádná platná data nenalezena. Zkontroluj formát (tabulátory mezi sloupci).'; }
+    return;
+  }
+
+  const typ = document.querySelector('input[name="pfs-import-typ"]:checked')?.value || 'L';
+  const lSlots = L_SLOTS, hSlots = H_SLOTS;
+
+  let idx = 0;
+  if (typ === 'L' || typ === 'LH') {
+    for (let i = 0; i < lSlots && idx < rows.length; i++, idx++) {
+      const ksEl = document.getElementById(`pfs-l-ks-${i}`);
+      const rozEl = document.getElementById(`pfs-l-rozmer-${i}`);
+      if (ksEl) ksEl.value = rows[idx].ks;
+      if (rozEl) rozEl.value = rows[idx].rozmer;
+    }
+  }
+  if (typ === 'H' || typ === 'LH') {
+    for (let i = 0; i < hSlots && idx < rows.length; i++, idx++) {
+      const ksEl = document.getElementById(`pfs-h-ks-${i}`);
+      const rozEl = document.getElementById(`pfs-h-rozmer-${i}`);
+      if (ksEl) ksEl.value = rows[idx].ks;
+      if (rozEl) rozEl.value = rows[idx].rozmer;
+    }
+  }
+
+  const zbylo = rows.length - idx;
+  if (msgEl) {
+    msgEl.style.display = 'block';
+    if (zbylo > 0) {
+      msgEl.style.color = '#d97706';
+      msgEl.textContent = `✔ Vloženo ${idx} řádků. Pozor: ${zbylo} řádků se nevešlo (překročen počet slotů).`;
+    } else {
+      msgEl.style.color = '#16a34a';
+      msgEl.textContent = `✔ Vloženo ${idx} řádků. Zkontroluj a doplň typ řezu / zakončení níže.`;
+    }
+  }
+  // Sbal panel po úspěchu
+  setTimeout(() => { document.getElementById('pfs-import-panel').style.display = 'none'; document.getElementById('pfs-import-arrow').textContent = '▶'; }, 1500);
 }
 
 async function _pfsSave(typId) {
@@ -3700,7 +4451,7 @@ async function ulozInventuru() {
 function nastaveni(tab) {
   tab = tab || 'import';
   const tabBtn = t => `<button class="tab-btn ${t===tab?'active':''}" onclick="nastaveni('${t}')">${
-    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail'}[t]
+    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail', 'bom-ignore':'🚫 BOM import'}[t]
   }</button>`;
 
   let body = '';
@@ -3758,24 +4509,88 @@ function nastaveni(tab) {
     body = `<div id="cas-param-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   } else if (tab === 'email') {
     body = `<div id="email-nastaveni-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
+  } else if (tab === 'bom-ignore') {
+    body = `<div id="bom-ignore-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   }
 
   setContent(`
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-xl font-bold text-gray-800">Nastavení</h2>
     </div>
-    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email'].map(tabBtn).join('')}</div>
+    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email','bom-ignore'].map(tabBtn).join('')}</div>
     ${body}
   `);
 
-  if (tab === 'prekladac')  _renderPrekladac();
-  if (tab === 'prorez')     _renderProrez();
-  if (tab === 'stitky')     _renderStitky();
-  if (tab === 'uzivatele')  _renderUzivatele();
-  if (tab === 'kancelar')   _renderKancelarNastaveni();
-  if (tab === 'spojeniky')  _renderSpojenikyPanel();
-  if (tab === 'cas-param')  _renderCasParametry();
-  if (tab === 'email')      _renderEmailNastaveni();
+  if (tab === 'prekladac')   _renderPrekladac();
+  if (tab === 'prorez')      _renderProrez();
+  if (tab === 'stitky')      _renderStitky();
+  if (tab === 'uzivatele')   _renderUzivatele();
+  if (tab === 'kancelar')    _renderKancelarNastaveni();
+  if (tab === 'spojeniky')   _renderSpojenikyPanel();
+  if (tab === 'cas-param')   _renderCasParametry();
+  if (tab === 'email')       _renderEmailNastaveni();
+  if (tab === 'bom-ignore')  _renderBomIgnore();
+}
+
+// ── BOM IMPORT — IGNOROVANÉ KÓDY ─────────────────────────────────────────────
+async function _renderBomIgnore() {
+  const panel = document.getElementById('bom-ignore-panel');
+  if (!panel) return;
+  const rows = await api('/api/bom-import-ignore', 'GET').catch(() => []);
+  panel.innerHTML = `
+    <div class="card p-5 max-w-xl">
+      <h3 class="font-semibold text-gray-700 mb-1">Kódy přeskakované při importu BOM</h3>
+      <p class="text-xs text-gray-400 mb-4">Položky zde uvedené budou při importu z externího programu tiše přeskočeny (nýty, šrouby a jiné auto-dopočítávané materiály).</p>
+      <table class="w-full text-sm mb-4" id="bom-ignore-table">
+        <thead><tr class="text-xs text-gray-400 border-b border-gray-100">
+          <th class="text-left pb-2 font-medium">Kód materiálu</th>
+          <th class="text-left pb-2 font-medium">Poznámka</th>
+          <th class="pb-2"></th>
+        </tr></thead>
+        <tbody>
+          ${rows.length === 0
+            ? '<tr><td colspan="3" class="text-gray-400 text-xs py-3 italic">Žádné kódy zatím</td></tr>'
+            : rows.map(r => `
+              <tr class="border-b border-gray-50 group">
+                <td class="py-2 font-mono text-xs text-gray-700">${r.kod}</td>
+                <td class="py-2 text-xs text-gray-500">${r.popis || '–'}</td>
+                <td class="py-2 text-right">
+                  <button class="text-red-400 hover:text-red-600 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                    onclick="_bomIgnoreDelete('${r.kod}')">Odebrat</button>
+                </td>
+              </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="flex gap-2 items-end border-t border-gray-100 pt-4">
+        <div class="flex-1">
+          <label class="text-xs text-gray-500">Kód materiálu</label>
+          <input class="input font-mono" id="bom-ignore-kod" placeholder="např. 17295">
+        </div>
+        <div class="flex-1">
+          <label class="text-xs text-gray-500">Poznámka (nepovinné)</label>
+          <input class="input" id="bom-ignore-popis" placeholder="např. Nýty hliníkové">
+        </div>
+        <button class="btn btn-primary" onclick="_bomIgnoreAdd()">+ Přidat</button>
+      </div>
+      <div id="bom-ignore-msg" class="text-xs mt-2" style="display:none"></div>
+    </div>`;
+}
+
+async function _bomIgnoreAdd() {
+  const kod = (document.getElementById('bom-ignore-kod')?.value || '').trim();
+  const popis = (document.getElementById('bom-ignore-popis')?.value || '').trim();
+  const msg = document.getElementById('bom-ignore-msg');
+  if (!kod) { if (msg) { msg.style.display='block'; msg.className='text-xs mt-2 text-red-600'; msg.textContent='Zadejte kód materiálu.'; } return; }
+  await api('/api/bom-import-ignore', 'POST', { kod, popis });
+  if (msg) { msg.style.display='block'; msg.className='text-xs mt-2 text-green-600'; msg.textContent='Přidáno: ' + kod; }
+  setTimeout(() => { if (msg) msg.style.display='none'; }, 2000);
+  _renderBomIgnore();
+}
+
+async function _bomIgnoreDelete(kod) {
+  if (!confirm('Odebrat kód ' + kod + ' ze seznamu ignorovaných?')) return;
+  await api('/api/bom-import-ignore/' + encodeURIComponent(kod), 'DELETE');
+  _renderBomIgnore();
 }
 
 // ── E-MAIL NASTAVENÍ ──────────────────────────────────────────────────────────
