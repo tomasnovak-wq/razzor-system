@@ -1323,8 +1323,7 @@ function _tcRow(i) {
     <td class="text-right font-semibold text-green-700" data-sort="${i.prodej_ap_bez_dph||0}">${i.prodej_ap_bez_dph > 0 ? fmtKc(i.prodej_ap_bez_dph) : '–'}</td>
     <td class="text-right font-semibold text-purple-700" data-sort="${mc}" title="${mcTitle}">${mc > 0 ? fmtKc(mc) : '–'}</td>
     <td onclick="event.stopPropagation()"><div class="flex gap-1">
-      <button class="btn btn-primary py-1 px-2 text-xs" onclick="bomDetailUnified(${i.id}, 2)">BOM</button>
-      <button class="btn btn-secondary py-1 px-2 text-xs" onclick="bomDetailUnified(${i.id}, 1)">Upravit</button>
+      <button class="btn btn-primary py-1 px-2 text-xs" onclick="bomDetailUnified(${i.id}, 2)">Editovat</button>
       <button class="btn btn-success py-1 px-2 text-xs" onclick="novaZakazkaZTypu(${i.id},'${i.hn_cislo}','${i.nazev.replace(/'/g,"\\'")}')">+ Zakázka</button>
     </div></td>
   </tr>`;
