@@ -235,7 +235,8 @@ def api_material_update(kod):
     c = conn.cursor()
     fields = ['nazev','typ','druh','umisteni','hmotnost','balenf','master_baleni',
               'nakup_baleni','nakup_jednotka','nc_bez_dph','cas_s','dodavatel',
-              'dodaci_lhuta','sirka_hw','priorita','zobrazovat','poznamka','nity']
+              'dodaci_lhuta','sirka_hw','priorita','zobrazovat','poznamka','nity',
+              'prorez_procento']
     updates = ', '.join(f"{f}=?" for f in fields if f in data)
     vals = [data[f] for f in fields if f in data]
     if updates:
@@ -315,14 +316,15 @@ def api_typ_casu_detail(typ_id):
         conn.close()
         return jsonify({'error': 'Typ nenalezen'}), 404
 
-    # BOM – přímé položky (individuální prořez má přednost před globálním)
+    # BOM – přímé položky (individuální prořez materiálu má přednost před globálním dle typu)
     c.execute("""
-        SELECT k.material_kod, k.mnozstvi, k.prorez_procento,
+        SELECT k.material_kod, k.mnozstvi,
                m.nazev, m.typ, m.druh, m.nc_bez_dph,
                m.hmotnost as hmotnost_j, m.nity, m.oblibeny,
+               m.prorez_procento,
                COALESCE(s.naskladneno - s.pouzito, 0) as stav_skladu,
-               COALESCE(k.prorez_procento, p.procento, 0) as prorez_efektivni,
-               (k.mnozstvi * (1.0 + COALESCE(k.prorez_procento, p.procento, 0)/100.0) * m.nc_bez_dph) as cena_polozky,
+               COALESCE(m.prorez_procento, p.procento, 0) as prorez_efektivni,
+               (k.mnozstvi * (1.0 + COALESCE(m.prorez_procento, p.procento, 0)/100.0) * m.nc_bez_dph) as cena_polozky,
                (k.mnozstvi * m.hmotnost) as hmotnost_polozky
         FROM kusovniky k
         JOIN materialy m ON m.kod = k.material_kod
@@ -508,32 +510,10 @@ def api_bom_add(typ_id):
     conn = get_db()
     c = conn.cursor()
     try:
-        # ON CONFLICT DO UPDATE: zachová prorez_procento pokud není explicitně zadáno
         c.execute("""
-            INSERT INTO kusovniky (typ_casu_id, material_kod, mnozstvi, prorez_procento)
-            VALUES (?,?,?,NULL)
-            ON CONFLICT(typ_casu_id, material_kod) DO UPDATE SET
-              mnozstvi = excluded.mnozstvi
+            INSERT OR REPLACE INTO kusovniky (typ_casu_id, material_kod, mnozstvi)
+            VALUES (?,?,?)
         """, (typ_id, data['material_kod'], data['mnozstvi']))
-        vypocti_cenu_dilu(conn, typ_id)
-        conn.commit()
-        conn.close()
-        return jsonify({'ok': True})
-    except Exception as e:
-        conn.close()
-        return jsonify({'error': str(e)}), 400
-
-@app.route('/api/typy-casu/<int:typ_id>/bom/<path:mat_kod>', methods=['PATCH'])
-def api_bom_patch(typ_id, mat_kod):
-    """Aktualizuje jednotlivá pole BOM položky (prorez_procento) bez změny množství."""
-    data = request.json
-    conn = get_db()
-    c = conn.cursor()
-    try:
-        if 'prorez_procento' in data:
-            # None = reset na globální prořez, číslo = individuální override
-            c.execute("UPDATE kusovniky SET prorez_procento=? WHERE typ_casu_id=? AND material_kod=?",
-                      (data['prorez_procento'], typ_id, mat_kod))
         vypocti_cenu_dilu(conn, typ_id)
         conn.commit()
         conn.close()
@@ -615,6 +595,288 @@ def api_typy_casu_links(typ_id):
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['GET'])
+def api_dxf_get(typ_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, nazev_souboru, vrstvy_json, varovani_json, nahrano
+        FROM typy_casu_dxf WHERE typ_casu_id=?
+        ORDER BY id DESC LIMIT 1
+    """, (typ_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'dxf': None})
+    import json as _json
+    return jsonify({
+        'dxf': {
+            'id':             row['id'],
+            'nazev_souboru':  row['nazev_souboru'],
+            'vrstvy':         _json.loads(row['vrstvy_json'] or '[]'),
+            'varovani':       _json.loads(row['varovani_json'] or '[]'),
+            'nahrano':        row['nahrano'],
+        }
+    })
+
+
+@app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['POST'])
+def api_dxf_post(typ_id):
+    import re as _re, math as _math, json as _json
+
+    if 'dxf' not in request.files:
+        return jsonify({'error': 'Žádný soubor'}), 400
+
+    f = request.files['dxf']
+    if not f.filename:
+        return jsonify({'error': 'Prázdný název souboru'}), 400
+
+    try:
+        content = f.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        return jsonify({'error': f'Nelze přečíst soubor: {e}'}), 400
+
+    # ── DXF PARSER ───────────────────────────────────────────────────────────
+    SNAP  = 5.0    # mm – tolerance pro propojení otevřených segmentů
+    MIN_A = 500.0  # mm² – minimální plocha plochy (filtr šumu)
+
+    def _shoelace(pts):
+        n = len(pts)
+        if n < 3:
+            return 0.0
+        s = sum(pts[i][0] * pts[(i+1) % n][1] - pts[(i+1) % n][0] * pts[i][1] for i in range(n))
+        return abs(s) / 2.0
+
+    def _centroid(pts):
+        n = len(pts)
+        if n == 0:
+            return (0.0, 0.0)
+        return (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n)
+
+    def _dist(a, b):
+        return _math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+
+    def _pip(pt, poly):
+        """Point in polygon – Ray casting algorithm."""
+        x, y = pt
+        n = len(poly)
+        inside = False
+        j = n - 1
+        for i in range(n):
+            xi, yi = poly[i]
+            xj, yj = poly[j]
+            if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi + 1e-10) + xi):
+                inside = not inside
+            j = i
+        return inside
+
+    def _chain(segments):
+        """Spoj otevřené segmenty do uzavřených smyček."""
+        segs = [{'pts': s, 'used': False} for s in segments]
+        loops = []
+        for start in segs:
+            if start['used']:
+                continue
+            chain = list(start['pts'])
+            start['used'] = True
+            for _ in range(len(segs) * 2):
+                tail = chain[-1]
+                if len(chain) > 3 and _dist(tail, chain[0]) < SNAP:
+                    loops.append(chain)
+                    break
+                found = False
+                for seg in segs:
+                    if seg['used']:
+                        continue
+                    pts = seg['pts']
+                    if _dist(tail, pts[0]) < SNAP:
+                        chain.extend(pts[1:])
+                        seg['used'] = True
+                        found = True
+                        break
+                    elif _dist(tail, pts[-1]) < SNAP:
+                        chain.extend(list(reversed(pts[:-1])))
+                        seg['used'] = True
+                        found = True
+                        break
+                if not found:
+                    break
+        leftover = [s['pts'] for s in segs if not s['used']]
+        return loops, leftover
+
+    # Parsování entit
+    layers   = {}  # layer_name -> {'closed': [...], 'open': [...]}
+    warnings = []
+    lines    = content.splitlines()
+    idx      = 0
+
+    def _next():
+        nonlocal idx
+        while idx + 1 < len(lines):
+            cl = lines[idx].strip()
+            vl = lines[idx + 1].strip()
+            idx += 2
+            try:
+                return int(cl), vl
+            except ValueError:
+                continue
+        return None, None
+
+    # Přeskoč na sekci ENTITIES
+    while idx < len(lines):
+        c2, v2 = _next()
+        if c2 == 0 and v2 == 'SECTION':
+            c3, v3 = _next()
+            if c3 == 2 and v3 == 'ENTITIES':
+                break
+
+    # Parsuj entity
+    while idx < len(lines):
+        code, val = _next()
+        if code is None:
+            break
+        if code == 0 and val == 'ENDSEC':
+            break
+        if code not in (0,) or val not in ('LWPOLYLINE', 'CIRCLE'):
+            continue
+
+        etype = val
+        layer = None
+        closed_flag = False
+        pts = []
+        radius = None
+
+        while idx < len(lines):
+            code, val = _next()
+            if code is None:
+                break
+            if code == 0:
+                idx -= 2
+                break
+            if code == 8:
+                layer = val
+            elif code == 70 and etype == 'LWPOLYLINE':
+                try:
+                    closed_flag = bool(int(val) & 1)
+                except ValueError:
+                    pass
+            elif code == 40 and etype == 'CIRCLE':
+                try:
+                    radius = float(val)
+                except ValueError:
+                    pass
+            elif code == 10:
+                try:
+                    pts.append([float(val), None])
+                except ValueError:
+                    pass
+            elif code == 20:
+                try:
+                    fv = float(val)
+                    if pts and pts[-1][1] is None:
+                        pts[-1][1] = fv
+                    else:
+                        pts.append([0.0, fv])
+                except ValueError:
+                    pass
+
+        if not layer:
+            continue
+
+        pts = [(p[0], p[1] if p[1] is not None else 0.0) for p in pts]
+
+        ld = layers.setdefault(layer, {'closed': [], 'open': []})
+        if etype == 'CIRCLE' and radius is not None:
+            n = 32
+            circle = [(_math.cos(2 * _math.pi * j / n) * radius,
+                       _math.sin(2 * _math.pi * j / n) * radius) for j in range(n)]
+            ld['closed'].append(circle)
+        elif etype == 'LWPOLYLINE' and len(pts) >= 2:
+            eff_closed = _dist(pts[0], pts[-1]) < SNAP
+            if closed_flag or eff_closed:
+                ld['closed'].append(pts)
+            else:
+                ld['open'].append(pts)
+
+    # Zpracuj každou vrstvu
+    result_layers = []
+    for lname, ldata in layers.items():
+        chained, leftover = _chain(ldata['open'])
+        if leftover:
+            warnings.append(f'Vrstva „{lname}": {len(leftover)} neuzavřený segment(y) ignorován(y)')
+        repaired = len(chained)
+
+        all_polys = [(p, _shoelace(p)) for p in ldata['closed'] + chained]
+        valid     = [(p, a) for p, a in all_polys if a >= MIN_A]
+        if not valid:
+            continue
+
+        # Typ vrstvy z názvu — určit DÁL před nesting logikou
+        lu = lname.upper()
+        if lu.startswith('D ') or lu.startswith('D_') or lu.startswith('D\t'):
+            typ = 'deska'
+        elif lu.startswith('P ') or lu.startswith('P_') or lu.startswith('P\t'):
+            typ = 'pena'
+        else:
+            typ = 'jine'
+
+        # Nesting per-vrstva:
+        #   - Desky (D) a pěny (P): ŽÁDNÝ nesting — na těchto vrstvách jsou výhradně
+        #     řezané kusy, nikdy zahloubení/gravíry. Nesting by chybně vynechával kusy
+        #     ležící geometricky uvnitř jiných (časté u nested layoutů).
+        #   - Ostatní vrstvy: nesting normálně (filtruj engraving kontury).
+        valid.sort(key=lambda x: -x[1])
+        pieces = []
+        if typ in ('deska', 'pena'):
+            # Všechny polygony nad MIN_A jsou kusy
+            pieces = [a for _, a in valid]
+        else:
+            for poly, area in valid:
+                cx, cy = _centroid(poly)
+                depth = sum(1 for op, _ in valid if op is not poly and _pip((cx, cy), op))
+                if depth % 2 == 0:
+                    pieces.append(area)
+
+        if not pieces:
+            continue
+
+        # Tloušťka z názvu vrstvy (např. "D 9mm Preklizka")
+        m = _re.match(r'^[DP]\s+(\d+(?:[.,]\d+)?)mm', lname, _re.IGNORECASE)
+        thickness = float(m.group(1).replace(',', '.')) if m else None
+
+        result_layers.append({
+            'nazev':         lname,
+            'typ':           typ,
+            'ks':            len(pieces),
+            'plocha_m2':     round(sum(pieces) / 1_000_000, 4),
+            'tloustka_mm':   thickness,
+            'repaired':      repaired,
+            # Vrstvy "jine" (gravíry, zahloubení) jsou v UI skryté — nesouvisí s materiálem
+            'skryta':        typ == 'jine',
+        })
+
+    typ_order = {'deska': 0, 'pena': 1, 'jine': 2}
+    result_layers.sort(key=lambda x: (typ_order.get(x['typ'], 9), x['nazev']))
+
+    # Ulož do DB
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM typy_casu_dxf WHERE typ_casu_id=?", (typ_id,))
+    c.execute("""
+        INSERT INTO typy_casu_dxf (typ_casu_id, nazev_souboru, vrstvy_json, varovani_json)
+        VALUES (?, ?, ?, ?)
+    """, (typ_id, f.filename, _json.dumps(result_layers, ensure_ascii=False),
+          _json.dumps(warnings, ensure_ascii=False)))
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'ok':       True,
+        'vrstvy':   result_layers,
+        'varovani': warnings,
+    })
+
 
 @app.route('/api/kusovniky/migrace-spravna-mc', methods=['POST'])
 def api_migrace_spravna_mc():

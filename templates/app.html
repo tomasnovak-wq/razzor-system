@@ -1007,6 +1007,18 @@ async function editMaterial(kod) {
         <div class="flex items-end gap-2"><label class="text-xs text-gray-500 block mb-2">Zobrazovat</label>
           <input type="checkbox" class="w-5 h-5" id="m-zob" ${m.zobrazovat?'checked':''}></div>
       </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div><label class="text-xs text-gray-500">Individuální prořez</label>
+          <div class="flex items-center gap-2">
+            <input class="input" id="m-prorez" type="number" step="0.1" min="0" max="100"
+                   value="${m.prorez_procento!=null?m.prorez_procento:''}"
+                   placeholder="glob."
+                   title="Nech prázdné pro použití globálního prořezu dle typu materiálu. Vyplň konkrétní % pro override pouze u tohoto materiálu.">
+            <span class="text-gray-400 text-xs whitespace-nowrap">%</span>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">Zadej <strong>20</strong> pro 20% prořez (odepíše se 1,20× BOM množství)</p>
+        </div>
+      </div>
       <div class="flex gap-2 pt-2">
         <button class="btn btn-primary flex-1" onclick="saveMaterial('${kod||''}')">💾 ${isEdit?'Uložit':'Přidat'}</button>
         <button class="btn btn-secondary" onclick="closeModal()">Zrušit</button>
@@ -1030,7 +1042,9 @@ async function saveMaterial(existingKod) {
     hmotnost: parseFloat(document.getElementById('m-hmotnost').value) || 0,
     master_baleni: parseInt(document.getElementById('m-master-baleni').value) || 1,
     balenf: parseFloat(document.getElementById('m-balenf').value) || 1,
-    nity: parseInt(document.getElementById('m-nity').value) || 0
+    nity: parseInt(document.getElementById('m-nity').value) || 0,
+    prorez_procento: document.getElementById('m-prorez').value.trim() !== ''
+      ? parseFloat(document.getElementById('m-prorez').value) : null
   };
   if (!data.kod || !data.nazev) return alert('Vyplňte kód a název!');
   const r = existingKod
@@ -1728,14 +1742,16 @@ async function bomDetailUnified(typId, tab) {
   _buTab    = tab;
   _buActive = true;
   openModal('<div class="text-center py-10 text-gray-400">Načítám…</div>', 'xl');
-  const [data, casData, profilyData, typyKorpusu] = await Promise.all([
+  const [data, casData, profilyData, typyKorpusu, dxfResp] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
     api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] })),
-    _cache.typy_korpusu ? Promise.resolve(_cache.typy_korpusu) : api('/api/typy-korpusu')
+    _cache.typy_korpusu ? Promise.resolve(_cache.typy_korpusu) : api('/api/typy-korpusu'),
+    api(`/api/typy-casu/${typId}/dxf`).catch(() => null),
   ]);
   _cache.typy_korpusu = typyKorpusu;
-  _buData = { typId, data, casData, profilyData, typyKorpusu };
+  const dxfData = dxfResp?.dxf || null;
+  _buData = { typId, data, casData, profilyData, typyKorpusu, dxfData };
   _buRender();
 }
 
@@ -1864,7 +1880,7 @@ async function _buSmazatTyp(typId, hnCislo, nazev) {
 
 function _buRender() {
   if (!_buData) return;
-  const { typId, data, casData, profilyData } = _buData;
+  const { typId, data, casData, profilyData, dxfData } = _buData;
   const t = data.typ;
   const bom = data.bom || [];
   const spojeniky = data.spojeniky || [];
@@ -1918,23 +1934,26 @@ function _buRender() {
   </div>`;
 
   // Tab navigation with left/right arrows
-  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'Soubory'];
+  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'DXF', 'Soubory'];
+  const TAB_MAX   = TAB_NAMES.length;
   const tabNav = `
   <div style="background:#f1f5f9;border-radius:10px;padding:4px;margin-bottom:16px;display:flex;align-items:center;gap:2px">
-    <button onclick="_buSwitchTab(${_buTab > 1 ? _buTab - 1 : 4})"
+    <button onclick="_buSwitchTab(${_buTab > 1 ? _buTab - 1 : TAB_MAX})"
       style="border:none;background:none;cursor:pointer;color:#94a3b8;font-size:1rem;padding:4px 6px;flex-shrink:0" title="Předchozí záložka">←</button>
     ${TAB_NAMES.map((name, i) => {
       const idx = i + 1;
       const active = idx === _buTab;
+      // DXF badge – pokud má data, zobraz zelený puntík
+      const dxfBadge = (idx === 4 && dxfData) ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-left:4px;vertical-align:middle"></span>` : '';
       return `<button onclick="_buSwitchTab(${idx})"
-        style="border:none;border-radius:7px;cursor:pointer;font-size:.84rem;padding:6px 18px;
+        style="border:none;border-radius:7px;cursor:pointer;font-size:.84rem;padding:6px 14px;
                font-weight:${active?'600':'400'};white-space:nowrap;flex:1;
                background:${active?'#fff':'transparent'};
                color:${active?'#1d4ed8':'#64748b'};
                box-shadow:${active?'0 1px 3px rgba(0,0,0,.12)':'none'};
-               transition:all .15s">${name}</button>`;
+               transition:all .15s">${name}${dxfBadge}</button>`;
     }).join('')}
-    <button onclick="_buSwitchTab(${_buTab < 4 ? _buTab + 1 : 1})"
+    <button onclick="_buSwitchTab(${_buTab < TAB_MAX ? _buTab + 1 : 1})"
       style="border:none;background:none;cursor:pointer;color:#94a3b8;font-size:1rem;padding:4px 6px;flex-shrink:0" title="Další záložka">→</button>
   </div>`;
 
@@ -1942,7 +1961,8 @@ function _buRender() {
   if (_buTab === 1)      tabContent = _buTabSpec(t, typId);
   else if (_buTab === 2) tabContent = _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData);
   else if (_buTab === 3) tabContent = _buTabProfily(typId, profilyData);
-  else if (_buTab === 4) tabContent = _buTabSoubory(typId, links);
+  else if (_buTab === 4) tabContent = _buTabDxf(typId, dxfData);
+  else if (_buTab === 5) tabContent = _buTabSoubory(typId, links);
 
   openModal(`
   <div class="flex items-start justify-between mb-3">
@@ -2080,7 +2100,7 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
       <th class="w-6 pb-2 text-center text-amber-300 no-sort">★</th>
       <th class="text-left pb-2">Materiál</th><th class="text-left pb-2">Typ</th>
       <th class="text-right pb-2">Množství</th>
-      <th class="text-right pb-2" title="Prořez: prázdné pole = globální nastavení, vyplněné = individuální override">Prořez</th>
+      <th class="text-right pb-2">Prořez</th>
       <th class="text-right pb-2">Cena/j</th>
       <th class="text-right pb-2">Celkem</th><th class="text-right pb-2">Sklad</th><th></th>
     </tr></thead>
@@ -2102,14 +2122,10 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
             onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}if(event.key==='Escape'){this.value=this.defaultValue;this.blur();}">
         </td>
         <td class="text-right">
-          <input type="number" step="0.1" min="0" max="100"
-            class="text-right w-12 border border-transparent rounded px-1 py-0.5 text-sm bg-transparent hover:border-gray-300 focus:border-amber-400 focus:bg-white focus:outline-none ${b.prorez_procento!=null?'text-amber-700 font-semibold':'text-gray-400 italic'}"
-            value="${b.prorez_efektivni||0}"
-            placeholder="glob"
-            title="${b.prorez_procento!=null?'Individuální prořez (override globálního). Smaž hodnotu a potvrď pro reset na globální.':'Globální prořez z Nastavení. Napiš vlastní % pro override.'}"
-            onblur="_buUpdateProrez(${typId},'${b.material_kod}',this,${b.prorez_procento==null})"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}if(event.key==='Escape'){this.value='${b.prorez_efektivni||0}';this.blur();}">
-          <span class="text-gray-300 text-xs">%</span>
+          ${b.prorez_efektivni > 0
+            ? `<span class="text-xs px-1.5 py-0.5 rounded ${b.prorez_procento!=null?'bg-amber-100 text-amber-700 font-semibold':'bg-gray-100 text-gray-400'}"
+                title="${b.prorez_procento!=null?'Individuální prořez nastaven u materiálu':'Globální prořez dle typu'}">${b.prorez_efektivni}%</span>`
+            : `<span class="text-xs text-gray-300">—</span>`}
         </td>
         <td class="text-right text-gray-500">${fmtKc(b.nc_bez_dph)}</td>
         <td class="text-right font-semibold">${fmtKc(b.cena_polozky)}</td>
@@ -2241,6 +2257,216 @@ function _buLinkRowHtml(nazev, url) {
   </div>`;
 }
 
+function _buTabDxf(typId, dxfData) {
+  const TYP_LABEL = { deska: '🪵 Deska', pena: '🟡 Pěna', jine: '📦 Jiné' };
+  const TYP_COLOR = {
+    deska: 'background:#fef3c7;color:#92400e;border-color:#fde68a',
+    pena:  'background:#d1fae5;color:#065f46;border-color:#a7f3d0',
+    jine:  'background:#f1f5f9;color:#475569;border-color:#e2e8f0',
+  };
+
+  const resultHtml = dxfData ? (() => {
+    const vrstvy      = dxfData.vrstvy  || [];
+    const varovan     = dxfData.varovani || [];
+    const viditelne   = vrstvy.filter(v => !v.skryta);
+    const skryte      = vrstvy.filter(v => v.skryta);
+
+    const warnHtml = varovan.length ? `
+      <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#713f12">
+        ⚠ <strong>${varovan.length} varování:</strong>
+        ${varovan.map(w => `<div class="mt-1">• ${w}</div>`).join('')}
+      </div>` : '';
+
+    const deskyM2 = viditelne.filter(v=>v.typ==='deska').reduce((s,v)=>s+v.plocha_m2,0);
+    const penyM2  = viditelne.filter(v=>v.typ==='pena').reduce((s,v)=>s+v.plocha_m2,0);
+
+    const makeRow = v => {
+      const style    = TYP_COLOR[v.typ] || TYP_COLOR.jine;
+      const repaired = v.repaired > 0
+        ? `<span title="${v.repaired} segment(ů) bylo spojeno do uzavřené křivky" style="font-size:.72rem;color:#7c3aed;margin-left:4px">🔧${v.repaired}</span>`
+        : '';
+      return `
+      <tr>
+        <td style="padding:6px 10px">
+          <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;border:1px solid;${style}">${TYP_LABEL[v.typ]||v.typ}</span>
+        </td>
+        <td style="padding:6px 10px;font-family:monospace;font-size:.88rem">${v.nazev}${repaired}</td>
+        <td style="padding:6px 10px;text-align:right;font-weight:600">${v.ks}</td>
+        <td style="padding:6px 10px;text-align:right;font-family:monospace">${v.plocha_m2.toFixed(4)} m²</td>
+        <td style="padding:6px 10px;text-align:right;color:#64748b;font-size:.82rem">${v.tloustka_mm != null ? v.tloustka_mm+' mm' : '–'}</td>
+      </tr>`;
+    };
+
+    const summaryRows = [];
+    if (deskyM2 > 0) summaryRows.push(`<div>🪵 Desky celkem: <strong>${deskyM2.toFixed(4)} m²</strong></div>`);
+    if (penyM2  > 0) summaryRows.push(`<div>🟡 Pěny celkem: <strong>${penyM2.toFixed(4)} m²</strong></div>`);
+
+    // Skryté vrstvy (gravíry, zahloubení) — výklopný detail
+    const skryteHtml = skryte.length ? `
+      <details style="margin-top:10px">
+        <summary style="font-size:.78rem;color:#94a3b8;cursor:pointer;user-select:none">
+          ${skryte.length} skrytá vrstva/vrstvy (gravíry, zahloubení — nezapočítávají se do materiálu)
+        </summary>
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-top:6px;opacity:.7">
+          <tbody>${skryte.map(makeRow).join('')}</tbody>
+        </table>
+      </details>` : '';
+
+    return `
+      ${warnHtml}
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:.84rem;color:#14532d;display:flex;gap:24px;flex-wrap:wrap">
+        <div>📁 <strong>${dxfData.nazev_souboru || '–'}</strong></div>
+        <div>📅 ${(dxfData.nahrano||'').slice(0,16)}</div>
+        ${summaryRows.join('')}
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+        <thead>
+          <tr style="border-bottom:2px solid #e2e8f0;color:#64748b;font-size:.78rem;text-transform:uppercase">
+            <th style="padding:4px 10px;text-align:left">Typ</th>
+            <th style="padding:4px 10px;text-align:left">Vrstva</th>
+            <th style="padding:4px 10px;text-align:right">Ks</th>
+            <th style="padding:4px 10px;text-align:right">Plocha</th>
+            <th style="padding:4px 10px;text-align:right">Tloušťka</th>
+          </tr>
+        </thead>
+        <tbody>${viditelne.map(makeRow).join('')}</tbody>
+      </table>
+      ${skryteHtml}`;
+  })() : `<p class="text-sm text-gray-400 italic text-center py-6">Zatím nebyl nahrán žádný DXF soubor.</p>`;
+
+  return `
+  <div>
+    <p class="text-xs text-gray-500 mb-3">
+      Nahraj DXF výkres řezaných dílů. Systém automaticky rozpozná vrstvy desek (<code>D XYmm …</code>)
+      a pěn (<code>P XYmm …</code>), spočítá kusy a plochu.
+    </p>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+                    background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;
+                    font-size:.88rem;color:#374151" title="Vybrat DXF soubor">
+        📎 <span>Vybrat DXF soubor</span>
+        <input type="file" accept=".dxf" id="dxf-file-input" style="display:none"
+               onchange="_buDxfFileChosen(this, ${typId})">
+      </label>
+      <span id="dxf-chosen-name" style="font-size:.82rem;color:#6b7280"></span>
+      <button id="dxf-upload-btn" class="btn btn-primary py-1 px-4 text-sm" style="display:none"
+              onclick="_buDxfUpload(${typId})">⬆ Nahrát a analyzovat</button>
+      <span id="dxf-upload-status" style="font-size:.82rem"></span>
+    </div>
+    <div id="dxf-results">${resultHtml}</div>
+  </div>`;
+}
+
+async function _buDxfFileChosen(input, typId) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('dxf-chosen-name').textContent = file.name;
+  const btn = document.getElementById('dxf-upload-btn');
+  if (btn) { btn.style.display = ''; btn.dataset.typId = typId; }
+  document.getElementById('dxf-upload-status').textContent = '';
+}
+
+async function _buDxfUpload(typId) {
+  const input  = document.getElementById('dxf-file-input');
+  const status = document.getElementById('dxf-upload-status');
+  const btn    = document.getElementById('dxf-upload-btn');
+  if (!input || !input.files[0]) return;
+
+  status.textContent = '⏳ Analyzuji…';
+  status.style.color = '#6b7280';
+  if (btn) btn.disabled = true;
+
+  const fd = new FormData();
+  fd.append('dxf', input.files[0]);
+
+  try {
+    const resp = await fetch(`/api/typy-casu/${typId}/dxf`, { method: 'POST', body: fd });
+    const json = await resp.json();
+    if (!resp.ok || json.error) {
+      status.textContent = '✗ Chyba: ' + (json.error || resp.status);
+      status.style.color = '#dc2626';
+      if (btn) btn.disabled = false;
+      return;
+    }
+    status.textContent = `✓ Hotovo – ${json.vrstvy.length} vrstev`;
+    status.style.color = '#16a34a';
+    // Aktualizuj dxfData v _buData a překresli záložku
+    _buData.dxfData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy, varovani: json.varovani, nahrano: new Date().toISOString().slice(0,16) };
+    const resultsDiv = document.getElementById('dxf-results');
+    if (resultsDiv) resultsDiv.innerHTML = _buTabDxfResultsHtml(_buData.dxfData);
+    if (btn) btn.disabled = false;
+  } catch(e) {
+    status.textContent = '✗ Chyba sítě';
+    status.style.color = '#dc2626';
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _buTabDxfResultsHtml(dxfData) {
+  // Pomocná funkce pro překreslení výsledků bez plného _buRender (stejná logika jako _buTabDxf)
+  const TYP_LABEL = { deska: '🪵 Deska', pena: '🟡 Pěna', jine: '📦 Jiné' };
+  const TYP_COLOR = {
+    deska: 'background:#fef3c7;color:#92400e;border-color:#fde68a',
+    pena:  'background:#d1fae5;color:#065f46;border-color:#a7f3d0',
+    jine:  'background:#f1f5f9;color:#475569;border-color:#e2e8f0',
+  };
+  const vrstvy    = dxfData.vrstvy  || [];
+  const varovan   = dxfData.varovani || [];
+  const viditelne = vrstvy.filter(v => !v.skryta);
+  const skryte    = vrstvy.filter(v => v.skryta);
+  const deskyM2   = viditelne.filter(v=>v.typ==='deska').reduce((s,v)=>s+v.plocha_m2,0);
+  const penyM2    = viditelne.filter(v=>v.typ==='pena').reduce((s,v)=>s+v.plocha_m2,0);
+  const warnHtml  = varovan.length ? `
+    <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.82rem;color:#713f12">
+      ⚠ <strong>${varovan.length} varování:</strong>
+      ${varovan.map(w=>`<div class="mt-1">• ${w}</div>`).join('')}
+    </div>` : '';
+  const makeRow = v => {
+    const style    = TYP_COLOR[v.typ] || TYP_COLOR.jine;
+    const repaired = v.repaired > 0
+      ? `<span title="${v.repaired} segmentů spojeno" style="font-size:.72rem;color:#7c3aed;margin-left:4px">🔧${v.repaired}</span>` : '';
+    return `<tr>
+      <td style="padding:6px 10px"><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;border:1px solid;${style}">${TYP_LABEL[v.typ]||v.typ}</span></td>
+      <td style="padding:6px 10px;font-family:monospace;font-size:.88rem">${v.nazev}${repaired}</td>
+      <td style="padding:6px 10px;text-align:right;font-weight:600">${v.ks}</td>
+      <td style="padding:6px 10px;text-align:right;font-family:monospace">${v.plocha_m2.toFixed(4)} m²</td>
+      <td style="padding:6px 10px;text-align:right;color:#64748b;font-size:.82rem">${v.tloustka_mm!=null?v.tloustka_mm+' mm':'–'}</td>
+    </tr>`;
+  };
+  const summaryRows = [];
+  if (deskyM2 > 0) summaryRows.push(`<div>🪵 Desky celkem: <strong>${deskyM2.toFixed(4)} m²</strong></div>`);
+  if (penyM2  > 0) summaryRows.push(`<div>🟡 Pěny celkem: <strong>${penyM2.toFixed(4)} m²</strong></div>`);
+  const skryteHtml = skryte.length ? `
+    <details style="margin-top:10px">
+      <summary style="font-size:.78rem;color:#94a3b8;cursor:pointer;user-select:none">
+        ${skryte.length} skrytá vrstva/vrstvy (gravíry, zahloubení — nezapočítávají se do materiálu)
+      </summary>
+      <table style="width:100%;border-collapse:collapse;font-size:.82rem;margin-top:6px;opacity:.7">
+        <tbody>${skryte.map(makeRow).join('')}</tbody>
+      </table>
+    </details>` : '';
+  return `
+    ${warnHtml}
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:.84rem;color:#14532d;display:flex;gap:24px;flex-wrap:wrap">
+      <div>📁 <strong>${dxfData.nazev_souboru||'–'}</strong></div>
+      <div>📅 ${(dxfData.nahrano||'').slice(0,16)}</div>
+      ${summaryRows.join('')}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+      <thead>
+        <tr style="border-bottom:2px solid #e2e8f0;color:#64748b;font-size:.78rem;text-transform:uppercase">
+          <th style="padding:4px 10px;text-align:left">Typ</th>
+          <th style="padding:4px 10px;text-align:left">Vrstva</th>
+          <th style="padding:4px 10px;text-align:right">Ks</th>
+          <th style="padding:4px 10px;text-align:right">Plocha</th>
+          <th style="padding:4px 10px;text-align:right">Tloušťka</th>
+        </tr>
+      </thead>
+      <tbody>${viditelne.map(makeRow).join('')}</tbody>
+    </table>
+    ${skryteHtml}`;
+}
+
 function _buTabSoubory(typId, links) {
   const rows = links.map(lnk => _buLinkRowHtml(lnk.nazev, lnk.url)).join('');
   return `
@@ -2305,7 +2531,7 @@ async function _buSaveSpec(typId) {
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
     api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
   ]);
-  _buData = { typId, data: newData, casData, profilyData, typyKorpusu: _buData.typyKorpusu };
+  _buData = { typId, data: newData, casData, profilyData, typyKorpusu: _buData.typyKorpusu, dxfData: _buData.dxfData };
   _buRender();
 }
 
@@ -2335,7 +2561,7 @@ async function _buSaveProfily(typId) {
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
     api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
   ]);
-  _buData = { typId, data: newData, casData, profilyData: newProfilyData, typyKorpusu: _buData.typyKorpusu };
+  _buData = { typId, data: newData, casData, profilyData: newProfilyData, typyKorpusu: _buData.typyKorpusu, dxfData: _buData.dxfData };
   _buRender();
 }
 
@@ -2345,30 +2571,6 @@ async function _buUpdateMnozstvi(typId, matKod, el) {
   if (!mnozstvi || mnozstvi <= 0) { el.value = el.defaultValue; return; }
   if (Math.abs(mnozstvi - parseFloat(el.defaultValue)) < 0.0001) return; // bez změny
   const r = await api(`/api/typy-casu/${typId}/bom`, 'POST', { material_kod: matKod, mnozstvi });
-  if (r.error) { alert('Chyba: ' + r.error); el.value = el.defaultValue; return; }
-  _cache.typy = null;
-  const [newData, casData, profilyData] = await Promise.all([
-    api(`/api/typy-casu/${typId}`),
-    api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
-    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
-  ]);
-  _buData = { ..._buData, data: newData, casData, profilyData };
-  _buRender();
-}
-
-// Inline editace prořezu přímo v BOM tabulce
-// isGlobal=true → aktuálně se používá globální → prázdné pole = nic neměnit
-async function _buUpdateProrez(typId, matKod, el, isGlobal) {
-  const raw = el.value.trim();
-  // Prázdné pole = reset na globální (NULL)
-  const prorez = raw === '' ? null : parseFloat(raw);
-  if (prorez !== null && (isNaN(prorez) || prorez < 0 || prorez > 100)) {
-    el.value = el.defaultValue; return;
-  }
-  // Beze změny: hodnota stejná jako aktuální a stav (global/individual) se nemění
-  if (prorez !== null && isGlobal === false && Math.abs(prorez - parseFloat(el.defaultValue)) < 0.01) return;
-  if (prorez === null && isGlobal) return; // globální zůstává globální
-  const r = await api(`/api/typy-casu/${typId}/bom/${encodeURIComponent(matKod)}`, 'PATCH', { prorez_procento: prorez });
   if (r.error) { alert('Chyba: ' + r.error); el.value = el.defaultValue; return; }
   _cache.typy = null;
   const [newData, casData, profilyData] = await Promise.all([

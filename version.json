@@ -1,8 +1,8 @@
 {
-  "verze": 18,
-  "popis": "Individuální prořez na položku BOM: override globálního nastavení, promítá se do ceny dílů a odpisu skladu",
+  "verze": 21,
+  "popis": "DXF parser: oprava počtu kusů u desek/pěn (žádný nesting filtr), skrytí vrstev gravírů",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "14:06",
-  "git_commit": "f6330b9"
+  "cas": "15:35",
+  "git_commit": "98ffbe1"
 }

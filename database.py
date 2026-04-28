@@ -496,12 +496,13 @@ def aktualizuj_stav_skladu(conn, material_kod):
     """, (material_kod, material_kod, material_kod))
 
 def vypocti_cenu_dilu(conn, typ_casu_id):
-    """Spočítá celkovou cenu dílů z kusovníku (včetně individuálního nebo globálního prořezu)."""
+    """Spočítá celkovou cenu dílů z kusovníku (včetně individuálního nebo globálního prořezu).
+    Individuální prořez materiálu (materialy.prorez_procento) má přednost před globálním dle typu."""
     c = conn.cursor()
     c.execute("""
         SELECT COALESCE(SUM(
             k.mnozstvi
-            * (1.0 + COALESCE(k.prorez_procento, p.procento, 0) / 100.0)
+            * (1.0 + COALESCE(m.prorez_procento, p.procento, 0) / 100.0)
             * m.nc_bez_dph
         ), 0) as cena
         FROM kusovniky k
@@ -542,12 +543,12 @@ def odepis_material_ze_skladu(conn, zakazka_id):
         return False
 
     # Načti kusovník + typ materiálu + prořez najednou
-    # Individuální prořez (k.prorez_procento) má přednost před globálním (p.procento)
+    # Individuální prořez materiálu (m.prorez_procento) má přednost před globálním dle typu (p.procento)
     c.execute("""
         SELECT k.material_kod,
                k.mnozstvi * ? AS mnozstvi_bom,
                m.typ,
-               COALESCE(k.prorez_procento, p.procento, 0) AS prorez_pct
+               COALESCE(m.prorez_procento, p.procento, 0) AS prorez_pct
         FROM kusovniky k
         JOIN materialy m ON m.kod = k.material_kod
         LEFT JOIN prorez p ON p.typ = m.typ
@@ -621,8 +622,8 @@ def auto_migrate():
     add_column('pohyby_skladu', 'prijemka_id',       'INTEGER')
     add_column('pohyby_skladu', 'opravny_doklad_id',  'INTEGER')
 
-    # kusovniky – individuální prořez (NULL = použij globální z tabulky prorez)
-    add_column('kusovniky', 'prorez_procento', 'REAL DEFAULT NULL')
+    # materialy – individuální prořez materiálu (NULL = použij globální dle typu z tabulky prorez)
+    add_column('materialy', 'prorez_procento', 'REAL DEFAULT NULL')
 
     # materialy – počet nýtů z importu
     add_column('materialy', 'nity', 'REAL DEFAULT 0')
@@ -985,6 +986,20 @@ def auto_migrate():
         )
     """)
     log.append("[OK] vychozi_bom — tabulka připravena")
+
+    # ── DXF DATA — uložené výsledky parsování DXF souborů pro typ casu ─────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS typy_casu_dxf (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            typ_casu_id    INTEGER NOT NULL REFERENCES typy_casu(id) ON DELETE CASCADE,
+            nazev_souboru  TEXT,
+            vrstvy_json    TEXT NOT NULL DEFAULT '[]',
+            varovani_json  TEXT NOT NULL DEFAULT '[]',
+            nahrano        TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_typy_casu_dxf ON typy_casu_dxf(typ_casu_id)")
+    log.append("  [OK] typy_casu_dxf")
 
     conn.commit()
     conn.close()
