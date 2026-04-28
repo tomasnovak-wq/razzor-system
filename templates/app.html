@@ -1742,6 +1742,8 @@ async function bomDetailUnified(typId, tab) {
   if (tab === undefined) tab = 2;
   _buTab    = tab;
   _buActive = true;
+  // Reset DXF overrides při otevření jiného typu casu (zachováme jen pokud je stejný typId)
+  if (!_buData || _buData.typId !== typId) _dxfOverrides = {};
   openModal('<div class="text-center py-10 text-gray-400">Načítám…</div>', 'xl');
   const [data, casData, profilyData, typyKorpusu, dxfResp] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
@@ -2307,9 +2309,10 @@ function _dxfRecalcSummary() {
   if (deskyM2 > 0) parts.push(`🪵 Desky celkem: <strong>${deskyM2.toFixed(4)} m²</strong>`);
   if (penyM2  > 0) parts.push(`🟡 Pěny celkem: <strong>${penyM2.toFixed(4)} m²</strong>`);
   bar.querySelector('.dxf-summary-totals').innerHTML = parts.join('<span style="margin:0 8px;color:#a7f3d0">|</span>');
-  // Indikátor neuloženého přiřazení
-  const saveBtn = document.getElementById('dxf-save-overrides-btn');
-  if (saveBtn) saveBtn.style.display = '';
+  // Indikátor neuloženého přiřazení — zobraz obě tlačítka Uložit
+  ['dxf-save-overrides-btn', 'dxf-save-overrides-btn-bottom'].forEach(id => {
+    const b = document.getElementById(id); if (b) b.style.display = '';
+  });
 }
 
 /** Handler změny dropdownu přiřazení. */
@@ -2336,12 +2339,17 @@ function _dxfOverrideChange(sel, layerName) {
 
 /** Uloží přiřazení vrstev na server. */
 async function _dxfSaveOverrides(typId) {
-  const btn = document.getElementById('dxf-save-overrides-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Ukládám…'; }
+  const btns = ['dxf-save-overrides-btn', 'dxf-save-overrides-btn-bottom']
+    .map(id => document.getElementById(id)).filter(Boolean);
+  btns.forEach(b => { b.disabled = true; b.textContent = '⏳ Ukládám…'; });
   const r = await api(`/api/typy-casu/${typId}/dxf`, 'PATCH', { overrides: _dxfOverrides });
-  if (r.error) { alert('Chyba: ' + r.error); if (btn) { btn.disabled=false; btn.textContent='💾 Uložit přiřazení'; } return; }
+  if (r.error) {
+    alert('Chyba: ' + r.error);
+    btns.forEach(b => { b.disabled = false; b.textContent = '💾 Uložit přiřazení'; });
+    return;
+  }
   if (_buData?.dxfData) _buData.dxfData.overrides = { ..._dxfOverrides };
-  if (btn) { btn.disabled=false; btn.textContent='✓ Uloženo'; btn.style.display='none'; }
+  btns.forEach(b => { b.disabled = false; b.textContent = '✓ Uloženo'; b.style.display = 'none'; });
 }
 
 /** Sestaví HTML tabulky vrstev včetně override dropdownů (sdíleno pro init i refresh). */
@@ -2355,10 +2363,10 @@ async function _dxfSaveOverrides(typId) {
 function _dxfRenderSvg(polygony, vrstvy, overrides) {
   if (!polygony || !Object.keys(polygony).length) return '';
 
-  // Barvy dle typu vrstvy
-  const FILL  = { deska: '#fcd34d', pena: '#86efac', jine: '#e5e7eb' };
-  const STRK  = { deska: '#92400e', pena: '#166534', jine: '#9ca3af' };
-  const OPAC  = { deska: '0.75',    pena: '0.75',    jine: '0.35'   };
+  // Barvy dle typu vrstvy — deska=světle hnědá (překližka), pěna=zelená
+  const FILL  = { deska: '#c8986a', pena: '#86efac', jine: '#e5e7eb' };
+  const STRK  = { deska: '#7c4a1e', pena: '#166534', jine: '#9ca3af' };
+  const OPAC  = { deska: '0.80',    pena: '0.75',    jine: '0.35'   };
 
   // Mapa: layerName → efektivní typ (respektuje overrides)
   const typMap = {};
@@ -2534,12 +2542,17 @@ function _dxfBuildTable(dxfData, typId) {
       </thead>
       <tbody>${rows}</tbody>
     </table>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px">
+      <button id="dxf-save-overrides-btn-bottom" class="btn btn-primary py-1 px-4 text-sm"
+              style="${hasUnsaved ? '' : 'display:none'}"
+              onclick="_dxfSaveOverrides(${typId})">💾 Uložit přiřazení</button>
     </div>`;
 }
 
 function _buTabDxf(typId, dxfData) {
-  // Reset override stavu při každém otevření záložky (přenačítáme z DB)
-  _dxfOverrides = {};
+  // _dxfOverrides se NEresetuje při přepínání karet — zachováme rozpracované přiřazení.
+  // Reset nastane jen při nahrání nového souboru (_buDxfUpload) nebo otevření jiného typu casu.
 
   const resultHtml = dxfData
     ? _dxfBuildTable(dxfData, typId)
