@@ -1830,8 +1830,9 @@ function _buRender() {
       <p class="text-gray-400 text-xs">Cena výroby</p>
       <p class="font-bold text-green-600">${fmtKc(t.cena_vyroby)}</p>
     </div>
-    <div class="bg-orange-50 rounded-lg p-3 flex-1 text-center min-w-20">
-      <p class="text-gray-400 text-xs">Čas výroby</p>
+    <div class="bg-orange-50 rounded-lg p-3 flex-1 text-center min-w-20 cursor-pointer"
+         onclick="document.getElementById('bu-cas-panel').classList.toggle('hidden')" title="Klikni pro detail výpočtu">
+      <p class="text-gray-400 text-xs">Čas výroby ▾</p>
       <p class="font-bold text-orange-600">${casData ? casData.celkem_fmt : (t.cas_narocnost > 0 ? fmt(t.cas_narocnost,1)+' h' : '–')}</p>
       ${casData && casData.ma_defaults ? `<p class="text-xs text-amber-600 mt-0.5">⚠ ${casData.defaults_cnt}× odhad</p>` : ''}
     </div>
@@ -1897,6 +1898,59 @@ function _buRender() {
     </div>
   </div>
   ${statsBar}
+  ${casData && casData.cnc ? `
+  <div id="bu-cas-panel" class="hidden mb-4 border border-orange-200 rounded-xl overflow-hidden bg-orange-50">
+    <div class="flex items-center justify-between px-4 py-2 bg-orange-100">
+      <p class="font-semibold text-orange-800 text-sm">
+        ⏱ Výpočet výrobního času – celkem: <strong>${casData.celkem_fmt}</strong>
+        ${casData.ma_defaults ? `<span class="ml-2 bg-amber-200 text-amber-800 text-xs rounded px-1.5 py-0.5">⚠ ${casData.defaults_cnt}× záložní čas</span>` : ''}
+      </p>
+      <button class="btn btn-secondary py-1 px-3 text-xs whitespace-nowrap"
+              onclick="ulozitCasVyroby(${typId}, ${casData.celkem_s})"
+              title="Uloží vypočítaný čas jako Čas výroby jen pro tento BOM">
+        💾 Uložit jen tento
+      </button>
+    </div>
+    ${casData.ma_defaults ? `
+    <div class="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-800">
+      ⚠ <strong>${casData.defaults_cnt} položek</strong> nemá nastaven vlastní čas – používá záložní hodnotu.
+    </div>` : ''}
+    <div class="grid grid-cols-3 gap-0 divide-x divide-orange-200 text-xs">
+      <div class="p-3">
+        <p class="font-bold text-purple-700 text-sm mb-2">🔵 CNC – ${casData.cnc.celkem_fmt}</p>
+        <div class="space-y-1 text-gray-600">
+          <div class="flex justify-between"><span>Příprava prostoru</span><span class="font-mono">${Math.round(casData.cnc.setup_s/60)} min</span></div>
+          <div class="flex justify-between"><span>Příprava dat / programu</span><span class="font-mono">${Math.round(casData.cnc.data_prep_s/60)} min</span></div>
+          <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium"><span>Řezání (×${casData.size_factor})</span><span class="font-mono">${Math.round(casData.cnc.mat_cas_s/60)} min</span></div>
+          ${casData.cnc.polozky.length ? `<details class="mt-1"><summary class="cursor-pointer text-gray-400">Desky (${casData.cnc.polozky.length})</summary>
+            ${casData.cnc.polozky.map(p=>`<div class="flex justify-between py-0.5 pl-2 ${p.pouzit_default?'text-amber-700':'text-gray-500'}"><span class="truncate flex-1 mr-1">${p.pouzit_default?'~':''}${p.nazev}</span><span class="font-mono">${Math.round(p.cas_celkem_s)}s</span></div>`).join('')}
+          </details>` : ''}
+        </div>
+      </div>
+      <div class="p-3">
+        <p class="font-bold text-blue-700 text-sm mb-2">🔧 Montáž – ${casData.montaz.celkem_fmt}</p>
+        <div class="space-y-1 text-gray-600">
+          <div class="flex justify-between"><span>Příprava + úklid</span><span class="font-mono">${Math.round(casData.montaz.fixed_scaled_s/60)} min</span></div>
+          <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium"><span>HW montáž</span><span class="font-mono">${Math.round(casData.montaz.hw_cas_s/60)} min</span></div>
+          <div class="flex justify-between font-medium text-indigo-700"><span>🔩 Nýty: ${casData.montaz.total_nits} ks</span><span class="font-mono">${Math.round(casData.montaz.nit_cas_s/60)} min</span></div>
+          ${casData.montaz.polozky.length ? `<details class="mt-1"><summary class="cursor-pointer text-gray-400">HW (${casData.montaz.polozky.length})</summary>
+            ${casData.montaz.polozky.map(p=>`<div class="flex justify-between py-0.5 pl-2 ${p.pouzit_default?'text-amber-700':'text-gray-500'}"><span class="truncate flex-1 mr-1">${p.pouzit_default?'~':''}${p.nazev}</span><span class="font-mono">${Math.round(p.cas_celkem_s)}s</span></div>`).join('')}
+          </details>` : ''}
+        </div>
+      </div>
+      <div class="p-3">
+        <p class="font-bold text-green-700 text-sm mb-2">🟢 Pěny – ${casData.peny.celkem_fmt}</p>
+        <div class="space-y-1 text-gray-600">
+          <div class="flex justify-between"><span>Nahřívání pistole</span><span class="font-mono">${Math.round(casData.peny.pistole_s/60)} min</span></div>
+          <div class="flex justify-between"><span>Zahájení + úklid</span><span class="font-mono">${Math.round((casData.peny.fix_s+casData.peny.cleanup_s)/60)} min</span></div>
+          <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium"><span>Zpracování pěn</span><span class="font-mono">${Math.round(casData.peny.mat_cas_s/60)} min</span></div>
+          ${casData.peny.polozky.length ? `<details class="mt-1"><summary class="cursor-pointer text-gray-400">Pěny (${casData.peny.polozky.length})</summary>
+            ${casData.peny.polozky.map(p=>`<div class="flex justify-between py-0.5 pl-2 ${p.pouzit_default?'text-amber-700':'text-gray-500'}"><span class="truncate flex-1 mr-1">${p.pouzit_default?'~':''}${p.nazev}</span><span class="font-mono">${Math.round(p.cas_celkem_s)}s</span></div>`).join('')}
+          </details>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>` : ''}
   ${tabNav}
   ${tabContent}
   `, 'xl');
