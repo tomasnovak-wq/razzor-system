@@ -1708,12 +1708,14 @@ async function bomDetailUnified(typId, tab) {
   _buTab    = tab;
   _buActive = true;
   openModal('<div class="text-center py-10 text-gray-400">Načítám…</div>', 'xl');
-  const [data, casData, profilyData] = await Promise.all([
+  const [data, casData, profilyData, typyKorpusu] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
-    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
+    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] })),
+    _cache.typy_korpusu ? Promise.resolve(_cache.typy_korpusu) : api('/api/typy-korpusu')
   ]);
-  _buData = { typId, data, casData, profilyData };
+  _cache.typy_korpusu = typyKorpusu;
+  _buData = { typId, data, casData, profilyData, typyKorpusu };
   _buRender();
 }
 
@@ -1894,7 +1896,7 @@ function _buRender() {
 }
 
 function _buTabSpec(t, typId) {
-  const typy = ['Rack','Klávesy','Hlava/kombo','Accessory case','Pedalboard','Mikrofony','Ostatní'];
+  const typy = (_buData?.typyKorpusu || []).map(tk => tk.nazev);
   const d = _buDraft.spec || {};
   const val = (field, fallback) => (d[field] != null ? String(d[field]).replace(/"/g,'&quot;') : String(fallback ?? '').replace(/"/g,'&quot;'));
   return `
@@ -4521,7 +4523,7 @@ async function ulozInventuru() {
 function nastaveni(tab) {
   tab = tab || 'import';
   const tabBtn = t => `<button class="tab-btn ${t===tab?'active':''}" onclick="nastaveni('${t}')">${
-    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail', 'bom-ignore':'🚫 BOM import'}[t]
+    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail', 'bom-ignore':'🚫 BOM import', 'typy-korpusu':'🗂 Typy korpusu'}[t]
   }</button>`;
 
   let body = '';
@@ -4581,13 +4583,15 @@ function nastaveni(tab) {
     body = `<div id="email-nastaveni-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   } else if (tab === 'bom-ignore') {
     body = `<div id="bom-ignore-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
+  } else if (tab === 'typy-korpusu') {
+    body = `<div id="typy-korpusu-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   }
 
   setContent(`
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-xl font-bold text-gray-800">Nastavení</h2>
     </div>
-    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email','bom-ignore'].map(tabBtn).join('')}</div>
+    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email','bom-ignore','typy-korpusu'].map(tabBtn).join('')}</div>
     ${body}
   `);
 
@@ -4599,7 +4603,8 @@ function nastaveni(tab) {
   if (tab === 'spojeniky')   _renderSpojenikyPanel();
   if (tab === 'cas-param')   _renderCasParametry();
   if (tab === 'email')       _renderEmailNastaveni();
-  if (tab === 'bom-ignore')  _renderBomIgnore();
+  if (tab === 'bom-ignore')    _renderBomIgnore();
+  if (tab === 'typy-korpusu')  _renderTypyKorpusu();
 }
 
 // ── BOM IMPORT — IGNOROVANÉ KÓDY ─────────────────────────────────────────────
@@ -4644,6 +4649,86 @@ async function _renderBomIgnore() {
       </div>
       <div id="bom-ignore-msg" class="text-xs mt-2" style="display:none"></div>
     </div>`;
+}
+
+// ── TYPY KORPUSU — nastavení ──────────────────────────────────────────────
+async function _renderTypyKorpusu() {
+  const panel = document.getElementById('typy-korpusu-panel');
+  if (!panel) return;
+  const typy = await api('/api/typy-korpusu');
+  if (typy.error) { panel.innerHTML = `<p class="text-red-500">${typy.error}</p>`; return; }
+  _cache.typy_korpusu = typy; // invaliduje cache pro BOM popup
+  panel.innerHTML = `
+  <div class="card p-5">
+    <p class="text-sm text-gray-500 mb-4">Typy se zobrazují v rozbalovacím menu při editaci typu casu. Přetahování pro změnu pořadí není nutné — typy jsou seřazeny podle pořadí přidání.</p>
+    <table class="w-full text-sm mb-4">
+      <thead><tr class="border-b border-gray-100">
+        <th class="text-left py-1 text-gray-500 font-medium">Název</th>
+        <th style="width:80px"></th>
+      </tr></thead>
+      <tbody id="typy-korpusu-tbody">
+        ${typy.map(t => `
+        <tr class="border-b border-gray-50 group" id="tk-row-${t.id}">
+          <td class="py-1.5 pr-2">
+            <span id="tk-label-${t.id}" class="text-gray-800">${t.nazev}</span>
+            <input id="tk-input-${t.id}" class="input py-0.5 hidden" value="${t.nazev.replace(/"/g,'&quot;')}" style="max-width:320px">
+          </td>
+          <td class="py-1 text-right">
+            <div class="flex gap-1 justify-end">
+              <button class="text-xs text-blue-500 hover:text-blue-700 px-1" onclick="_tkEdit(${t.id})" id="tk-btn-edit-${t.id}">Upravit</button>
+              <button class="text-xs text-red-400 hover:text-red-600 px-1" onclick="_tkDelete(${t.id},'${t.nazev.replace(/'/g,"\\'")}')">✕</button>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="flex gap-2 items-center border-t border-gray-100 pt-4">
+      <input id="tk-new-nazev" class="input flex-1" placeholder="Nový typ korpusu…" onkeydown="if(event.key==='Enter')_tkAdd()">
+      <button class="btn btn-primary" onclick="_tkAdd()">+ Přidat</button>
+    </div>
+  </div>`;
+}
+
+function _tkEdit(id) {
+  const label = document.getElementById(`tk-label-${id}`);
+  const input = document.getElementById(`tk-input-${id}`);
+  const btn   = document.getElementById(`tk-btn-edit-${id}`);
+  if (!label || !input) return;
+  const editing = !input.classList.contains('hidden');
+  if (editing) {
+    // Uložit
+    const nazev = input.value.trim();
+    if (!nazev) return;
+    api(`/api/typy-korpusu/${id}`, 'PUT', { nazev }).then(() => {
+      _cache.typy_korpusu = null;
+      label.textContent = nazev;
+      label.classList.remove('hidden');
+      input.classList.add('hidden');
+      if (btn) btn.textContent = 'Upravit';
+    });
+  } else {
+    label.classList.add('hidden');
+    input.classList.remove('hidden');
+    input.focus(); input.select();
+    if (btn) btn.textContent = 'Uložit';
+  }
+}
+
+async function _tkDelete(id, nazev) {
+  if (!confirm(`Smazat typ „${nazev}"?`)) return;
+  await api(`/api/typy-korpusu/${id}`, 'DELETE');
+  _cache.typy_korpusu = null;
+  _renderTypyKorpusu();
+}
+
+async function _tkAdd() {
+  const inp = document.getElementById('tk-new-nazev');
+  const nazev = (inp?.value || '').trim();
+  if (!nazev) return;
+  await api('/api/typy-korpusu', 'POST', { nazev });
+  _cache.typy_korpusu = null;
+  inp.value = '';
+  _renderTypyKorpusu();
 }
 
 async function _bomIgnoreAdd() {

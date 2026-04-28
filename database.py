@@ -946,6 +946,27 @@ def auto_migrate():
         )
     """)
 
+    # ── TYPY KORPUSU — editovatelný číselník ─────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS typy_korpusu (
+            id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            nazev  TEXT NOT NULL,
+            poradi INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    c.execute("SELECT 1 FROM _migrations WHERE name='typy_korpusu_init_v1'")
+    if not c.fetchone():
+        default_typy = [
+            'Hlava / kombo', 'Mixpult', 'Klávesy', 'Rack', 'Rack Sliding door',
+            'Accessory case', 'Pedalboard', 'Case pro světelné hlavy', 'Case pro TV',
+            'Šatní skříň', 'Jiný typ', 'Inlay', 'Akustický panel 60x60 v rámu',
+            'Akustický panel 120x60 bez rámu', 'R1 system'
+        ]
+        for i, nazev in enumerate(default_typy):
+            c.execute("INSERT INTO typy_korpusu (nazev, poradi) VALUES (?, ?)", (nazev, i))
+        c.execute("INSERT INTO _migrations (name) VALUES ('typy_korpusu_init_v1')")
+        log.append("[OK] typy_korpusu — výchozí typy vloženy")
+
     conn.commit()
     conn.close()
     if log:

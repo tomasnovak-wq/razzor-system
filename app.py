@@ -4878,6 +4878,51 @@ def api_bom_import_ignore_delete(kod):
     return jsonify({'ok': True})
 
 
+# ── TYPY KORPUSU ─────────────────────────────────────────────────────────────
+@app.route('/api/typy-korpusu', methods=['GET'])
+def api_typy_korpusu_get():
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT id, nazev, poradi FROM typy_korpusu ORDER BY poradi, id")
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/typy-korpusu', methods=['POST'])
+def api_typy_korpusu_post():
+    d = request.json or {}
+    nazev = (d.get('nazev') or '').strip()
+    if not nazev:
+        return jsonify({'error': 'Název nesmí být prázdný'}), 400
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT COALESCE(MAX(poradi),0)+1 FROM typy_korpusu")
+    poradi = c.fetchone()[0]
+    c.execute("INSERT INTO typy_korpusu (nazev, poradi) VALUES (?,?)", (nazev, poradi))
+    new_id = c.lastrowid
+    conn.commit(); conn.close()
+    return jsonify({'id': new_id, 'nazev': nazev, 'poradi': poradi})
+
+@app.route('/api/typy-korpusu/<int:tid>', methods=['PUT'])
+def api_typy_korpusu_put(tid):
+    d = request.json or {}
+    conn = get_db(); c = conn.cursor()
+    if 'nazev' in d:
+        nazev = d['nazev'].strip()
+        if not nazev:
+            conn.close(); return jsonify({'error': 'Název nesmí být prázdný'}), 400
+        c.execute("UPDATE typy_korpusu SET nazev=? WHERE id=?", (nazev, tid))
+    if 'poradi' in d:
+        c.execute("UPDATE typy_korpusu SET poradi=? WHERE id=?", (d['poradi'], tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/typy-korpusu/<int:tid>', methods=['DELETE'])
+def api_typy_korpusu_delete(tid):
+    conn = get_db(); c = conn.cursor()
+    c.execute("DELETE FROM typy_korpusu WHERE id=?", (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 if __name__ == '__main__':
     init_db()
     auto_migrate()
