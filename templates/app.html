@@ -425,6 +425,7 @@ function _modalOverlayClick(event) {
   }
 }
 function _modalOverlayClose() {
+  if (_buActive) { _buCloseConfirm(); return; }
   closeModal();
   if (currentPage === 'typy-casu') {
     _cache.typy = null;
@@ -782,9 +783,15 @@ async function materialDetail(kod) {
       ${spojeniky.length ? spojeniky.map(s => `
         <div class="flex items-center justify-between py-1 border-b border-gray-50">
           <span class="text-gray-700"><span class="font-mono text-gray-400">${s.spojovaci_kod}</span> – ${s.nazev}</span>
-          <div class="flex items-center gap-2">
-            <span class="font-semibold">${fmt(s.mnozstvi_na_kus, 2)}&nbsp;/&nbsp;ks</span>
-            <button class="text-red-400 hover:text-red-600" onclick="_matDeleteSpojeni(${s.id},'${kodEsc}')">✕</button>
+          <div class="flex items-center gap-1">
+            <input type="number" step="0.01" min="0.01"
+              class="text-right font-semibold w-16 border border-transparent rounded px-1 py-0.5 text-xs bg-transparent hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none"
+              value="${s.mnozstvi_na_kus}"
+              title="Upravit množství / ks"
+              onblur="_matUpdateSpojeni(${s.id},'${kodEsc}',this)"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}if(event.key==='Escape'){this.value=this.defaultValue;this.blur();}">
+            <span class="text-gray-400 text-xs">/&nbsp;ks</span>
+            <button class="text-red-400 hover:text-red-600 ml-1" onclick="_matDeleteSpojeni(${s.id},'${kodEsc}')">✕</button>
           </div>
         </div>`).join('') : '<p class="text-gray-400 py-1">Žádné závislosti</p>'}
     </div>
@@ -863,6 +870,15 @@ async function _matDeleteSpojeni(id, kod) {
   if (!confirm('Odebrat závislost?')) return;
   await api(`/api/materialy/spojeniky/${id}`, 'DELETE');
   materialDetail(kod);
+}
+
+async function _matUpdateSpojeni(id, kod, el) {
+  const mnozstvi = parseFloat(el.value);
+  if (!mnozstvi || mnozstvi <= 0) { el.value = el.defaultValue; return; }
+  if (Math.abs(mnozstvi - parseFloat(el.defaultValue)) < 0.001) return;
+  const r = await api(`/api/material-spojeniky/${id}`, 'PUT', { mnozstvi_na_kus: mnozstvi });
+  if (r.error) { alert('Chyba: ' + r.error); el.value = el.defaultValue; return; }
+  el.defaultValue = mnozstvi;
 }
 
 function _spojSearch() {
@@ -980,11 +996,14 @@ async function editMaterial(kod) {
         </div>
         <div><label class="text-xs text-gray-500">Čas zpracování (s)</label><input class="input" id="m-cas" type="number" step="1" min="0" value="${m.cas_s||0}" title="Čas zpracování v sekundách — importuje se automaticky ze sloupce N v MATERIAL.csv"></div>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-3 gap-3">
         <div><label class="text-xs text-gray-500">Priorita</label>
           <select class="select" id="m-prior">
             ${['Vysoká','Střední','Nízká'].map(p=>`<option ${m.priorita===p?'selected':''}>${p}</option>`).join('')}
           </select></div>
+        <div><label class="text-xs text-gray-500" title="Počet nýtů potřebných na 1 ks tohoto materiálu — slouží k automatickému výpočtu spojeníků">Nýty (ks / 1 ks mat.)</label>
+          <input class="input" id="m-nity" type="number" step="1" min="0" value="${m.nity||0}"
+                 title="Zadej počet nýtů potřebných na montáž jednoho kusu tohoto materiálu. Systém automaticky připočítá NYTY do spojeníků."></div>
         <div class="flex items-end gap-2"><label class="text-xs text-gray-500 block mb-2">Zobrazovat</label>
           <input type="checkbox" class="w-5 h-5" id="m-zob" ${m.zobrazovat?'checked':''}></div>
       </div>
@@ -1010,7 +1029,8 @@ async function saveMaterial(existingKod) {
     zobrazovat: document.getElementById('m-zob').checked ? 1 : 0,
     hmotnost: parseFloat(document.getElementById('m-hmotnost').value) || 0,
     master_baleni: parseInt(document.getElementById('m-master-baleni').value) || 1,
-    balenf: parseFloat(document.getElementById('m-balenf').value) || 1
+    balenf: parseFloat(document.getElementById('m-balenf').value) || 1,
+    nity: parseInt(document.getElementById('m-nity').value) || 0
   };
   if (!data.kod || !data.nazev) return alert('Vyplňte kód a název!');
   const r = existingKod
@@ -1386,7 +1406,7 @@ async function typyCasu() {
       <option value="">Všechny typy korpusu</option>
       ${typy.map(t=>`<option value="${t}">${t}</option>`).join('')}
     </select>
-    <button class="btn btn-primary flex-shrink-0" onclick="editTypCasu(null)">+ Nový typ</button>
+    <button class="btn btn-primary flex-shrink-0" onclick="editTypCasu(null)">+ Nové HN</button>
   </div>`);
 
   setContent(`
@@ -1789,11 +1809,55 @@ function _buSwitchTab(tab) {
 }
 
 function _buClose() {
+  const snap = _buData ? { ..._buData } : null;
   _buDraft  = {};
   _buActive = false;
   closeModal();
-  if (currentPage === 'typy-casu') {
-    _cache.typy = null;
+  if (currentPage !== 'typy-casu') return;
+  // Pokud cache neexistuje (první načtení stránky), musíme udělat plný fetch
+  if (!snap?.data || !_cache.typy) { typyCasu(); return; }
+  // Jinak pouze aktualizujeme jeden řádek v cache a překreslíme tbody — scroll zůstane
+  const t = snap.data.typ || {};
+  const rowData = {
+    id:              snap.typId,
+    hn_cislo:        t.hn_cislo        || '',
+    nazev:           t.nazev           || '',
+    typ_korpusu:     t.typ_korpusu     || '',
+    vnitrni_sirka:   t.vnitrni_sirka   || 0,
+    vnitrni_vyska:   t.vnitrni_vyska   || 0,
+    vnitrni_hloubka: t.vnitrni_hloubka || 0,
+    cena_dilu:       snap.data.cena_dilu    || 0,
+    hmotnost:        snap.data.hmotnost_bom || 0,
+    cas_narocnost:   t.cas_narocnost   || 0,
+    cena_vyroby:     t.cena_vyroby     || 0,
+    prodej_ap_bez_dph: t.prodej_ap_bez_dph || 0,
+  };
+  const idx = _cache.typy.findIndex(x => x.id === snap.typId);
+  if (idx >= 0) {
+    _cache.typy[idx] = { ..._cache.typy[idx], ...rowData };
+  } else {
+    // Nové HN — přidáme na začátek
+    _cache.typy.unshift(rowData);
+  }
+  _tcFilter(); // překreslí pouze <tbody>, stránka zůstane nascrollovaná
+}
+
+function _buCloseConfirm() {
+  if (!confirm('Odejít bez uložení?\nNeuložené změny budou ztraceny.')) return;
+  _buClose();
+}
+
+async function _buSmazatTyp(typId, hnCislo, nazev) {
+  if (!confirm(`Smazat typ casu ${hnCislo} – „${nazev}"?\n\nTato akce smaže i celý kusovník (BOM) tohoto HN. Nelze vrátit zpět.`)) return;
+  const r = await api(`/api/typy-casu/${typId}`, 'DELETE');
+  if (r.error) return alert('Chyba: ' + r.error);
+  _buDraft  = {};
+  _buActive = false;
+  closeModal();
+  if (_cache.typy) {
+    _cache.typy = _cache.typy.filter(x => x.id !== typId);
+    _tcFilter();
+  } else {
     typyCasu();
   }
 }
@@ -1854,29 +1918,24 @@ function _buRender() {
   </div>`;
 
   // Tab navigation with left/right arrows
-  const TAB_NAMES  = ['Specifikace', 'Materiály', 'Profily', 'Soubory'];
-  const TAB_COLORS = [
-    { bg:'#eff6ff', bgA:'#1d4ed8', txt:'#1d4ed8', txtA:'#fff', border:'#bfdbfe' },  // modrá
-    { bg:'#f0fdf4', bgA:'#16a34a', txt:'#16a34a', txtA:'#fff', border:'#bbf7d0' },  // zelená
-    { bg:'#fdf4ff', bgA:'#7e22ce', txt:'#7e22ce', txtA:'#fff', border:'#e9d5ff' },  // fialová
-    { bg:'#fff7ed', bgA:'#c2410c', txt:'#c2410c', txtA:'#fff', border:'#fed7aa' },  // oranžová
-  ];
+  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'Soubory'];
   const tabNav = `
-  <div style="display:flex;align-items:center;gap:6px;margin-bottom:16px">
+  <div style="background:#f1f5f9;border-radius:10px;padding:4px;margin-bottom:16px;display:flex;align-items:center;gap:2px">
     <button onclick="_buSwitchTab(${_buTab > 1 ? _buTab - 1 : 4})"
-      style="border:none;background:none;cursor:pointer;color:#9ca3af;font-size:1.1rem;padding:4px 6px" title="Předchozí záložka">←</button>
+      style="border:none;background:none;cursor:pointer;color:#94a3b8;font-size:1rem;padding:4px 6px;flex-shrink:0" title="Předchozí záložka">←</button>
     ${TAB_NAMES.map((name, i) => {
       const idx = i + 1;
       const active = idx === _buTab;
-      const c = TAB_COLORS[i];
       return `<button onclick="_buSwitchTab(${idx})"
-        style="border:1px solid ${active?c.bgA:c.border};border-radius:20px;cursor:pointer;font-size:.82rem;padding:5px 16px;
-               font-weight:${active?'700':'500'};white-space:nowrap;
-               background:${active?c.bgA:c.bg};color:${active?c.txtA:c.txt};
+        style="border:none;border-radius:7px;cursor:pointer;font-size:.84rem;padding:6px 18px;
+               font-weight:${active?'600':'400'};white-space:nowrap;flex:1;
+               background:${active?'#fff':'transparent'};
+               color:${active?'#1d4ed8':'#64748b'};
+               box-shadow:${active?'0 1px 3px rgba(0,0,0,.12)':'none'};
                transition:all .15s">${name}</button>`;
     }).join('')}
     <button onclick="_buSwitchTab(${_buTab < 4 ? _buTab + 1 : 1})"
-      style="border:none;background:none;cursor:pointer;color:#9ca3af;font-size:1.1rem;padding:4px 6px" title="Další záložka">→</button>
+      style="border:none;background:none;cursor:pointer;color:#94a3b8;font-size:1rem;padding:4px 6px;flex-shrink:0" title="Další záložka">→</button>
   </div>`;
 
   let tabContent = '';
@@ -1894,7 +1953,8 @@ function _buRender() {
     </div>
     <div class="flex gap-2 items-center">
       <button onclick="_buClose();novaZakazkaZTypu(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}');" class="btn btn-success py-1 px-3 text-sm">+ Nová zakázka</button>
-      <button onclick="_buClose()" class="btn btn-secondary py-1 px-2">✕</button>
+      <button onclick="_buSmazatTyp(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}');" class="btn btn-danger py-1 px-2 text-sm" title="Smazat tento typ casu">🗑</button>
+      <button onclick="_buCloseConfirm()" class="btn btn-secondary py-1 px-2">✕</button>
     </div>
   </div>
   ${statsBar}
@@ -2002,17 +2062,6 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
     <button class="btn btn-secondary text-xs" onclick="debugBomSpojeniky(${typId})" title="Ukáže které materiály mají/nemají nastavené spojeniky">🔍 Náhled spojeníků</button>
   </div>
   ${bom.length === 0 ? '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:#b91c1c">⚠ Kusovník je prázdný — přidejte materiály tlačítkem výše.</div>' : ''}
-  ${links.length ? `
-  <div style="margin-bottom:16px;padding:10px 14px;border-radius:8px;border:1px solid #c7d2fe;background:#eef2ff">
-    <p style="font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4338ca;margin-bottom:8px">📎 Pracovní postupy</p>
-    <div style="display:flex;flex-wrap:wrap;gap:6px">
-      ${links.map(lnk => `<a href="${lnk.url}" target="_blank"
-        style="display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:1px solid #a5b4fc;background:white;color:#3730a3;font-size:.8rem;font-weight:500;text-decoration:none"
-        onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='white'">
-        📄 ${lnk.nazev}
-      </a>`).join('')}
-    </div>
-  </div>` : ''}
   ${prekryvy.length ? `<div class="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
     <p class="text-sm font-semibold text-orange-700 mb-1">⚠ Dvojí výskyt – tyto materiály jsou v kusovníku I v spojenikách:</p>
     <div class="space-y-1">
@@ -2042,7 +2091,14 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
         <td><p class="font-medium${fav?' text-amber-900':''}${jePrekryv?' text-orange-700':''}">${b.nazev}${jePrekryv?' <span class="text-orange-400 text-xs" title="Tento materiál je i ve spojenikách">⚠</span>':''}</p>
             <p class="text-xs text-gray-400 font-mono">${b.material_kod}</p></td>
         <td class="text-xs text-gray-500">${b.typ||''}</td>
-        <td class="text-right font-semibold">${fmt(b.mnozstvi,3)}</td>
+        <td class="text-right">
+          <input type="number" step="0.001" min="0.001"
+            class="text-right font-semibold w-20 border border-transparent rounded px-1 py-0.5 text-sm bg-transparent hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none"
+            value="${b.mnozstvi}"
+            title="Upravit množství"
+            onblur="_buUpdateMnozstvi(${typId},'${b.material_kod}',this)"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}if(event.key==='Escape'){this.value=this.defaultValue;this.blur();}">
+        </td>
         <td class="text-right text-gray-500">${fmtKc(b.nc_bez_dph)}</td>
         <td class="text-right font-semibold">${fmtKc(b.cena_polozky)}</td>
         <td class="text-right text-xs ${b.stav_skladu < b.mnozstvi ? 'text-red-500' : 'text-green-600'}">${fmt(b.stav_skladu,2)}</td>
@@ -2237,7 +2293,7 @@ async function _buSaveSpec(typId) {
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
     api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
   ]);
-  _buData = { typId, data: newData, casData, profilyData };
+  _buData = { typId, data: newData, casData, profilyData, typyKorpusu: _buData.typyKorpusu };
   _buRender();
 }
 
@@ -2267,8 +2323,38 @@ async function _buSaveProfily(typId) {
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
     api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
   ]);
-  _buData = { typId, data: newData, casData, profilyData: newProfilyData };
+  _buData = { typId, data: newData, casData, profilyData: newProfilyData, typyKorpusu: _buData.typyKorpusu };
   _buRender();
+}
+
+// Inline editace množství přímo v tabulce kusovníku (záložka Materiály)
+async function _buUpdateMnozstvi(typId, matKod, el) {
+  const mnozstvi = parseFloat(el.value);
+  if (!mnozstvi || mnozstvi <= 0) { el.value = el.defaultValue; return; }
+  if (Math.abs(mnozstvi - parseFloat(el.defaultValue)) < 0.0001) return; // bez změny
+  const r = await api(`/api/typy-casu/${typId}/bom`, 'POST', { material_kod: matKod, mnozstvi });
+  if (r.error) { alert('Chyba: ' + r.error); el.value = el.defaultValue; return; }
+  _cache.typy = null;
+  const [newData, casData, profilyData] = await Promise.all([
+    api(`/api/typy-casu/${typId}`),
+    api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
+    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
+  ]);
+  _buData = { ..._buData, data: newData, casData, profilyData };
+  _buRender();
+}
+
+// Inline editace množství v modalu "Přidat materiál" — sekce "Již v kusovníku"
+async function _bomUpdateExistingMnozstvi(typId, matKod, el) {
+  const mnozstvi = parseFloat(el.value);
+  if (!mnozstvi || mnozstvi <= 0) { el.value = el.defaultValue; return; }
+  if (Math.abs(mnozstvi - parseFloat(el.defaultValue)) < 0.0001) return;
+  const r = await api(`/api/typy-casu/${typId}/bom`, 'POST', { material_kod: matKod, mnozstvi });
+  if (r.error) { alert('Chyba: ' + r.error); el.value = el.defaultValue; return; }
+  el.defaultValue = mnozstvi; // zaktualizuj výchozí hodnotu bez re-renderu modálu
+  const item = (_bomEditor.existingBom || []).find(b => b.material_kod === matKod);
+  if (item) item.mnozstvi = mnozstvi;
+  _cache.typy = null;
 }
 
 // Globální stav BOM editoru (musí přežít re-rendery modálu)
@@ -2428,7 +2514,15 @@ function _bomRender(typId, typy, existing, filterTyp) {
         <div class="space-y-1 max-h-40 overflow-y-auto">
           ${eb.map(b => `<div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 rounded-lg text-xs text-gray-500">
             <span><span class="font-mono text-gray-400 mr-2">${b.material_kod}</span>${b.nazev || ''}</span>
-            <span class="font-semibold text-gray-600">${fmt(b.mnozstvi,3)} ${b.jednotka||'ks'}</span>
+            <span class="flex items-center gap-1">
+              <input type="number" step="0.001" min="0.001"
+                class="text-right font-semibold w-20 border border-transparent rounded px-1 py-0.5 text-xs bg-transparent hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none"
+                value="${b.mnozstvi}"
+                title="Upravit množství"
+                onblur="_bomUpdateExistingMnozstvi(${typId},'${b.material_kod}',this)"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}if(event.key==='Escape'){this.value=this.defaultValue;this.blur();}">
+              <span class="text-gray-400">${b.jednotka||'ks'}</span>
+            </span>
           </div>`).join('')}
         </div>
       </div>`;
@@ -2684,11 +2778,11 @@ async function _bomSaveAll() {
 }
 
 function _bomEditorClose() {
-  _cache.typy = null;
   if (_bomEditor.typId) {
     bomDetail(_bomEditor.typId);
   } else {
     closeModal();
+    _cache.typy = null;
     typyCasu();
   }
 }
@@ -2749,10 +2843,15 @@ async function editTypCasu(id) {
     const data = await api(`/api/typy-casu/${id}`);
     t = data.typ || t;
   }
-  const typy = ['Rack','Klávesy','Hlava/kombo','Accessory case','Pedalboard','Mikrofony','Ostatní'];
+  // Dynamický seznam typů korpusu (stejný jako v bomDetailUnified)
+  if (!_cache.typy_korpusu) {
+    _cache.typy_korpusu = await api('/api/typy-korpusu');
+  }
+  const typy = (_cache.typy_korpusu || []).map(tk => tk.nazev);
+
   openModal(`
     <div class="flex items-center justify-between mb-4">
-      <h3 class="text-lg font-semibold">${isEdit ? 'Upravit typ casu' : 'Nový typ casu'}</h3>
+      <h3 class="text-lg font-semibold">${isEdit ? 'Upravit typ casu' : 'Nové HN'}</h3>
       <button onclick="closeModal()" class="btn btn-secondary py-1 px-2">✕</button>
     </div>
     <div class="space-y-3">
@@ -2766,47 +2865,32 @@ async function editTypCasu(id) {
                 <input id="tc-hn-num" maxlength="6" inputmode="numeric"
                   style="border:none;outline:none;padding:7px 10px;flex:1;font-size:.9rem;font-family:monospace;letter-spacing:1px;min-width:0"
                   placeholder="221250"
-                  oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,6);_tcHnCheck(this.value)">
+                  oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,6);_tcHnCheck(this.value)"
+                  onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('tc-nazev').focus();}">
               </div>
               <div id="tc-hn-status" style="font-size:.72rem;margin-top:3px;min-height:16px"></div>`
           }
         </div>
-        <div><label class="text-xs text-gray-500">Název *</label><input class="input" id="tc-nazev" value="${t.nazev}"></div>
+        <div>
+          <label class="text-xs text-gray-500">Název case *</label>
+          <input class="input" id="tc-nazev" value="${t.nazev}"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();saveTypCasu(${id||'null'});}">
+        </div>
       </div>
-      <div><label class="text-xs text-gray-500">Typ korpusu</label>
-        <select class="select" id="tc-typ">
+      <div>
+        <label class="text-xs text-gray-500">Typ korpusu</label>
+        <select class="select" id="tc-new-typ">
           <option value="">– Nevybráno –</option>
           ${typy.map(tp=>`<option value="${tp}" ${t.typ_korpusu===tp?'selected':''}>${tp}</option>`).join('')}
         </select>
       </div>
+      ${isEdit ? `
       <div class="grid grid-cols-3 gap-3">
         <div><label class="text-xs text-gray-500">Šířka (mm)</label><input class="input" id="tc-s" type="number" value="${t.vnitrni_sirka||0}"></div>
         <div><label class="text-xs text-gray-500">Výška (mm)</label><input class="input" id="tc-v" type="number" value="${t.vnitrni_vyska||0}"></div>
         <div><label class="text-xs text-gray-500">Hloubka (mm)</label><input class="input" id="tc-h" type="number" value="${t.vnitrni_hloubka||0}"></div>
       </div>
-      <div><label class="text-xs text-gray-500">Poznámka</label><textarea class="input" id="tc-poz" rows="2">${t.poznamka||''}</textarea></div>
-      ${isEdit ? `
-      <div class="bg-gray-50 rounded-xl p-3 border border-dashed border-gray-200">
-        <p class="text-xs font-medium text-gray-500 mb-2">Vypočtené hodnoty (z BOM)</p>
-        <div class="grid grid-cols-3 gap-3">
-          <div><label class="text-xs text-gray-400">Cena výroby (Kč)</label>
-            <p class="text-sm font-semibold text-gray-700">${t.cena_vyroby ? fmtKc(t.cena_vyroby) : '–'}</p></div>
-          <div><label class="text-xs text-gray-400">Čas výroby (h)</label>
-            <p class="text-sm font-semibold text-gray-700">${t.cas_narocnost || '–'}</p></div>
-          <div><label class="text-xs text-gray-400">Hmotnost (kg)</label>
-            <p class="text-sm font-semibold text-gray-700">${t.hmotnost || '–'}</p></div>
-        </div>
-        <div class="grid grid-cols-2 gap-3 mt-2">
-          <div><label class="text-xs text-gray-400">Prodej AP bez DPH (Kč)</label>
-            <p class="text-sm font-semibold text-gray-700">${t.prodej_ap_bez_dph ? fmtKc(t.prodej_ap_bez_dph) : '–'}</p></div>
-          <div><label class="text-xs text-gray-400">Správná MC bez DPH (Kč)</label>
-            <p class="text-sm font-semibold text-gray-700">${t.spravna_mc ? fmtKc(t.spravna_mc) : '–'}</p></div>
-        </div>
-      </div>` : `
-      <div class="bg-blue-50 rounded-xl p-3 border border-blue-100 text-xs text-blue-700">
-        💡 Cena výroby, čas, hmotnost a ceny se dopočítají automaticky z kusovníku (BOM).
-        Po přidání casu budete moci rovnou přidat materiály.
-      </div>`}
+      <div><label class="text-xs text-gray-500">Poznámka</label><textarea class="input" id="tc-poz" rows="2">${t.poznamka||''}</textarea></div>` : ''}
       <div class="flex gap-2 pt-2">
         <button class="btn btn-primary flex-1" onclick="saveTypCasu(${id||'null'})">${isEdit ? '💾 Uložit' : '➕ Přidat a sestavit BOM'}</button>
         <button class="btn btn-secondary" onclick="closeModal()">Zrušit</button>
@@ -2827,12 +2911,12 @@ async function saveTypCasu(existingId) {
   }
   const data = {
     hn_cislo,
-    nazev:             document.getElementById('tc-nazev').value.trim(),
-    typ_korpusu:       document.getElementById('tc-typ').value,
-    vnitrni_sirka:     parseInt(document.getElementById('tc-s').value)||0,
-    vnitrni_vyska:     parseInt(document.getElementById('tc-v').value)||0,
-    vnitrni_hloubka:   parseInt(document.getElementById('tc-h').value)||0,
-    poznamka:          document.getElementById('tc-poz').value
+    nazev:           document.getElementById('tc-nazev').value.trim(),
+    typ_korpusu:     (document.getElementById('tc-new-typ') || document.getElementById('tc-typ'))?.value || '',
+    vnitrni_sirka:   parseInt(document.getElementById('tc-s')?.value)||0,
+    vnitrni_vyska:   parseInt(document.getElementById('tc-v')?.value)||0,
+    vnitrni_hloubka: parseInt(document.getElementById('tc-h')?.value)||0,
+    poznamka:        document.getElementById('tc-poz')?.value || ''
   };
   if (!data.hn_cislo || !data.nazev) return alert('Vyplňte HN číslo a název!');
   const r = existingId
@@ -2841,13 +2925,11 @@ async function saveTypCasu(existingId) {
   if (r.error) return alert('Chyba: ' + r.error);
   _cache.typy = null;
   if (existingId) {
-    // Edit → stačí zavřít a obnovit seznam
     closeModal();
     typyCasu();
   } else {
-    // Nový typ → rovnou otevřeme BOM editor
-    const newId = r.id;
-    addBomItem(newId);
+    // Nové HN → otevřeme unified BOM popup (záložka Specifikace)
+    bomDetailUnified(r.id, 1);
   }
 }
 
@@ -3006,7 +3088,7 @@ function novaZakazkaZTypu(typId, hn, nazev) {
 }
 
 async function editZakazka(id, prefill={}) {
-  let z = { hn_cislo:'', nazev:'', stav:'Čeká', pocet_ks:1, termin:'', zakaznik:'', poznamka_dilna:'', poznamka_cnc:'', pracovnik:'', sn_cislo:'', ...prefill };
+  let z = { hn_cislo:'', nazev:'', stav:'Čeká', pocet_ks:1, termin:'', destinace:'Zákazník', zakaznik:'', poznamka_dilna:'', poznamka_cnc:'', pracovnik:'', sn_cislo:'', ...prefill };
   const isEdit = !!id;
   if (isEdit) {
     const data = await api(`/api/zakazky?limit=1`);
@@ -3030,19 +3112,28 @@ async function editZakazka(id, prefill={}) {
       <button onclick="closeModal()" class="btn btn-secondary py-1 px-2">✕</button>
     </div>
     <div class="space-y-3">
+      <!-- Skrytá pole pro typ, HN, název -->
+      <input type="hidden" id="zak-typ-id" value="${z.typ_casu_id||''}">
+      <input type="hidden" id="zak-hn" value="${z.hn_cislo}">
+      <input type="hidden" id="zak-nazev" value="${z.nazev}">
+
+      ${z.typ_casu_id ? `
+      <!-- Typ casu jako info blok -->
+      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px">
+        <div style="font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Typ casu</div>
+        <div style="font-size:1.05rem;font-weight:700;color:#1e3a5f;line-height:1.2">${z.hn_cislo}</div>
+        <div style="font-size:.88rem;color:#374151">${z.nazev}</div>
+      </div>
+      ` : `
+      <!-- Výběr typu když není prefill -->
       <div><label class="text-xs text-gray-500">Typ casu (BOM) <span class="text-red-500">*</span></label>
         <select class="select" id="zak-typ" onchange="zakTypChange(this)">
           <option value="">— Vyberte typ casu ze seznamu —</option>
           ${typyItems.map(t=>`<option value="${t.id}" data-hn="${t.hn_cislo}" data-nazev="${t.nazev.replace(/"/g,'&quot;')}" ${z.typ_casu_id==t.id?'selected':''}>${t.hn_cislo} – ${t.nazev}</option>`).join('')}
         </select>
       </div>
-      <div class="grid grid-cols-2 gap-3">
-        <div><label class="text-xs text-gray-500">HN číslo</label>
-          <input class="input" id="zak-hn" value="${z.hn_cislo}" readonly
-            style="background:#f8fafc;color:#64748b;cursor:default"
-            title="HN číslo se vyplní automaticky po výběru typu casu ze seznamu výše"></div>
-        <div><label class="text-xs text-gray-500">Název / popis</label><input class="input" id="zak-nazev" value="${z.nazev}"></div>
-      </div>
+      `}
+
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs text-gray-500">Stav</label>
           <select class="select" id="zak-stav">
@@ -3052,16 +3143,24 @@ async function editZakazka(id, prefill={}) {
         <div><label class="text-xs text-gray-500">Termín</label><input class="input" id="zak-termin" type="date" value="${z.termin}"></div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="text-xs text-gray-500">Zákazník</label><input class="input" id="zak-zak" value="${z.zakaznik}"></div>
+        <div><label class="text-xs text-gray-500">Zákazník</label>
+          <select class="select" id="zak-destinace">
+            <option value="Zákazník" ${(z.destinace||'Zákazník')==='Zákazník'?'selected':''}>Zákazník</option>
+            <option value="Sklad" ${z.destinace==='Sklad'?'selected':''}>Sklad</option>
+          </select>
+        </div>
         <div><label class="text-xs text-gray-500">Pracovník</label>
           <select class="select" id="zak-prac">${pracovnikOpts}</select>
         </div>
       </div>
       <div><label class="text-xs text-gray-500">Poznámka pro dílnu</label><textarea class="input" id="zak-poz-d" rows="2">${z.poznamka_dilna}</textarea></div>
       <div><label class="text-xs text-gray-500">Poznámka pro CNC</label><textarea class="input" id="zak-poz-c" rows="2">${z.poznamka_cnc}</textarea></div>
-      <div><label class="text-xs text-gray-500">S/N číslo</label><input class="input" id="zak-sn" value="${z.sn_cislo}"></div>
+      ${!isEdit ? `<div style="display:flex;align-items:center;gap:10px">
+        <label class="text-xs text-gray-500" style="white-space:nowrap">Počet ks</label>
+        <input class="input" id="zak-pocet-ks" type="number" min="1" max="99" value="1" style="width:90px">
+      </div>` : ''}
       <div class="flex gap-2 pt-2">
-        <button class="btn btn-primary flex-1" onclick="saveZakazka(${id||'null'}, ${z.typ_casu_id||'null'})">💾 ${isEdit?'Uložit':'Vytvořit zakázku'}</button>
+        <button class="btn btn-primary flex-1" onclick="saveZakazka(${id||'null'})">💾 ${isEdit?'Uložit':'Vytvořit zakázku'}</button>
         <button class="btn btn-secondary" onclick="closeModal()">Zrušit</button>
       </div>
     </div>
@@ -3070,31 +3169,55 @@ async function editZakazka(id, prefill={}) {
 
 function zakTypChange(sel) {
   const opt = sel.options[sel.selectedIndex];
-  if (opt.dataset.hn) document.getElementById('zak-hn').value = opt.dataset.hn;
-  if (opt.dataset.nazev) document.getElementById('zak-nazev').value = opt.dataset.nazev;
+  if (opt.value) {
+    document.getElementById('zak-typ-id').value = opt.value;
+    document.getElementById('zak-hn').value   = opt.dataset.hn || '';
+    document.getElementById('zak-nazev').value = opt.dataset.nazev || '';
+  } else {
+    document.getElementById('zak-typ-id').value = '';
+    document.getElementById('zak-hn').value   = '';
+    document.getElementById('zak-nazev').value = '';
+  }
 }
 
-async function saveZakazka(existingId, typId) {
-  const selTyp = document.getElementById('zak-typ');
-  const finalTypId = selTyp.value ? parseInt(selTyp.value) : (typId || null);
+async function saveZakazka(existingId) {
+  // Typ casu — z hidden pole (prefill) nebo z dropdown (manuální výběr)
+  const typIdHidden = document.getElementById('zak-typ-id');
+  const typSel      = document.getElementById('zak-typ');
+  const finalTypId  = parseInt(typIdHidden?.value || typSel?.value || '0') || null;
   if (!finalTypId) return alert('Vyberte typ casu ze seznamu — HN číslo musí pocházet z BOM.');
-  const data = {
-    typ_casu_id: finalTypId,
-    hn_cislo: document.getElementById('zak-hn').value.trim(),
-    nazev: document.getElementById('zak-nazev').value.trim(),
-    stav: document.getElementById('zak-stav').value,
-    pocet_ks: 1,
-    termin: document.getElementById('zak-termin').value,
-    zakaznik: document.getElementById('zak-zak').value.trim(),
-    pracovnik: document.getElementById('zak-prac').value.trim(),
+
+  const hnCislo   = document.getElementById('zak-hn')?.value.trim()    || '';
+  const nazev     = document.getElementById('zak-nazev')?.value.trim()  || '';
+  const destinace = document.getElementById('zak-destinace')?.value     || 'Zákazník';
+
+  const base = {
+    typ_casu_id:    finalTypId,
+    hn_cislo:       hnCislo,
+    nazev:          nazev,
+    stav:           document.getElementById('zak-stav').value,
+    pocet_ks:       1,
+    termin:         document.getElementById('zak-termin').value,
+    destinace:      destinace,
+    zakaznik:       '',
+    pracovnik:      document.getElementById('zak-prac').value.trim(),
     poznamka_dilna: document.getElementById('zak-poz-d').value,
-    poznamka_cnc: document.getElementById('zak-poz-c').value,
-    sn_cislo: document.getElementById('zak-sn').value
+    poznamka_cnc:   document.getElementById('zak-poz-c').value,
   };
-  const r = existingId
-    ? await api(`/api/zakazky/${existingId}`, 'PUT', data)
-    : await api('/api/zakazky', 'POST', data);
-  if (r.error) return alert('Chyba: ' + r.error);
+
+  if (existingId) {
+    // Editace existující zakázky — jen aktualizuj
+    const r = await api(`/api/zakazky/${existingId}`, 'PUT', base);
+    if (r.error) return alert('Chyba: ' + r.error);
+  } else {
+    // Nová zakázka — vytvoř N samostatných kusů po 1 ks
+    const pocet = Math.max(1, parseInt(document.getElementById('zak-pocet-ks')?.value || '1') || 1);
+    for (let i = 0; i < pocet; i++) {
+      const r = await api('/api/zakazky', 'POST', base);
+      if (r.error) return alert('Chyba při vytváření zakázky: ' + r.error);
+    }
+  }
+
   closeModal();
   if (currentPage === 'dilna') dilna();
   else pripravaVyroby();
@@ -4648,7 +4771,7 @@ async function ulozInventuru() {
 function nastaveni(tab) {
   tab = tab || 'import';
   const tabBtn = t => `<button class="tab-btn ${t===tab?'active':''}" onclick="nastaveni('${t}')">${
-    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail', 'bom-ignore':'🚫 BOM import', 'typy-korpusu':'🗂 Typy korpusu'}[t]
+    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail', 'bom-ignore':'🚫 BOM import', 'typy-korpusu':'🗂 Typy korpusu', 'vychozi-bom':'📦 Výchozí materiály'}[t]
   }</button>`;
 
   let body = '';
@@ -4710,13 +4833,15 @@ function nastaveni(tab) {
     body = `<div id="bom-ignore-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   } else if (tab === 'typy-korpusu') {
     body = `<div id="typy-korpusu-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
+  } else if (tab === 'vychozi-bom') {
+    body = `<div id="vychozi-bom-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   }
 
   setContent(`
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-xl font-bold text-gray-800">Nastavení</h2>
     </div>
-    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email','bom-ignore','typy-korpusu'].map(tabBtn).join('')}</div>
+    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email','bom-ignore','typy-korpusu','vychozi-bom'].map(tabBtn).join('')}</div>
     ${body}
   `);
 
@@ -4730,6 +4855,7 @@ function nastaveni(tab) {
   if (tab === 'email')       _renderEmailNastaveni();
   if (tab === 'bom-ignore')    _renderBomIgnore();
   if (tab === 'typy-korpusu')  _renderTypyKorpusu();
+  if (tab === 'vychozi-bom')   _renderVychoziBom();
 }
 
 // ── BOM IMPORT — IGNOROVANÉ KÓDY ─────────────────────────────────────────────
@@ -4854,6 +4980,133 @@ async function _tkAdd() {
   _cache.typy_korpusu = null;
   inp.value = '';
   _renderTypyKorpusu();
+}
+
+// ── VÝCHOZÍ BOM ───────────────────────────────────────────────────────────────
+
+async function _renderVychoziBom() {
+  const panel = document.getElementById('vychozi-bom-panel');
+  if (!panel) return;
+  const items = await api('/api/vychozi-bom');
+  if (items.error) { panel.innerHTML = `<p class="text-red-500">${items.error}</p>`; return; }
+
+  panel.innerHTML = `
+  <div class="card p-5">
+    <p class="text-sm text-gray-500 mb-1">Tyto materiály budou automaticky vloženy do každého nového HN čísla.</p>
+    <p class="text-xs text-gray-400 mb-4">Existující HN nejsou ovlivněna — změna se projeví pouze při vytvoření nového HN tlačítkem <strong>+ Nové HN</strong>.</p>
+    ${items.length === 0
+      ? '<p class="text-gray-400 text-sm italic mb-4">Žádné výchozí materiály. Přidejte první níže.</p>'
+      : `<table class="w-full text-sm mb-4">
+        <thead><tr class="border-b border-gray-100">
+          <th class="text-left py-1 text-gray-500 font-medium">Materiál</th>
+          <th class="text-left py-1 text-gray-500 font-medium">Typ</th>
+          <th class="text-right py-1 text-gray-500 font-medium">Množství</th>
+          <th style="width:60px"></th>
+        </tr></thead>
+        <tbody>
+          ${items.map(it => `
+          <tr class="border-b border-gray-50">
+            <td class="py-1.5 pr-2">
+              <p class="font-medium text-gray-800">${it.nazev || it.material_kod}</p>
+              <p class="text-xs text-gray-400 font-mono">${it.material_kod}</p>
+            </td>
+            <td class="text-xs text-gray-500">${it.typ||''}</td>
+            <td class="text-right py-1">
+              <input type="number" step="0.001" min="0.001"
+                class="text-right font-semibold w-24 border border-transparent rounded px-1 py-0.5 text-sm bg-transparent hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none"
+                value="${it.mnozstvi}"
+                onblur="_vbUpdateMnozstvi('${it.material_kod}',this)"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}if(event.key==='Escape'){this.value=this.defaultValue;this.blur();}">
+              <span class="text-xs text-gray-400 ml-1">ks</span>
+            </td>
+            <td class="text-right py-1">
+              <button class="text-red-400 hover:text-red-600 text-xs px-1"
+                      onclick="_vbDelete('${it.material_kod}','${(it.nazev||it.material_kod).replace(/'/g,"\\'")}')">✕</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`}
+    <div class="border-t border-gray-100 pt-4 space-y-2">
+      <p class="text-xs font-semibold text-gray-600 mb-2">Přidat materiál</p>
+      <div class="flex gap-2">
+        <input id="vb-search" class="input flex-1" placeholder="Kód nebo název materiálu…"
+               oninput="_vbSearch()" autocomplete="off">
+      </div>
+      <select id="vb-mat" class="select w-full" style="display:none" onchange="_vbMatChange()">
+        <option value="">– Vyberte –</option>
+      </select>
+      <div id="vb-mat-info" class="hidden text-xs text-blue-600 bg-blue-50 rounded px-3 py-2"></div>
+      <div class="flex gap-2 items-center">
+        <input id="vb-mnoz" type="number" step="0.001" min="0.001" class="input w-32" placeholder="Množství">
+        <button class="btn btn-primary" onclick="_vbAdd()">+ Přidat</button>
+      </div>
+      <div id="vb-msg" class="hidden text-xs"></div>
+    </div>
+  </div>`;
+
+  // Načteme materiály pro autocomplete
+  if (!_cache._vbMats) {
+    const md = await api('/api/materialy?limit=2000');
+    _cache._vbMats = md.items || [];
+  }
+}
+
+let _vbSearchTimeout = null;
+function _vbSearch() {
+  const q = (document.getElementById('vb-search')?.value || '').toLowerCase().trim();
+  const sel = document.getElementById('vb-mat');
+  if (!sel) return;
+  clearTimeout(_vbSearchTimeout);
+  _vbSearchTimeout = setTimeout(() => {
+    const mats = (_cache._vbMats || []).filter(m =>
+      !q || m.kod.toLowerCase().includes(q) || (m.nazev||'').toLowerCase().includes(q)
+    ).slice(0, 60);
+    sel.style.display = mats.length ? '' : 'none';
+    sel.innerHTML = '<option value="">– Vyberte –</option>' +
+      mats.map(m => `<option value="${m.kod}">${m.kod} – ${m.nazev}${m.jednotka ? ' ('+m.jednotka+')' : ''}</option>`).join('');
+    if (mats.length === 1) { sel.value = mats[0].kod; _vbMatChange(); }
+  }, 200);
+}
+
+function _vbMatChange() {
+  const sel = document.getElementById('vb-mat');
+  const info = document.getElementById('vb-mat-info');
+  const mnozEl = document.getElementById('vb-mnoz');
+  if (!sel || !info) return;
+  const mat = (_cache._vbMats || []).find(m => m.kod === sel.value);
+  if (mat) {
+    info.className = 'text-xs text-blue-600 bg-blue-50 rounded px-3 py-2';
+    info.textContent = `${mat.nazev} · ${mat.typ||'–'} · ${fmtKc(mat.nc_bez_dph)} /j`;
+    if (mnozEl && !mnozEl.value) mnozEl.value = 1;
+  } else {
+    info.className = 'hidden';
+  }
+}
+
+async function _vbAdd() {
+  const mat = document.getElementById('vb-mat')?.value;
+  const mnozstvi = parseFloat(document.getElementById('vb-mnoz')?.value);
+  const msg = document.getElementById('vb-msg');
+  if (!mat) { if (msg) { msg.className='text-xs text-red-500'; msg.textContent='Vyberte materiál.'; msg.classList.remove('hidden'); } return; }
+  if (!mnozstvi || mnozstvi <= 0) { if (msg) { msg.className='text-xs text-red-500'; msg.textContent='Zadejte množství.'; msg.classList.remove('hidden'); } return; }
+  const r = await api('/api/vychozi-bom', 'POST', { material_kod: mat, mnozstvi });
+  if (r.error) { if (msg) { msg.className='text-xs text-red-500'; msg.textContent=r.error; msg.classList.remove('hidden'); } return; }
+  _renderVychoziBom();
+}
+
+async function _vbDelete(kod, nazev) {
+  if (!confirm(`Odebrat „${nazev}" z výchozího BOM?`)) return;
+  await api(`/api/vychozi-bom/${encodeURIComponent(kod)}`, 'DELETE');
+  _renderVychoziBom();
+}
+
+async function _vbUpdateMnozstvi(kod, el) {
+  const mnozstvi = parseFloat(el.value);
+  if (!mnozstvi || mnozstvi <= 0) { el.value = el.defaultValue; return; }
+  if (Math.abs(mnozstvi - parseFloat(el.defaultValue)) < 0.0001) return;
+  const r = await api(`/api/vychozi-bom/${encodeURIComponent(kod)}`, 'PUT', { mnozstvi });
+  if (r.error) { alert('Chyba: ' + r.error); el.value = el.defaultValue; return; }
+  el.defaultValue = mnozstvi;
 }
 
 async function _bomIgnoreAdd() {

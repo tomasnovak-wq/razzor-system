@@ -1,8 +1,8 @@
 {
-  "verze": 13,
-  "popis": "Unified BOM popup: merge BOM+Upravit+Profily into one tabbed dialog with stats bar",
+  "verze": 16,
+  "popis": "Přepracování modalu Nová výrobní zakázka: info blok místo dropdownu, destinace Zákazník/Sklad, počet ks → N zakázek",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "11:52",
-  "git_commit": "6bf6244"
+  "cas": "13:54",
+  "git_commit": "c4ce17c"
 }

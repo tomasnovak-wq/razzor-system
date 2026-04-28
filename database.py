@@ -967,6 +967,16 @@ def auto_migrate():
         c.execute("INSERT INTO _migrations (name) VALUES ('typy_korpusu_init_v1')")
         log.append("[OK] typy_korpusu — výchozí typy vloženy")
 
+    # ── VÝCHOZÍ BOM (materiály automaticky vkládané do každého nového HN) ──
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS vychozi_bom (
+            material_kod  TEXT PRIMARY KEY,
+            mnozstvi      REAL NOT NULL DEFAULT 1,
+            poradi        INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    log.append("[OK] vychozi_bom — tabulka připravena")
+
     conn.commit()
     conn.close()
     if log:

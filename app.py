@@ -235,7 +235,7 @@ def api_material_update(kod):
     c = conn.cursor()
     fields = ['nazev','typ','druh','umisteni','hmotnost','balenf','master_baleni',
               'nakup_baleni','nakup_jednotka','nc_bez_dph','cas_s','dodavatel',
-              'dodaci_lhuta','sirka_hw','priorita','zobrazovat','poznamka']
+              'dodaci_lhuta','sirka_hw','priorita','zobrazovat','poznamka','nity']
     updates = ', '.join(f"{f}=?" for f in fields if f in data)
     vals = [data[f] for f in fields if f in data]
     if updates:
@@ -456,12 +456,32 @@ def api_typ_casu_create():
               data.get('cas_narocnost',0), data.get('hmotnost',0),
               data.get('prodej_ap_bez_dph',0), data.get('poznamka','')))
         new_id = c.lastrowid
+        # Automaticky vložit výchozí BOM materiály
+        c.execute("SELECT material_kod, mnozstvi FROM vychozi_bom ORDER BY poradi")
+        vychozi = c.fetchall()
+        for v in vychozi:
+            c.execute("INSERT OR IGNORE INTO kusovniky (typ_casu_id, material_kod, mnozstvi) VALUES (?,?,?)",
+                      (new_id, v['material_kod'], v['mnozstvi']))
+        if vychozi:
+            vypocti_cenu_dilu(conn, new_id)
         conn.commit()
         conn.close()
         return jsonify({'ok': True, 'id': new_id})
     except Exception as e:
         conn.close()
         return jsonify({'error': str(e)}), 400
+
+@app.route('/api/typy-casu/<int:typ_id>', methods=['DELETE'])
+def api_typ_casu_delete(typ_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM kusovniky WHERE typ_casu_id=?", (typ_id,))
+    c.execute("DELETE FROM profily_plan WHERE typ_casu_id=?", (typ_id,))
+    c.execute("DELETE FROM typy_casu_links WHERE typ_casu_id=?", (typ_id,))
+    c.execute("DELETE FROM typy_casu WHERE id=?", (typ_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/typy-casu/<int:typ_id>', methods=['PUT'])
 def api_typ_casu_update(typ_id):
@@ -885,12 +905,13 @@ def api_zakazka_create():
 
         c.execute("""
             INSERT INTO zakazky (typ_casu_id, hn_cislo, nazev, stav, pocet_ks,
-            termin, zakaznik, poznamka_dilna, poznamka_cnc, pracovnik, sn_cislo)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            termin, zakaznik, poznamka_dilna, poznamka_cnc, pracovnik, sn_cislo, destinace)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
         """, (typ_id, hn_cislo, nazev, data.get('stav','Čeká'),
               data.get('pocet_ks',1), data.get('termin',''), data.get('zakaznik',''),
               data.get('poznamka_dilna',''), data.get('poznamka_cnc',''),
-              data.get('pracovnik',''), data.get('sn_cislo','')))
+              data.get('pracovnik',''), data.get('sn_cislo',''),
+              data.get('destinace','Zákazník')))
         new_id = c.lastrowid
         conn.commit()
         conn.close()
@@ -2782,6 +2803,17 @@ def api_material_spojeniky_delete(spoj_id):
     conn = get_db()
     c = conn.cursor()
     c.execute("DELETE FROM material_spojeniky WHERE id=?", (spoj_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/material-spojeniky/<int:spoj_id>', methods=['PUT'])
+def api_material_spojeniky_update(spoj_id):
+    data = request.json
+    mnozstvi = float(data.get('mnozstvi_na_kus', 1))
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE material_spojeniky SET mnozstvi_na_kus=? WHERE id=?", (mnozstvi, spoj_id))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
@@ -4919,6 +4951,58 @@ def api_typy_korpusu_put(tid):
 def api_typy_korpusu_delete(tid):
     conn = get_db(); c = conn.cursor()
     c.execute("DELETE FROM typy_korpusu WHERE id=?", (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── VÝCHOZÍ BOM ──────────────────────────────────────────────────────────────
+
+@app.route('/api/vychozi-bom', methods=['GET'])
+def api_vychozi_bom_get():
+    conn = get_db(); c = conn.cursor()
+    c.execute("""
+        SELECT v.material_kod, v.mnozstvi, v.poradi,
+               m.nazev, m.typ, m.nc_bez_dph
+        FROM vychozi_bom v
+        LEFT JOIN materialy m ON m.kod = v.material_kod
+        ORDER BY v.poradi, v.material_kod
+    """)
+    rows = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/vychozi-bom', methods=['POST'])
+def api_vychozi_bom_post():
+    data = request.json
+    kod = (data.get('material_kod') or '').strip()
+    mnozstvi = float(data.get('mnozstvi') or 1)
+    if not kod:
+        return jsonify({'error': 'material_kod je povinný'}), 400
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM materialy WHERE kod=?", (kod,))
+    if not c.fetchone()[0]:
+        conn.close()
+        return jsonify({'error': f'Materiál {kod} neexistuje v katalogu'}), 404
+    c.execute("SELECT COALESCE(MAX(poradi),0)+1 FROM vychozi_bom")
+    poradi = c.fetchone()[0]
+    c.execute("INSERT OR REPLACE INTO vychozi_bom (material_kod, mnozstvi, poradi) VALUES (?,?,?)",
+              (kod, mnozstvi, poradi))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/vychozi-bom/<path:mat_kod>', methods=['PUT'])
+def api_vychozi_bom_put(mat_kod):
+    data = request.json
+    conn = get_db(); c = conn.cursor()
+    c.execute("UPDATE vychozi_bom SET mnozstvi=? WHERE material_kod=?",
+              (float(data.get('mnozstvi', 1)), mat_kod))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/vychozi-bom/<path:mat_kod>', methods=['DELETE'])
+def api_vychozi_bom_delete(mat_kod):
+    conn = get_db(); c = conn.cursor()
+    c.execute("DELETE FROM vychozi_bom WHERE material_kod=?", (mat_kod,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
