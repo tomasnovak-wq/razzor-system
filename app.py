@@ -13,6 +13,11 @@ import io
 import subprocess
 import threading
 import time
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
 from datetime import date, datetime, timedelta
 from database import get_db, init_db, auto_migrate, aktualizuj_stav_skladu, zkontroluj_dostupnost_materialu, odepis_material_ze_skladu, vypocti_cenu_dilu
 from pdf_faktura import vygeneruj_pdf
@@ -38,6 +43,67 @@ def handle_404(e):
     return jsonify({'error': 'Endpoint nenalezen'}), 404
 
 # ─── POMOCNÉ ──────────────────────────────────────────────────────────────
+
+def get_nastaveni(klic, default=None):
+    """Načte hodnotu z tabulky nastaveni. Vrátí default pokud klíč neexistuje."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT hodnota FROM nastaveni WHERE klic=?", (klic,))
+    row = c.fetchone()
+    conn.close()
+    return row['hodnota'] if row else default
+
+def set_nastaveni(klic, hodnota):
+    """Uloží nebo aktualizuje hodnotu v tabulce nastaveni."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO nastaveni (klic, hodnota) VALUES (?,?)", (klic, hodnota))
+    conn.commit()
+    conn.close()
+
+def send_invoice_email(fak_id, pdf_bytes, cislo_faktury):
+    """Odešle fakturu e-mailem na nakonfigurované adresy přes Gmail SMTP.
+    Spouští se v samostatném vlákně — chyby loguje na stdout, neblokuje odpověď API."""
+    try:
+        gmail_user   = get_nastaveni('email_gmail_user', '')
+        gmail_pass   = get_nastaveni('email_gmail_pass', '')
+        prijemci_raw = get_nastaveni('email_prijemci', '')
+        predmet      = get_nastaveni('email_predmet', 'Faktura {cislo}')
+        telo         = get_nastaveni('email_telo', 'Dobrý den,\n\nv příloze zasíláme fakturu č. {cislo}.\n\nS pozdravem\nRazzor Cases')
+
+        if not gmail_user or not gmail_pass or not prijemci_raw.strip():
+            print(f"[Email] Přeskakuji — email není nakonfigurován (faktura {cislo_faktury})")
+            return
+
+        prijemci = [a.strip() for a in prijemci_raw.replace(';', ',').split(',') if a.strip()]
+        if not prijemci:
+            print(f"[Email] Přeskakuji — žádní příjemci (faktura {cislo_faktury})")
+            return
+
+        predmet_final = predmet.replace('{cislo}', cislo_faktury)
+        telo_final    = telo.replace('{cislo}', cislo_faktury)
+
+        msg = MIMEMultipart()
+        msg['From']    = gmail_user
+        msg['To']      = ', '.join(prijemci)
+        msg['Subject'] = predmet_final
+        msg.attach(MIMEText(telo_final, 'plain', 'utf-8'))
+
+        # Příloha — PDF faktura
+        part = MIMEBase('application', 'pdf')
+        part.set_payload(pdf_bytes)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename="Faktura_{cislo_faktury}.pdf"')
+        msg.attach(part)
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, prijemci, msg.as_bytes())
+
+        print(f"[Email] Faktura {cislo_faktury} odeslána na: {', '.join(prijemci)}")
+
+    except Exception as e:
+        print(f"[Email] CHYBA při odesílání faktury {cislo_faktury}: {e}")
 
 def db_rows_to_list(rows):
     return [dict(r) for r in rows]
@@ -2512,6 +2578,15 @@ def api_faktura_create():
     c.execute("SELECT * FROM faktury_polozky WHERE faktura_id=? ORDER BY id", (fak_id,))
     polozky_out = db_rows_to_list(c.fetchall())
     conn.close()
+
+    # Odešli email s PDF v pozadí (neblokuje odpověď API)
+    try:
+        pdf_bytes = vygeneruj_pdf(fak, polozky_out)
+        t = threading.Thread(target=send_invoice_email, args=(fak_id, pdf_bytes, fak['cislo']), daemon=True)
+        t.start()
+    except Exception as e:
+        print(f"[Email] Nepodařilo se připravit PDF pro email: {e}")
+
     return jsonify({'ok': True, 'faktura': fak, 'polozky': polozky_out})
 
 @app.route('/api/faktury/<int:fak_id>/pdf')
@@ -3724,7 +3799,7 @@ def api_dochazka_tyden():
     conn = get_db()
     c = conn.cursor()
     c.execute("""
-        SELECT d.datum, d.cas_od, d.cas_do, u.jmeno, u.barva
+        SELECT d.datum, d.cas_od, d.cas_do, u.jmeno, u.barva, u.role
         FROM dochazka d
         JOIN uzivatele u ON u.id = d.uzivatel_id
         WHERE d.datum BETWEEN ? AND ? AND d.cas_od IS NOT NULL
@@ -4662,6 +4737,112 @@ def admin_upload_db():
         shutil.copy2(DB_PATH, backup_path)
     f.save(DB_PATH)
     return jsonify({'ok': True, 'message': 'Databáze nahrána'})
+
+
+# ─── FAKTURACE – REPORT VYFAKTUROVÁNO ────────────────────────────────────
+
+@app.route('/api/fakturace/report')
+def api_fakturace_report():
+    """Report Vyfakturováno: jeden řádek na fakturu-položku, filtrováno dle data vystavení.
+    Parametry: od=YYYY-MM-DD, do=YYYY-MM-DD (volitelné)
+    """
+    od = request.args.get('od', '')
+    do = request.args.get('do', '')
+
+    params = []
+    where  = []
+    if od:
+        where.append("f.datum_vystaveni >= ?")
+        params.append(od)
+    if do:
+        where.append("f.datum_vystaveni <= ?")
+        params.append(do)
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(f"""
+        SELECT
+            f.id            AS faktura_id,
+            f.cislo         AS faktura_cislo,
+            f.datum_vystaveni,
+            COALESCE(f.odberatel_nazev, '') AS odberatel_nazev,
+            fp.nazev,
+            fp.hn_cislo,
+            fp.ks,
+            ROUND(fp.cena_dilu_snapshot * fp.ks, 2)    AS dily,
+            ROUND(fp.cena_vyroby_snapshot * fp.ks, 2)  AS prace,
+            4.70                                        AS marze_sazba,
+            ROUND(fp.zaklad, 2)                         AS celkem_bez_dph,
+            ROUND(fp.celkem_s_dph, 2)                   AS celkem_s_dph,
+            NULL                                        AS sn,
+            NULL                                        AS marze_ap,
+            z.typ_casu_id                               AS typ_casu_id
+        FROM faktury f
+        JOIN faktury_polozky fp ON fp.faktura_id = f.id
+        LEFT JOIN zakazky z ON z.id = fp.zakazka_id
+        {where_sql}
+        ORDER BY f.datum_vystaveni DESC, f.id DESC, fp.id
+    """, params)
+    rows = db_rows_to_list(c.fetchall())
+    conn.close()
+    return jsonify({'ok': True, 'rows': rows})
+
+
+# ─── NASTAVENÍ SYSTÉMU ────────────────────────────────────────────────────
+
+@app.route('/api/nastaveni', methods=['GET'])
+def api_nastaveni_get():
+    """Vrátí všechna nastavení jako slovník {klic: hodnota}."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT klic, hodnota FROM nastaveni")
+    rows = c.fetchall()
+    conn.close()
+    return jsonify({r['klic']: r['hodnota'] for r in rows})
+
+@app.route('/api/nastaveni', methods=['POST'])
+def api_nastaveni_post():
+    """Uloží jedno nebo více nastavení. Body: {klic: hodnota, ...}"""
+    data = request.get_json()
+    if not data or not isinstance(data, dict):
+        return jsonify({'error': 'Očekáván JSON objekt'}), 400
+    conn = get_db()
+    c = conn.cursor()
+    for klic, hodnota in data.items():
+        c.execute("INSERT OR REPLACE INTO nastaveni (klic, hodnota) VALUES (?,?)", (klic, str(hodnota) if hodnota is not None else ''))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/nastaveni/email-test', methods=['POST'])
+def api_nastaveni_email_test():
+    """Odešle testovací email na nakonfigurované adresy."""
+    try:
+        gmail_user   = get_nastaveni('email_gmail_user', '')
+        gmail_pass   = get_nastaveni('email_gmail_pass', '')
+        prijemci_raw = get_nastaveni('email_prijemci', '')
+
+        if not gmail_user or not gmail_pass:
+            return jsonify({'error': 'Gmail účet nebo heslo není nastaveno'}), 400
+        if not prijemci_raw.strip():
+            return jsonify({'error': 'Nejsou zadáni žádní příjemci'}), 400
+
+        prijemci = [a.strip() for a in prijemci_raw.replace(';', ',').split(',') if a.strip()]
+
+        msg = MIMEMultipart()
+        msg['From']    = gmail_user
+        msg['To']      = ', '.join(prijemci)
+        msg['Subject'] = 'Test – Razzor Cases email'
+        msg.attach(MIMEText('Testovací zpráva ze systému Razzor Cases. E-mail funguje správně.', 'plain', 'utf-8'))
+
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, prijemci, msg.as_bytes())
+
+        return jsonify({'ok': True, 'message': f'Testovací email odeslán na: {", ".join(prijemci)}'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

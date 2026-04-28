@@ -898,6 +898,14 @@ def auto_migrate():
     except Exception as e:
         log.append(f"  [WARN] migrace pena_odkaz selhala: {e}")
 
+    # ── NASTAVENÍ SYSTÉMU (key-value store) ─────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS nastaveni (
+            klic   TEXT PRIMARY KEY,
+            hodnota TEXT
+        )
+    """)
+
     # ── JEDNORÁZOVÉ DATOVÉ MIGRACE ───────────────────────────────────────────
     # Tracking tabulka — zabrání opakovanému spouštění jednorázových migrací
     c.execute("""
@@ -919,6 +927,16 @@ def auto_migrate():
         """)
         c.execute("INSERT INTO _migrations (name) VALUES ('odeslano_init_v1')")
         log.append("  [OK] migrace odeslano_init_v1: existující zakázky → odeslano_do_vyroby=1")
+
+    # Migrace: přejmenování priority 'Řešit okamžitě' → 'Okamžitě' v kancelar_zakazky
+    c.execute("SELECT 1 FROM _migrations WHERE name='kan_prio_okamzite_v1'")
+    if not c.fetchone():
+        c.execute("""
+            UPDATE kancelar_zakazky SET priorita = 'Okamžitě'
+            WHERE priorita = 'Řešit okamžitě'
+        """)
+        c.execute("INSERT INTO _migrations (name) VALUES ('kan_prio_okamzite_v1')")
+        log.append("  [OK] migrace kan_prio_okamzite_v1: priorita 'Řešit okamžitě' → 'Okamžitě'")
 
     conn.commit()
     conn.close()

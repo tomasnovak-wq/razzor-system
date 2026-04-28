@@ -505,57 +505,63 @@ async function dashboard() {
     </div>`;
   })()}
 
-  <!-- DOCHÁZKA WIDGET (plán) -->
+  <!-- DOCHÁZKA WIDGET (plán) – Dílna + Kancelář -->
   ${(()=>{
-    // Sestaví widget docházky: dnes + 7 dní
+    const DILNA_ROLE    = ['Dílna','CNC'];
+    const KANCELAR_ROLE = ['Kancelář','Admin','Projektant'];
+
     const dates = Object.keys(byDay).sort();
-    const todayEntries = byDay[dnesISO] || [];
-    const mesice = ['led','úno','bře','dub','kvě','čvn','čvc','srp','zář','říj','lis','pro'];
+    const mesice  = ['led','úno','bře','dub','kvě','čvn','čvc','srp','zář','říj','lis','pro'];
     const dnyKratky = ['ne','po','út','st','čt','pá','so'];
     const fmtD = iso => { const d = new Date(iso+'T00:00:00'); return `${dnyKratky[d.getDay()]} ${d.getDate()}.${mesice[d.getMonth()]}.`; };
     const fmtH = h => h >= 1 ? `${h.toFixed(1)} h` : `${Math.round(h*60)} min`;
 
-    const todayHtml = todayEntries.length === 0
-      ? '<p class="text-sm text-gray-400">Dnes nikdo neplánuje docházku.</p>'
-      : todayEntries.map(e => {
-          const h = e.hodiny || 0;
-          return `<div class="flex items-center justify-between py-1 border-b border-gray-50 last:border-0">
-            <div class="flex items-center gap-2">
-              <span style="background:${e.barva||'#3b82f6'};color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;flex-shrink:0">${e.jmeno.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()}</span>
-              <span class="text-sm font-medium text-gray-700">${e.jmeno}</span>
-            </div>
-            <span class="text-xs text-gray-500">${e.cas_od}–${e.cas_do} <span class="text-green-600 font-semibold">(${fmtH(h)})</span></span>
-          </div>`;
-        }).join('');
+    function buildWidget(roleGroup, title, icon, borderColor) {
+      const todayEntries = (byDay[dnesISO] || []).filter(e => roleGroup.includes(e.role));
+      const totalHodDnes = todayEntries.reduce((s,e) => s+(e.hodiny||0), 0);
 
-    const totalHodDnes = todayEntries.reduce((s,e) => s+(e.hodiny||0), 0);
+      const todayHtml = todayEntries.length === 0
+        ? `<p class="text-sm text-gray-400">Dnes nikdo neplánuje docházku.</p>`
+        : todayEntries.map(e => {
+            const h = e.hodiny || 0;
+            return `<div class="flex items-center justify-between py-1 border-b border-gray-50 last:border-0">
+              <div class="flex items-center gap-2">
+                <span style="background:${e.barva||'#3b82f6'};color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:700;flex-shrink:0">${e.jmeno.split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase()}</span>
+                <span class="text-sm font-medium text-gray-700">${e.jmeno}</span>
+              </div>
+              <span class="text-xs text-gray-500">${e.cas_od}–${e.cas_do} <span class="text-green-600 font-semibold">(${fmtH(h)})</span></span>
+            </div>`;
+          }).join('');
 
-    // Příštích 7 dní (bez dnes)
-    const futureDates = dates.filter(d => d > dnesISO).slice(0, 7);
-    const futureHtml = futureDates.length === 0
-      ? '<p class="text-xs text-gray-400 mt-2">Žádné plánované docházky v příštích 7 dnech.</p>'
-      : futureDates.map(d => {
-          const entries = byDay[d] || [];
-          const totalH = entries.reduce((s,e) => s+(e.hodiny||0), 0);
-          const names = entries.map(e => `<span style="background:${e.barva||'#3b82f6'};color:#fff;border-radius:10px;padding:1px 6px;font-size:.6rem;white-space:nowrap">${e.jmeno.split(' ')[0]}</span>`).join(' ');
-          return `<div class="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-            <span class="text-xs font-medium text-gray-600 w-20 flex-shrink-0">${fmtD(d)}</span>
-            <div class="flex flex-wrap gap-1 flex-1 mx-2">${names||'<span class="text-xs text-gray-300">nikdo</span>'}</div>
-            <span class="text-xs text-green-600 font-semibold flex-shrink-0">${totalH>0?fmtH(totalH):''}</span>
-          </div>`;
-        }).join('');
+      const futureDates = dates.filter(d => d > dnesISO).slice(0, 7);
+      const futureHtml = futureDates.length === 0
+        ? '<p class="text-xs text-gray-400 mt-2">Žádné plánované docházky v příštích 7 dnech.</p>'
+        : futureDates.map(d => {
+            const entries = (byDay[d] || []).filter(e => roleGroup.includes(e.role));
+            const totalH  = entries.reduce((s,e) => s+(e.hodiny||0), 0);
+            const names   = entries.map(e => `<span style="background:${e.barva||'#3b82f6'};color:#fff;border-radius:10px;padding:1px 6px;font-size:.6rem;white-space:nowrap">${e.jmeno.split(' ')[0]}</span>`).join(' ');
+            return `<div class="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+              <span class="text-xs font-medium text-gray-600 w-20 flex-shrink-0">${fmtD(d)}</span>
+              <div class="flex flex-wrap gap-1 flex-1 mx-2">${names||'<span class="text-xs text-gray-300">nikdo</span>'}</div>
+              <span class="text-xs text-green-600 font-semibold flex-shrink-0">${totalH>0?fmtH(totalH):''}</span>
+            </div>`;
+          }).join('');
 
-    return `<div class="card p-5 mb-4 cursor-pointer hover:shadow-md" onclick="navigate('dochazka')">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold text-gray-700">🏭 Dílna dnes ${totalHodDnes>0?`<span class="text-green-600 text-sm font-normal ml-1">· celkem ${fmtH(totalHodDnes)}</span>`:''}</h3>
-        <span class="text-xs text-indigo-600">→ Docházka</span>
-      </div>
-      ${todayHtml}
-      <div class="mt-3 pt-3 border-t border-gray-100">
-        <p class="text-xs font-semibold text-gray-500 mb-1">Příštích 7 dní</p>
-        ${futureHtml}
-      </div>
-    </div>`;
+      return `<div class="card p-5 mb-4 cursor-pointer hover:shadow-md" onclick="navigate('dochazka')" style="border-left:4px solid ${borderColor}">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold text-gray-700">${icon} ${title} dnes ${totalHodDnes>0?`<span class="text-green-600 text-sm font-normal ml-1">· celkem ${fmtH(totalHodDnes)}</span>`:''}</h3>
+          <span class="text-xs text-indigo-600">→ Docházka</span>
+        </div>
+        ${todayHtml}
+        <div class="mt-3 pt-3 border-t border-gray-100">
+          <p class="text-xs font-semibold text-gray-500 mb-1">Příštích 7 dní</p>
+          ${futureHtml}
+        </div>
+      </div>`;
+    }
+
+    return buildWidget(DILNA_ROLE,    'Dílna',    '🏭', '#f59e0b')
+         + buildWidget(KANCELAR_ROLE, 'Kancelář', '🏢', '#0369a1');
   })()}
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -3694,7 +3700,7 @@ async function ulozInventuru() {
 function nastaveni(tab) {
   tab = tab || 'import';
   const tabBtn = t => `<button class="tab-btn ${t===tab?'active':''}" onclick="nastaveni('${t}')">${
-    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby'}[t]
+    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail'}[t]
   }</button>`;
 
   let body = '';
@@ -3750,13 +3756,15 @@ function nastaveni(tab) {
     body = `<div id="spojeniky-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   } else if (tab === 'cas-param') {
     body = `<div id="cas-param-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
+  } else if (tab === 'email') {
+    body = `<div id="email-nastaveni-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   }
 
   setContent(`
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-xl font-bold text-gray-800">Nastavení</h2>
     </div>
-    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param'].map(tabBtn).join('')}</div>
+    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email'].map(tabBtn).join('')}</div>
     ${body}
   `);
 
@@ -3767,6 +3775,124 @@ function nastaveni(tab) {
   if (tab === 'kancelar')   _renderKancelarNastaveni();
   if (tab === 'spojeniky')  _renderSpojenikyPanel();
   if (tab === 'cas-param')  _renderCasParametry();
+  if (tab === 'email')      _renderEmailNastaveni();
+}
+
+// ── E-MAIL NASTAVENÍ ──────────────────────────────────────────────────────────
+async function _renderEmailNastaveni() {
+  const panel = document.getElementById('email-nastaveni-panel');
+  if (!panel) return;
+
+  // Načti aktuální nastavení
+  let cfg = {};
+  try {
+    const r = await api('/api/nastaveni', 'GET');
+    cfg = r || {};
+  } catch(e) { cfg = {}; }
+
+  panel.innerHTML = `
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+      <!-- Gmail přihlášení -->
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-700 mb-1">Gmail účet</h3>
+        <p class="text-xs text-gray-400 mb-4">Faktury se odesílají přes Gmail App Password (ne klasické heslo). <a href="https://myaccount.google.com/apppasswords" target="_blank" class="text-blue-500 underline">Vygenerovat App Password →</a></p>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Gmail adresa (odesílatel)</label>
+            <input id="ns-gmail-user" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              placeholder="razzorcases@gmail.com" value="${cfg.email_gmail_user || ''}">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Gmail App Password</label>
+            <input id="ns-gmail-pass" type="password" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              placeholder="xxxx xxxx xxxx xxxx" value="${cfg.email_gmail_pass || ''}">
+            <p class="text-xs text-gray-400 mt-1">16místné heslo vygenerované v Google účtu — ne přihlašovací heslo.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Příjemci -->
+      <div class="card p-5">
+        <h3 class="font-semibold text-gray-700 mb-1">Příjemci faktur</h3>
+        <p class="text-xs text-gray-400 mb-4">Faktury se automaticky odešlou na všechny tyto adresy po vystavení.</p>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">E-mailové adresy (oddělte čárkou nebo středníkem)</label>
+          <textarea id="ns-prijemci" rows="4" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+            placeholder="ucetni@firma.cz, vedeni@firma.cz">${cfg.email_prijemci || ''}</textarea>
+        </div>
+      </div>
+
+      <!-- Text emailu -->
+      <div class="card p-5 lg:col-span-2">
+        <h3 class="font-semibold text-gray-700 mb-1">Text e-mailu</h3>
+        <p class="text-xs text-gray-400 mb-4">Použij <code class="bg-gray-100 px-1 rounded">{cislo}</code> pro vložení čísla faktury.</p>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Předmět</label>
+            <input id="ns-predmet" type="text" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              value="${cfg.email_predmet || 'Faktura {cislo} – Razzor Cases'}">
+          </div>
+          <div class="lg:row-span-1"></div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Tělo zprávy</label>
+            <textarea id="ns-telo" rows="5" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >${cfg.email_telo || 'Dobrý den,\n\nv příloze zasíláme fakturu č. {cislo}.\n\nS pozdravem\nRazzor Cases'}</textarea>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Akce -->
+    <div class="flex gap-3 mt-4 items-center">
+      <button class="btn btn-primary" onclick="_emailNastaveniUloz()">💾 Uložit nastavení</button>
+      <button class="btn btn-secondary" onclick="_emailNastaveniTest()">📨 Odeslat testovací e-mail</button>
+      <span id="ns-email-msg" class="text-sm ml-2"></span>
+    </div>
+  `;
+}
+
+async function _emailNastaveniUloz() {
+  const msg = document.getElementById('ns-email-msg');
+  msg.textContent = 'Ukládám…';
+  msg.className = 'text-sm ml-2 text-gray-500';
+  try {
+    await api('/api/nastaveni', 'POST', {
+      email_gmail_user: document.getElementById('ns-gmail-user').value.trim(),
+      email_gmail_pass: document.getElementById('ns-gmail-pass').value.trim(),
+      email_prijemci:   document.getElementById('ns-prijemci').value.trim(),
+      email_predmet:    document.getElementById('ns-predmet').value.trim(),
+      email_telo:       document.getElementById('ns-telo').value,
+    });
+    msg.textContent = '✓ Uloženo';
+    msg.className = 'text-sm ml-2 text-green-600';
+  } catch(e) {
+    msg.textContent = '✗ Chyba: ' + (e.message || e);
+    msg.className = 'text-sm ml-2 text-red-600';
+  }
+}
+
+async function _emailNastaveniTest() {
+  const msg = document.getElementById('ns-email-msg');
+  msg.textContent = 'Odesílám…';
+  msg.className = 'text-sm ml-2 text-gray-500';
+  try {
+    // Nejdřív ulož, pak pošli test
+    await api('/api/nastaveni', 'POST', {
+      email_gmail_user: document.getElementById('ns-gmail-user').value.trim(),
+      email_gmail_pass: document.getElementById('ns-gmail-pass').value.trim(),
+      email_prijemci:   document.getElementById('ns-prijemci').value.trim(),
+      email_predmet:    document.getElementById('ns-predmet').value.trim(),
+      email_telo:       document.getElementById('ns-telo').value,
+    });
+    const r = await api('/api/nastaveni/email-test', 'POST');
+    msg.textContent = '✓ ' + (r.message || 'Odesláno');
+    msg.className = 'text-sm ml-2 text-green-600';
+  } catch(e) {
+    msg.textContent = '✗ ' + (e.error || e.message || e);
+    msg.className = 'text-sm ml-2 text-red-600';
+  }
 }
 
 // ── PŘEKLADAČ KÓDŮ (nabidky_prekladac) ───────────────────────────────────────
@@ -6314,9 +6440,17 @@ function _dochPlanRender() {
                `<td style="text-align:center;padding:2px 3px">${doTxt}</td>`;
       }
       return `<td style="padding:2px 3px;border-left:3px solid ${u.barva}">
-        <select ${sel} onchange="_dochSave(${u.id},'${datum}','od',this.value)">${_dochCasOpts(od_v)}</select>
-      </td><td style="padding:2px 3px">
-        <select ${sel} onchange="_dochSave(${u.id},'${datum}','do',this.value)">${_dochCasOpts(do_v)}</select>
+        <select ${sel} data-uid="${u.id}" data-datum="${datum}" data-field="od"
+          onchange="_dochSave(${u.id},'${datum}','od',this.value)">${_dochCasOpts(od_v)}</select>
+      </td><td style="padding:2px 3px;white-space:nowrap">
+        <select ${sel} data-uid="${u.id}" data-datum="${datum}" data-field="do"
+          onchange="_dochSave(${u.id},'${datum}','do',this.value)">${_dochCasOpts(do_v)}</select>
+        <button id="plan-copy-${u.id}-${datum}" title="Kopírovat (Ctrl+C)"
+          onclick="_dochCopyUser(${u.id},'${datum}')"
+          style="margin-left:2px;font-size:.65rem;padding:1px 4px;border-radius:4px;border:1px solid #e2e8f0;background:#f8fafc;color:#6b7280;cursor:pointer;vertical-align:middle;line-height:1.4">📋</button>
+        <button id="plan-paste-${u.id}-${datum}" title="Vložit (Ctrl+V)"
+          onclick="_dochPasteUser(${u.id},'${datum}')"
+          style="display:none;margin-left:1px;font-size:.65rem;padding:1px 4px;border-radius:4px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer;vertical-align:middle;line-height:1.4">📌</button>
       </td>`;
     }).join('');
 
@@ -6333,7 +6467,7 @@ function _dochPlanRender() {
     <div class="flex items-center justify-between mb-4">
       <div>
         <h2 class="text-xl font-bold text-gray-800">📅 Plán docházky</h2>
-        <p class="text-xs text-gray-400 mt-0.5">Plánovaná přítomnost · zelené číslo = součet člověkohodin za den</p>
+        <p class="text-xs text-gray-400 mt-0.5">Plánovaná přítomnost · zelené číslo = součet člověkohodin za den · 📋 zkopíruj den uživatele · 📌 vlož do jiného dne</p>
       </div>
       <button class="btn btn-secondary" onclick="_dochPlanLoad()">⟳ Obnovit</button>
     </div>
@@ -6353,6 +6487,93 @@ function _dochPlanRender() {
       </table>
     </div>
   `);
+}
+
+// ── PLÁN – copy/paste per uživatel (Ctrl+C / Ctrl+V) ─────────────────────
+// Buffer: { uid, cas_od, cas_do }  – vždy jen pro jednoho uživatele
+let _dochCopyBuffer = null;
+
+/** Malý toast dole vpravo – jiný název, aby nekolidoval s _dochToast (live overlay) */
+function _planToast(msg, err=false) {
+  let t = document.getElementById('plan-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'plan-toast';
+    t.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:8px 18px;border-radius:8px;font-size:.82rem;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.18);transition:opacity .3s;pointer-events:none';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = err ? '#fef2f2' : '#f0fdf4';
+  t.style.color      = err ? '#dc2626' : '#15803d';
+  t.style.opacity    = '1';
+  clearTimeout(t._hide);
+  t._hide = setTimeout(() => { t.style.opacity = '0'; }, 2200);
+}
+
+
+function _dochCopyUser(uid, datum) {
+  const recs = _dochData?.records || [];
+  const rec  = recs.find(r => r.uzivatel_id === uid && r.datum === datum) || {};
+  _dochCopyBuffer = { uid, cas_od: rec.cas_od || '', cas_do: rec.cas_do || '' };
+  const u = (_dochData?.users || []).find(x => x.id === uid);
+
+  // Všechna paste tlačítka tohoto uživatele zobrazit, copy tlačítko zdrojeho dne zvýraznit
+  document.querySelectorAll(`[id^="plan-paste-${uid}-"]`).forEach(el => {
+    if (!el.id.endsWith('-' + datum)) el.style.display = 'inline';
+  });
+  // Zvýrazni zdrojový copy btn
+  const srcBtn = document.getElementById(`plan-copy-${uid}-${datum}`);
+  if (srcBtn) { srcBtn.style.background = '#fef9c3'; srcBtn.style.borderColor = '#fbbf24'; }
+
+  _planToast(`📋 ${u?.jmeno?.split(' ')[0] || 'Uživatel'}: ${_dochCopyBuffer.cas_od||'—'}–${_dochCopyBuffer.cas_do||'—'}`);
+}
+
+async function _dochPasteUser(uid, datum) {
+  if (!_dochCopyBuffer) { _planToast('⛔ Nic není zkopírováno', true); return; }
+  if (_dochCopyBuffer.uid !== uid) { _planToast('⛔ Jiný uživatel v bufferu', true); return; }
+  const dnes = new Date().toISOString().slice(0,10);
+  if (datum < dnes) { _planToast('⛔ Minulé dny nelze měnit', true); return; }
+
+  const { cas_od, cas_do } = _dochCopyBuffer;
+
+  // Aktualizuj data model
+  let rec = (_dochData.records || []).find(r => r.uzivatel_id === uid && r.datum === datum);
+  if (!rec) {
+    rec = { uzivatel_id: uid, datum, cas_od: '', cas_do: '' };
+    _dochData.records.push(rec);
+  }
+  rec.cas_od = cas_od;
+  rec.cas_do = cas_do;
+
+  // Aktualizuj selecty v DOM
+  const row = document.getElementById('doch-row-' + datum);
+  if (row) {
+    const selOd = row.querySelector(`select[data-uid="${uid}"][data-field="od"]`);
+    const selDo = row.querySelector(`select[data-uid="${uid}"][data-field="do"]`);
+    if (selOd) selOd.value = cas_od;
+    if (selDo) selDo.value = cas_do;
+  }
+
+  // Uložit na server
+  await api('/api/dochazka', 'POST', { uzivatel_id: uid, datum, cas_od, cas_do });
+
+  // Obnov součet hodin v řádku
+  const hod = (_dochData.records || [])
+    .filter(x => x.datum === datum && x.cas_od && x.cas_do)
+    .reduce((s, x) => s + _dochHodiny(x.cas_od, x.cas_do), 0);
+  if (row) {
+    const firstTd = row.querySelector('td');
+    if (firstTd) {
+      const noHod = firstTd.innerHTML.replace(/<span[^>]*color:#059669[^>]*>.*?<\/span>/g,'');
+      firstTd.innerHTML = noHod + (hod > 0 ? `<span style="font-size:.6rem;color:#059669;font-weight:600;margin-left:4px">${hod.toFixed(1)}h</span>` : '');
+    }
+  }
+
+  // Skryj paste btn tohoto dne (vloženo)
+  const pasteBtn = document.getElementById(`plan-paste-${uid}-${datum}`);
+  if (pasteBtn) pasteBtn.style.display = 'none';
+
+  _planToast(`✅ Vloženo: ${datum}`);
 }
 
 // Stav buňky pro optimistic update
@@ -6402,10 +6623,11 @@ function _kanStitkBadge(s) {
 }
 
 const _KAN_PRIO = {
-  'Řešit okamžitě': { bg:'#111827', fg:'#fff' },
-  'Vysoká':         { bg:'#dc2626', fg:'#fff' },
-  'Střední':        { bg:'#16a34a', fg:'#fff' },
-  'Nízká':          { bg:'#7dd3fc', fg:'#0c4a6e' },
+  'Okamžitě': { bg:'#111827', fg:'#fff' },
+  'Vysoká':   { bg:'#dc2626', fg:'#fff' },
+  'Střední':  { bg:'#16a34a', fg:'#fff' },
+  'Nízká':    { bg:'#7dd3fc', fg:'#0c4a6e' },
+  'Nápad':    { bg:'#ffffff', fg:'#374151' },
 };
 
 function _kanPriorita(p) {
@@ -6534,7 +6756,7 @@ function _kanRender() {
 
   // Inline selecty
   const uzOpts = [{v:'',l:'—'}].concat(uzivatele.filter(u=>u.aktivni).map(u=>({v:u.id,l:u.jmeno})));
-  const prioOpts = ['Řešit okamžitě','Vysoká','Střední','Nízká'].map(p=>({v:p,l:p}));
+  const prioOpts = ['Okamžitě','Vysoká','Střední','Nízká','Nápad'].map(p=>({v:p,l:p}));
   const stavOpts = [{v:'',l:'—'}].concat(stavList.map(s=>({v:s.nazev,l:s.nazev})));
 
   const rows = filtered.map(z => {
@@ -6546,19 +6768,20 @@ function _kanRender() {
     const datumIso = (z.created_at||'').slice(0,10);
     const datumDisp = datumIso ? datumIso.slice(8)+'.'+datumIso.slice(5,7)+'.'+datumIso.slice(0,4) : '';
     const prioStyle = (_KAN_PRIO[z.priorita]||{bg:'#e5e7eb',fg:'#374151'});
-    const prioOrder = {'Řešit okamžitě':1,'Vysoká':2,'Střední':3,'Nízká':4};
+    const prioOrder = {'Okamžitě':1,'Vysoká':2,'Střední':3,'Nízká':4,'Nápad':5};
+    const prioLeftColor = {'Okamžitě':'#111827','Vysoká':'#dc2626','Střední':'#16a34a','Nízká':'#7dd3fc','Nápad':'#d1d5db'}[z.priorita]||'#e5e7eb';
     const resitelJmeno = uzivatele.find(u=>u.id==z.resitel_id)?.jmeno || '';
 
-    return `<tr class="border-b border-gray-50 hover:bg-gray-50/50" style="${!z.aktivni?'opacity:.5':''}">
-      <td data-sort="${datumIso}" class="text-xs text-gray-400 whitespace-nowrap">${datumDisp}</td>
+    return `<tr class="border-b border-gray-200 hover:bg-gray-50/50" style="${!z.aktivni?'opacity:.5':''}">
+      <td data-sort="${datumIso}" class="text-xs text-gray-400 whitespace-nowrap" style="border-left:4px solid ${prioLeftColor};padding-left:10px">${datumDisp}</td>
       <td style="min-width:160px">
         <span class="font-medium text-blue-600 hover:underline cursor-pointer" onclick="kanDetail(${z.id})" title="Otevřít detail">${z.nazev||'<em class=text-gray-400>bez názvu</em>'}</span>
       </td>
       <td data-sort="${_kanEsc(z.zakaznik||'')}" style="min-width:130px">
-        ${_kanInlineText(z.id,'zakaznik',z.zakaznik,'Zákazník')}
-        <div class="flex gap-1 mt-0.5">
-          ${_kanInlineText(z.id,'tel',z.tel,'Tel')}
-          ${_kanInlineText(z.id,'mail',z.mail,'Mail')}
+        <span class="text-sm text-gray-700 font-medium">${z.zakaznik ? _kanEsc(z.zakaznik) : '<span class=\'text-gray-300\'>—</span>'}</span>
+        <div class="flex flex-col gap-0 mt-0.5">
+          ${z.tel ? `<span class="text-xs text-gray-400">${_kanEsc(z.tel)}</span>` : ''}
+          ${z.mail ? `<span class="text-xs text-gray-400">${_kanEsc(z.mail)}</span>` : ''}
         </div>
       </td>
       <td data-sort="${_kanEsc(z.hn_kod||'')}" style="min-width:90px">
@@ -6615,7 +6838,7 @@ function _kanRender() {
         <tbody>${rows}</tbody>
       </table>
     </div>`);
-  // Výchozí řazení podle Priority (Řešit okamžitě nahoře)
+  // Výchozí řazení podle Priority (Okamžitě nahoře)
   const _kt = document.querySelector('#page-content table.tbl-sort');
   if (_kt) _sortTable(_kt, 5);
 }
@@ -6650,7 +6873,7 @@ async function kanNovaModal() {
 
   const uzEl = `<option value="">— Nepřiřazeno —</option>` +
     allUz.filter(u=>u.aktivni).map(u=>`<option value="${u.id}">${u.jmeno}</option>`).join('');
-  const prioEl = ['Řešit okamžitě','Vysoká','Střední','Nízká'].map(p=>
+  const prioEl = ['Okamžitě','Vysoká','Střední','Nízká','Nápad'].map(p=>
     `<option value="${p}" ${p==='Střední'?'selected':''}>${p}</option>`).join('');
   const stavEl = `<option value="">—</option>` + allStav.map(s=>`<option value="${s.nazev}">${s.nazev}</option>`).join('');
   const hnEl = `<option value="">— Zatím neznámý / nevybráno —</option>` +
@@ -6775,7 +6998,7 @@ async function kanDetail(id) {
 
   const uzEl = `<option value="">—</option>` +
     uzivatele.filter(u=>u.aktivni).map(u=>`<option value="${u.id}" ${z.resitel_id==u.id?'selected':''}>${u.jmeno}</option>`).join('');
-  const prioEl = ['Řešit okamžitě','Vysoká','Střední','Nízká'].map(p=>
+  const prioEl = ['Okamžitě','Vysoká','Střední','Nízká','Nápad'].map(p=>
     `<option value="${p}" ${z.priorita==p?'selected':''}>${p}</option>`).join('');
   const stavEl = `<option value="">—</option>` +
     stavList.map(s=>`<option value="${s.nazev}" ${z.co_hotovo==s.nazev?'selected':''}>${s.nazev}</option>`).join('');
@@ -7186,7 +7409,31 @@ function _fakBadge(stav) {
   return `<span class="badge" style="${cls}">${stav}</span>`;
 }
 
-async function fakturace() {
+async function fakturace(tab) {
+  tab = tab || 'faktury';
+  if (tab === 'vyfakturovano') {
+    // Render jen shell s tabami, obsah načte _renderVyfakturovano
+    const [nextR] = await Promise.all([api('/api/faktury/next-cislo')]);
+    const nextCislo = nextR.cislo || '';
+    setContent(`
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-xl font-bold text-gray-800">Fakturace</h2>
+          <p class="text-sm text-gray-400 mt-0.5">AUDIO PARTNER s.r.o. · Příští číslo: <strong class="text-blue-600">${nextCislo}</strong></p>
+        </div>
+        <button class="btn btn-primary" onclick="novaFaktura()">+ Nová faktura</button>
+      </div>
+      <div class="flex gap-2 mb-4">
+        <button class="tab-btn" onclick="fakturace('faktury')">🧾 Faktury</button>
+        <button class="tab-btn active">📊 Vyfakturováno</button>
+      </div>
+      <div id="vyfakturovano-panel"><div class="text-gray-400 text-sm">Načítám…</div></div>
+    `);
+    _renderVyfakturovano();
+    return;
+  }
+
+  // ── Tab: Faktury (původní obsah) ──
   setContent(`<div class="flex items-center justify-center h-32"><div class="text-gray-400">Načítám faktury…</div></div>`);
   const [r, nextR] = await Promise.all([
     api('/api/faktury'),
@@ -7211,12 +7458,16 @@ async function fakturace() {
     </tr>`).join('') || `<tr><td colspan="8" class="text-center text-gray-400 py-8">Žádné faktury</td></tr>`;
 
   setContent(`
-    <div class="flex items-center justify-between mb-5">
+    <div class="flex items-center justify-between mb-4">
       <div>
         <h2 class="text-xl font-bold text-gray-800">Fakturace</h2>
         <p class="text-sm text-gray-400 mt-0.5">AUDIO PARTNER s.r.o. · Příští číslo: <strong class="text-blue-600">${nextCislo}</strong></p>
       </div>
       <button class="btn btn-primary" onclick="novaFaktura()">+ Nová faktura</button>
+    </div>
+    <div class="flex gap-2 mb-4">
+      <button class="tab-btn active">🧾 Faktury</button>
+      <button class="tab-btn" onclick="fakturace('vyfakturovano')">📊 Vyfakturováno</button>
     </div>
     <div class="card">
       <table class="w-full tbl-sort">
@@ -7230,6 +7481,160 @@ async function fakturace() {
         <tbody>${rows}</tbody>
       </table>
     </div>`);
+}
+
+// ── VYFAKTUROVÁNO – report pro účtárnu ────────────────────────────────────────
+async function _renderVyfakturovano() {
+  const panel = document.getElementById('vyfakturovano-panel');
+  if (!panel) return;
+
+  // Výchozí rozsah: aktuální rok od 1.1. do dneška
+  const dnes = new Date();
+  const defaultOd = dnes.getFullYear() + '-01-01';
+  const defaultDo = dnes.toISOString().slice(0,10);
+
+  panel.innerHTML = `
+    <div class="card p-4 mb-3">
+      <div class="flex flex-wrap gap-3 items-end">
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Datum od</label>
+          <input type="date" id="vyf-od" value="${defaultOd}" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Datum do</label>
+          <input type="date" id="vyf-do" value="${defaultDo}" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+        </div>
+        <button class="btn btn-primary" onclick="_vyfakturovánoNacti()">🔍 Zobrazit</button>
+        <button class="btn btn-secondary" onclick="_vyfakturovanoCsv()" id="vyf-csv-btn" style="display:none">⬇ Stáhnout CSV</button>
+      </div>
+    </div>
+    <div id="vyf-tabulka"><div class="text-gray-400 text-sm py-4">Zadej rozsah dat a klikni Zobrazit.</div></div>
+  `;
+
+  // Načti hned s výchozím rozsahem
+  _vyfakturovánoNacti();
+}
+
+let _vyfData = [];
+
+async function _vyfakturovánoNacti() {
+  const od = document.getElementById('vyf-od')?.value || '';
+  const do_ = document.getElementById('vyf-do')?.value || '';
+  const tbl = document.getElementById('vyf-tabulka');
+  if (!tbl) return;
+  tbl.innerHTML = '<div class="text-gray-400 text-sm py-4">Načítám…</div>';
+
+  const params = new URLSearchParams();
+  if (od)  params.set('od', od);
+  if (do_) params.set('do', do_);
+
+  const r = await api('/api/fakturace/report?' + params.toString(), 'GET');
+  _vyfData = r.rows || [];
+
+  const csvBtn = document.getElementById('vyf-csv-btn');
+  if (csvBtn) csvBtn.style.display = _vyfData.length ? '' : 'none';
+
+  if (!_vyfData.length) {
+    tbl.innerHTML = '<div class="text-gray-400 text-sm py-4">Žádné záznamy v zadaném období.</div>';
+    return;
+  }
+
+  // Součty
+  let sumDily = 0, sumPrace = 0, sumBezDph = 0, sumSDph = 0;
+  _vyfData.forEach(r => { sumDily += r.dily||0; sumPrace += r.prace||0; sumBezDph += r.celkem_bez_dph||0; sumSDph += r.celkem_s_dph||0; });
+
+  const rows = _vyfData.map((r, i) => `
+    <tr class="tr-hover">
+      <td class="text-sm text-gray-500">${_fmtDate(r.datum_vystaveni)}</td>
+      <td>
+        <a href="/api/faktury/${r.faktura_id}/pdf" target="_blank"
+           class="font-mono font-bold text-blue-600 hover:underline"
+           title="Otevřít PDF faktury">${r.faktura_cislo}</a>
+      </td>
+      <td>
+        ${r.typ_casu_id
+          ? `<span class="text-blue-700 hover:underline font-medium cursor-pointer" onclick="bomDetail(${r.typ_casu_id})" title="Otevřít BOM">${r.nazev || '–'}</span>`
+          : `<span class="font-medium">${r.nazev || '–'}</span>`}
+      </td>
+      <td class="text-gray-700">${r.odberatel_nazev || '–'}</td>
+      <td class="font-mono text-sm">
+        ${r.typ_casu_id
+          ? `<span class="text-blue-600 hover:underline cursor-pointer" onclick="bomDetail(${r.typ_casu_id})" title="Otevřít BOM">${r.hn_cislo || '–'}</span>`
+          : (r.hn_cislo || '–')}
+      </td>
+      <td class="text-right">${fmt(r.dily)} Kč</td>
+      <td class="text-right">${fmt(r.prace)} Kč</td>
+      <td class="text-right text-gray-500 text-sm">4,70 %</td>
+      <td class="text-right">${fmt(r.celkem_bez_dph)} Kč</td>
+      <td class="text-right font-semibold">${fmt(r.celkem_s_dph)} Kč</td>
+      <td class="text-center text-gray-300 text-xs">–</td>
+      <td class="text-center text-gray-300 text-xs">–</td>
+    </tr>`).join('');
+
+  tbl.innerHTML = `
+    <div class="card overflow-x-auto">
+      <table class="w-full tbl-sort text-sm">
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>Číslo faktury</th>
+            <th>Název</th>
+            <th>Zákazník</th>
+            <th>HN</th>
+            <th class="text-right">Díly</th>
+            <th class="text-right">Práce</th>
+            <th class="text-right">Marže</th>
+            <th class="text-right">Celkem BEZ DPH</th>
+            <th class="text-right">Celkem S DPH</th>
+            <th class="text-center">S/N</th>
+            <th class="text-center">Marže AP</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr class="font-semibold bg-gray-50 border-t-2 border-gray-300">
+            <td colspan="5" class="py-2 pl-3 text-gray-600">Celkem (${_vyfData.length} položek)</td>
+            <td class="text-right py-2">${fmt(sumDily)} Kč</td>
+            <td class="text-right py-2">${fmt(sumPrace)} Kč</td>
+            <td></td>
+            <td class="text-right py-2">${fmt(sumBezDph)} Kč</td>
+            <td class="text-right py-2">${fmt(sumSDph)} Kč</td>
+            <td colspan="2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+}
+
+function _vyfakturovanoCsv() {
+  if (!_vyfData.length) return;
+  const od = document.getElementById('vyf-od')?.value || '';
+  const do_ = document.getElementById('vyf-do')?.value || '';
+
+  const hlavicka = ['Datum','Číslo faktury','Název','Zákazník','HN','Díly','Práce','Marže %','Celkem BEZ DPH','Celkem S DPH','S/N','Marže AP'];
+  const radky = _vyfData.map(r => [
+    r.datum_vystaveni || '',
+    r.faktura_cislo || '',
+    r.nazev || '',
+    r.odberatel_nazev || '',
+    r.hn_cislo || '',
+    (r.dily || 0).toFixed(2).replace('.',','),
+    (r.prace || 0).toFixed(2).replace('.',','),
+    '4,70 %',
+    (r.celkem_bez_dph || 0).toFixed(2).replace('.',','),
+    (r.celkem_s_dph || 0).toFixed(2).replace('.',','),
+    r.sn || '',
+    r.marze_ap || '',
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';'));
+
+  const csv = '\uFEFF' + [hlavicka.map(h=>`"${h}"`).join(';'), ...radky].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Vyfakturovano_${od}_${do_}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function _fmtDate(iso) {

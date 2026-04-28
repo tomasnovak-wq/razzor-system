@@ -1,8 +1,8 @@
 {
-  "verze": 6,
-  "popis": "BOM: HN prefix auto, live duplikát check, vyhledávání bez HN prefixu",
-  "autor": "Tomas",
-  "datum": "23.04.2026",
-  "cas": "09:27",
-  "git_commit": "6aa0424"
+  "verze": 12,
+  "popis": "Dnes",
+  "autor": "Tom",
+  "datum": "28.04.2026",
+  "cas": "10:42",
+  "git_commit": "dc80996"
 }

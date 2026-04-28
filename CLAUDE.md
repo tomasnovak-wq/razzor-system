@@ -162,6 +162,18 @@ Zobrazuje zakázky před odesláním do výroby. Sloupce: ★ | HN/Typ | Název 
 
 Kliknutí na řádek **neotevírá detail** — detail se otvírá jen tlačítkem „Detail". Inline edity (termín, destinace, poznámky) ukládají přes `pripravaSetTermin()`, `pripravaSetDestinace()`, `pripravaSetPoznamka()`.
 
+### Modul Příprava zakázek (kancelar sekce)
+
+Modul pro kancelář — správa zakázek před výrobou. URL klíč: `kancelar`, funkce `kancelar()`.
+
+**Zákazník/kontakt je v seznamu read-only** — pole `zakaznik`, `tel`, `mail` se v řádku tabulky zobrazují jako prostý text. Editace je možná výhradně přes tlačítko „Detail" (`kanDetail(id)`). Důvod: předejít náhodným přepisům při procházení seznamu.
+
+Inline editovatelná pole v seznamu (přes `_kanInlineSel` / `_kanBlur`): Řeší (resitel_id), Priorita, Štítky, Stav, Aktivní.
+
+Zákazník (zakaznik, tel, mail) se ukládá přes `_kanSaveField(id, field, value)` volaný z detailu.
+
+Uživatelské role (konstanta `ROLE_LIST` v app.html): `Admin`, `Dílna`, `CNC`, `Kancelář`, `Projektant`. Barvy rolí definuje `ROLE_BARVY`. Role se ukládá ve sloupci `role TEXT NOT NULL DEFAULT 'Dílna'` v tabulce `uzivatele`.
+
 ### Karta Dílna (dilna sekce)
 
 Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Sloupce: ★ | HN/Typ | Název | Poznámka z kanceláře (`poznamka_dilna`, read-only) | Zákazník/Sklad (badge) | CNC (checklist chipů) | Termín | Stav | Pracovník | Akce
@@ -192,6 +204,24 @@ Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Sloupce: ★ | HN/Typ | Název | 
 - Poznámka pro Dílnu (`poznamka_dilna`) se zobrazuje bez emoji kladívka
 - **Profily – formátování**: duplicitní řádky se stejným `rozmer_mm` jsou sloučeny (sečtou se ks) přes funkci `_dedupProfily()` ve frontendu
 - **Zarážky děrovačky** jsou zobrazeny jako prostý text (ne editovatelná pole). Pokud backend nemá hodnotu (NULL), frontend ji dopočítá z délky profilu funkcemi `_calcZarazka(mm)` a `_calcZarazka2(mm)` (rozteč 128 mm, druhý průchod od 7+ otvorů). Profily kratší než 128 mm zarážky nemají záměrně.
+
+### Docházka — modul (dochazka sekce)
+
+Záložky: **Live** (`_dochLiveLoad`) | **Plán** (`_dochPlanLoad`) | **Měsíc** (`_dochMesicLoad`). Aktivní záložka uložena v `let _dochTab = 'live'`.
+
+**Plán docházky — kopírování po uživatelích:**
+Každý editovatelný řádek (dnešek a budoucnost) má u každého uživatele tlačítko 📋 (copy) a 📌 (paste, skryté do zkopírování). Workflow:
+1. Klik 📋 u uživatele X v den A → zkopíruje jeho `cas_od`/`cas_do` do `_dochCopyBuffer = { uid, cas_od, cas_do }`
+2. Ve všech ostatních řádcích téhož uživatele se zobrazí 📌
+3. Klik 📌 v den B → vloží časy, aktualizuje oba selecty v DOM a uloží přes `POST /api/dochazka`
+
+Selecty mají atributy `data-uid`, `data-datum`, `data-field` (od/do) — slouží k DOM lookupům při paste. Feedback přes `_planToast(msg, err)` — malý toast vpravo dole (nekonflikuje s `_dochToast`, který je velký overlay pro live check-in).
+
+**Dashboard — widget docházky rozdělen na dvě sekce:**
+- 🏭 **Dílna** — uživatelé s rolí `Dílna` nebo `CNC` (oranžový levý proužek)
+- 🏢 **Kancelář** — uživatelé s rolí `Kancelář`, `Admin` nebo `Projektant` (modrý levý proužek)
+
+Filtrování probíhá na frontendu podle pole `role` v datech z `/api/dochazka/tyden`. Endpoint vrací `role` jako součást každého záznamu (JOIN s tabulkou `uzivatele`).
 
 ### Frontend (app.html)
 
