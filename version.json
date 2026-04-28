@@ -1,8 +1,8 @@
 {
-  "verze": 23,
-  "popis": "DXF: manuální přiřazení vrstev - dropdown pro přiřazení materiálu (deska/pěna) ke každé vrstvě, uložení přiřazení do DB",
+  "verze": 24,
+  "popis": "DXF parser: podpora staršího formátu AC1009 (POLYLINE+VERTEX) - nutné pro výkresy z AutoCAD R12",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "15:53",
-  "git_commit": "aca8d39"
+  "cas": "15:59",
+  "git_commit": "0d70ef2"
 }

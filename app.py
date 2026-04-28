@@ -803,7 +803,7 @@ def api_dxf_post(typ_id):
             break
         if code == 0 and val == 'ENDSEC':
             break
-        if code not in (0,) or val not in ('LWPOLYLINE', 'CIRCLE'):
+        if code not in (0,) or val not in ('LWPOLYLINE', 'CIRCLE', 'POLYLINE'):
             continue
 
         etype = val
@@ -812,39 +812,87 @@ def api_dxf_post(typ_id):
         pts = []
         radius = None
 
-        while idx < len(lines):
-            code, val = _next()
-            if code is None:
-                break
-            if code == 0:
-                idx -= 2
-                break
-            if code == 8:
-                layer = val
-            elif code == 70 and etype == 'LWPOLYLINE':
-                try:
-                    closed_flag = bool(int(val) & 1)
-                except ValueError:
-                    pass
-            elif code == 40 and etype == 'CIRCLE':
-                try:
-                    radius = float(val)
-                except ValueError:
-                    pass
-            elif code == 10:
-                try:
-                    pts.append([float(val), None])
-                except ValueError:
-                    pass
-            elif code == 20:
-                try:
-                    fv = float(val)
-                    if pts and pts[-1][1] is None:
-                        pts[-1][1] = fv
-                    else:
-                        pts.append([0.0, fv])
-                except ValueError:
-                    pass
+        if etype == 'POLYLINE':
+            # Starý formát AC1009: POLYLINE + VERTEX + SEQEND
+            # Nejprve načti hlavičku POLYLINE (layer, flag 70)
+            while idx < len(lines):
+                code, val = _next()
+                if code is None:
+                    break
+                if code == 0:
+                    idx -= 2
+                    break
+                if code == 8:
+                    layer = val
+                elif code == 70:
+                    try:
+                        closed_flag = bool(int(val) & 1)
+                    except ValueError:
+                        pass
+            # Pak čti VERTEX entity až po SEQEND
+            while idx < len(lines):
+                code, val = _next()
+                if code is None:
+                    break
+                if code == 0 and val == 'SEQEND':
+                    break
+                if code == 0 and val == 'VERTEX':
+                    # Načti souřadnice tohoto vrcholu
+                    vx = vy = None
+                    while idx < len(lines):
+                        code2, val2 = _next()
+                        if code2 is None:
+                            break
+                        if code2 == 0:
+                            idx -= 2
+                            break
+                        if code2 == 10:
+                            try:
+                                vx = float(val2)
+                            except ValueError:
+                                pass
+                        elif code2 == 20:
+                            try:
+                                vy = float(val2)
+                            except ValueError:
+                                pass
+                    if vx is not None and vy is not None:
+                        pts.append([vx, vy])
+        else:
+            # Nový formát: LWPOLYLINE nebo CIRCLE
+            while idx < len(lines):
+                code, val = _next()
+                if code is None:
+                    break
+                if code == 0:
+                    idx -= 2
+                    break
+                if code == 8:
+                    layer = val
+                elif code == 70 and etype == 'LWPOLYLINE':
+                    try:
+                        closed_flag = bool(int(val) & 1)
+                    except ValueError:
+                        pass
+                elif code == 40 and etype == 'CIRCLE':
+                    try:
+                        radius = float(val)
+                    except ValueError:
+                        pass
+                elif code == 10:
+                    try:
+                        pts.append([float(val), None])
+                    except ValueError:
+                        pass
+                elif code == 20:
+                    try:
+                        fv = float(val)
+                        if pts and pts[-1][1] is None:
+                            pts[-1][1] = fv
+                        else:
+                            pts.append([0.0, fv])
+                    except ValueError:
+                        pass
 
         if not layer:
             continue
@@ -857,7 +905,7 @@ def api_dxf_post(typ_id):
             circle = [(_math.cos(2 * _math.pi * j / n) * radius,
                        _math.sin(2 * _math.pi * j / n) * radius) for j in range(n)]
             ld['closed'].append(circle)
-        elif etype == 'LWPOLYLINE' and len(pts) >= 2:
+        elif etype in ('LWPOLYLINE', 'POLYLINE') and len(pts) >= 2:
             eff_closed = _dist(pts[0], pts[-1]) < SNAP
             if closed_flag or eff_closed:
                 ld['closed'].append(pts)
