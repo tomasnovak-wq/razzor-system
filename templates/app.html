@@ -2079,7 +2079,9 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
     <thead class="sticky top-0 bg-white"><tr>
       <th class="w-6 pb-2 text-center text-amber-300 no-sort">★</th>
       <th class="text-left pb-2">Materiál</th><th class="text-left pb-2">Typ</th>
-      <th class="text-right pb-2">Množství</th><th class="text-right pb-2">Cena/j</th>
+      <th class="text-right pb-2">Množství</th>
+      <th class="text-right pb-2" title="Prořez: prázdné pole = globální nastavení, vyplněné = individuální override">Prořez</th>
+      <th class="text-right pb-2">Cena/j</th>
       <th class="text-right pb-2">Celkem</th><th class="text-right pb-2">Sklad</th><th></th>
     </tr></thead>
     <tbody>
@@ -2098,6 +2100,16 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
             title="Upravit množství"
             onblur="_buUpdateMnozstvi(${typId},'${b.material_kod}',this)"
             onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}if(event.key==='Escape'){this.value=this.defaultValue;this.blur();}">
+        </td>
+        <td class="text-right">
+          <input type="number" step="0.1" min="0" max="100"
+            class="text-right w-12 border border-transparent rounded px-1 py-0.5 text-sm bg-transparent hover:border-gray-300 focus:border-amber-400 focus:bg-white focus:outline-none ${b.prorez_procento!=null?'text-amber-700 font-semibold':'text-gray-400 italic'}"
+            value="${b.prorez_efektivni||0}"
+            placeholder="glob"
+            title="${b.prorez_procento!=null?'Individuální prořez (override globálního). Smaž hodnotu a potvrď pro reset na globální.':'Globální prořez z Nastavení. Napiš vlastní % pro override.'}"
+            onblur="_buUpdateProrez(${typId},'${b.material_kod}',this,${b.prorez_procento==null})"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}if(event.key==='Escape'){this.value='${b.prorez_efektivni||0}';this.blur();}">
+          <span class="text-gray-300 text-xs">%</span>
         </td>
         <td class="text-right text-gray-500">${fmtKc(b.nc_bez_dph)}</td>
         <td class="text-right font-semibold">${fmtKc(b.cena_polozky)}</td>
@@ -2333,6 +2345,30 @@ async function _buUpdateMnozstvi(typId, matKod, el) {
   if (!mnozstvi || mnozstvi <= 0) { el.value = el.defaultValue; return; }
   if (Math.abs(mnozstvi - parseFloat(el.defaultValue)) < 0.0001) return; // bez změny
   const r = await api(`/api/typy-casu/${typId}/bom`, 'POST', { material_kod: matKod, mnozstvi });
+  if (r.error) { alert('Chyba: ' + r.error); el.value = el.defaultValue; return; }
+  _cache.typy = null;
+  const [newData, casData, profilyData] = await Promise.all([
+    api(`/api/typy-casu/${typId}`),
+    api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
+    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
+  ]);
+  _buData = { ..._buData, data: newData, casData, profilyData };
+  _buRender();
+}
+
+// Inline editace prořezu přímo v BOM tabulce
+// isGlobal=true → aktuálně se používá globální → prázdné pole = nic neměnit
+async function _buUpdateProrez(typId, matKod, el, isGlobal) {
+  const raw = el.value.trim();
+  // Prázdné pole = reset na globální (NULL)
+  const prorez = raw === '' ? null : parseFloat(raw);
+  if (prorez !== null && (isNaN(prorez) || prorez < 0 || prorez > 100)) {
+    el.value = el.defaultValue; return;
+  }
+  // Beze změny: hodnota stejná jako aktuální a stav (global/individual) se nemění
+  if (prorez !== null && isGlobal === false && Math.abs(prorez - parseFloat(el.defaultValue)) < 0.01) return;
+  if (prorez === null && isGlobal) return; // globální zůstává globální
+  const r = await api(`/api/typy-casu/${typId}/bom/${encodeURIComponent(matKod)}`, 'PATCH', { prorez_procento: prorez });
   if (r.error) { alert('Chyba: ' + r.error); el.value = el.defaultValue; return; }
   _cache.typy = null;
   const [newData, casData, profilyData] = await Promise.all([
@@ -3120,7 +3156,6 @@ async function editZakazka(id, prefill={}) {
       ${z.typ_casu_id ? `
       <!-- Typ casu jako info blok -->
       <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px">
-        <div style="font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Typ casu</div>
         <div style="font-size:1.05rem;font-weight:700;color:#1e3a5f;line-height:1.2">${z.hn_cislo}</div>
         <div style="font-size:.88rem;color:#374151">${z.nazev}</div>
       </div>

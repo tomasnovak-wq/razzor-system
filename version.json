@@ -1,8 +1,8 @@
 {
-  "verze": 17,
-  "popis": "Modal Nová zakázka: Stav se nezobrazuje (automaticky Čeká), jen při editaci",
+  "verze": 18,
+  "popis": "Individuální prořez na položku BOM: override globálního nastavení, promítá se do ceny dílů a odpisu skladu",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "13:57",
-  "git_commit": "6ecc47c"
+  "cas": "14:06",
+  "git_commit": "f6330b9"
 }

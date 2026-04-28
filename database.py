@@ -496,12 +496,17 @@ def aktualizuj_stav_skladu(conn, material_kod):
     """, (material_kod, material_kod, material_kod))
 
 def vypocti_cenu_dilu(conn, typ_casu_id):
-    """Spočítá celkovou cenu dílů z kusovníku"""
+    """Spočítá celkovou cenu dílů z kusovníku (včetně individuálního nebo globálního prořezu)."""
     c = conn.cursor()
     c.execute("""
-        SELECT COALESCE(SUM(k.mnozstvi * m.nc_bez_dph), 0) as cena
+        SELECT COALESCE(SUM(
+            k.mnozstvi
+            * (1.0 + COALESCE(k.prorez_procento, p.procento, 0) / 100.0)
+            * m.nc_bez_dph
+        ), 0) as cena
         FROM kusovniky k
         JOIN materialy m ON m.kod = k.material_kod
+        LEFT JOIN prorez p ON p.typ = m.typ
         WHERE k.typ_casu_id = ?
     """, (typ_casu_id,))
     row = c.fetchone()
@@ -537,11 +542,12 @@ def odepis_material_ze_skladu(conn, zakazka_id):
         return False
 
     # Načti kusovník + typ materiálu + prořez najednou
+    # Individuální prořez (k.prorez_procento) má přednost před globálním (p.procento)
     c.execute("""
         SELECT k.material_kod,
                k.mnozstvi * ? AS mnozstvi_bom,
                m.typ,
-               COALESCE(p.procento, 0) AS prorez_pct
+               COALESCE(k.prorez_procento, p.procento, 0) AS prorez_pct
         FROM kusovniky k
         JOIN materialy m ON m.kod = k.material_kod
         LEFT JOIN prorez p ON p.typ = m.typ
@@ -614,6 +620,9 @@ def auto_migrate():
     # pohyby_skladu – vazba na příjemku / opravný doklad
     add_column('pohyby_skladu', 'prijemka_id',       'INTEGER')
     add_column('pohyby_skladu', 'opravny_doklad_id',  'INTEGER')
+
+    # kusovniky – individuální prořez (NULL = použij globální z tabulky prorez)
+    add_column('kusovniky', 'prorez_procento', 'REAL DEFAULT NULL')
 
     # materialy – počet nýtů z importu
     add_column('materialy', 'nity', 'REAL DEFAULT 0')

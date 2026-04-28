@@ -315,15 +315,18 @@ def api_typ_casu_detail(typ_id):
         conn.close()
         return jsonify({'error': 'Typ nenalezen'}), 404
 
-    # BOM – přímé položky
+    # BOM – přímé položky (individuální prořez má přednost před globálním)
     c.execute("""
-        SELECT k.material_kod, k.mnozstvi, m.nazev, m.typ, m.druh, m.nc_bez_dph,
+        SELECT k.material_kod, k.mnozstvi, k.prorez_procento,
+               m.nazev, m.typ, m.druh, m.nc_bez_dph,
                m.hmotnost as hmotnost_j, m.nity, m.oblibeny,
                COALESCE(s.naskladneno - s.pouzito, 0) as stav_skladu,
-               (k.mnozstvi * m.nc_bez_dph) as cena_polozky,
-               (k.mnozstvi * m.hmotnost)   as hmotnost_polozky
+               COALESCE(k.prorez_procento, p.procento, 0) as prorez_efektivni,
+               (k.mnozstvi * (1.0 + COALESCE(k.prorez_procento, p.procento, 0)/100.0) * m.nc_bez_dph) as cena_polozky,
+               (k.mnozstvi * m.hmotnost) as hmotnost_polozky
         FROM kusovniky k
         JOIN materialy m ON m.kod = k.material_kod
+        LEFT JOIN prorez p ON p.typ = m.typ
         LEFT JOIN sklad s ON s.material_kod = k.material_kod
         WHERE k.typ_casu_id = ?
         ORDER BY m.oblibeny DESC, m.typ, m.nazev
@@ -505,10 +508,32 @@ def api_bom_add(typ_id):
     conn = get_db()
     c = conn.cursor()
     try:
+        # ON CONFLICT DO UPDATE: zachová prorez_procento pokud není explicitně zadáno
         c.execute("""
-            INSERT OR REPLACE INTO kusovniky (typ_casu_id, material_kod, mnozstvi)
-            VALUES (?,?,?)
+            INSERT INTO kusovniky (typ_casu_id, material_kod, mnozstvi, prorez_procento)
+            VALUES (?,?,?,NULL)
+            ON CONFLICT(typ_casu_id, material_kod) DO UPDATE SET
+              mnozstvi = excluded.mnozstvi
         """, (typ_id, data['material_kod'], data['mnozstvi']))
+        vypocti_cenu_dilu(conn, typ_id)
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/typy-casu/<int:typ_id>/bom/<path:mat_kod>', methods=['PATCH'])
+def api_bom_patch(typ_id, mat_kod):
+    """Aktualizuje jednotlivá pole BOM položky (prorez_procento) bez změny množství."""
+    data = request.json
+    conn = get_db()
+    c = conn.cursor()
+    try:
+        if 'prorez_procento' in data:
+            # None = reset na globální prořez, číslo = individuální override
+            c.execute("UPDATE kusovniky SET prorez_procento=? WHERE typ_casu_id=? AND material_kod=?",
+                      (data['prorez_procento'], typ_id, mat_kod))
         vypocti_cenu_dilu(conn, typ_id)
         conn.commit()
         conn.close()
