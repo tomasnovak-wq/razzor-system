@@ -2094,20 +2094,28 @@ function _buTabProfily(typId, profilyData) {
   </div>`;
 }
 
-function _buTabSoubory(typId, links) {
-  const rows = links.map(lnk => `
-    <div class="bu-link-row flex gap-2 items-center mb-2">
-      <input class="bu-lnk-nazev input flex-1" placeholder="Název souboru / odkazu"
-             value="${lnk.nazev.replace(/"/g,'&quot;')}">
-      <input class="bu-lnk-url input" style="flex:2" type="url" placeholder="https://…"
-             value="${lnk.url.replace(/"/g,'&quot;')}">
-      <button class="text-red-400 hover:text-red-600 px-2 text-lg leading-none"
-              onclick="this.closest('.bu-link-row').remove()" title="Odebrat">✕</button>
-    </div>`).join('');
+const _BU_LINK_TYPY = ['Obrázek', 'Výkres sestavy', 'Výkres polstrování', 'Ostatní'];
 
+function _buLinkRowHtml(nazev, url) {
+  const sel = _BU_LINK_TYPY.map(t =>
+    `<option value="${t}" ${t===nazev?'selected':''}>${t}</option>`
+  ).join('');
+  return `<div class="bu-link-row flex gap-2 items-center mb-2">
+    <select class="bu-lnk-nazev select" style="flex:0 0 180px">${sel}</select>
+    <input class="bu-lnk-url input" style="flex:1" type="url" placeholder="https://…"
+           value="${url.replace(/"/g,'&quot;')}">
+    <a class="btn btn-secondary py-1 px-2 text-xs" href="${url.replace(/"/g,'&quot;')}" target="_blank"
+       title="Otevřít odkaz" onclick="this.href=this.closest('.bu-link-row').querySelector('.bu-lnk-url').value">↗</a>
+    <button class="text-red-400 hover:text-red-600 px-1 text-lg leading-none"
+            onclick="this.closest('.bu-link-row').remove()" title="Odebrat">✕</button>
+  </div>`;
+}
+
+function _buTabSoubory(typId, links) {
+  const rows = links.map(lnk => _buLinkRowHtml(lnk.nazev, lnk.url)).join('');
   return `
   <p class="text-xs text-gray-500 mb-4">
-    Zadej URL odkaz na soubor v Google Drive, SharePointu, Dropboxu apod. — odkaz zkopíruješ ze sdíleného souboru.<br>
+    Zadej URL odkaz na soubor v Google Drive, SharePointu, Dropboxu apod.<br>
     Prázdné řádky se při uložení přeskočí.
   </p>
   <div id="bu-links-list">
@@ -2122,18 +2130,12 @@ function _buTabSoubory(typId, links) {
 function _buLinkAdd() {
   const container = document.getElementById('bu-links-list');
   if (!container) return;
-  // Odstraňme případný "zatím žádné" text
   const empty = container.querySelector('p.italic');
   if (empty) empty.remove();
   const div = document.createElement('div');
-  div.className = 'bu-link-row flex gap-2 items-center mb-2';
-  div.innerHTML = `
-    <input class="bu-lnk-nazev input flex-1" placeholder="Název souboru / odkazu">
-    <input class="bu-lnk-url input" style="flex:2" type="url" placeholder="https://…">
-    <button class="text-red-400 hover:text-red-600 px-2 text-lg leading-none"
-            onclick="this.closest('.bu-link-row').remove()" title="Odebrat">✕</button>`;
-  container.appendChild(div);
-  div.querySelector('input').focus();
+  div.innerHTML = _buLinkRowHtml('Ostatní', '');
+  container.appendChild(div.firstElementChild);
+  container.lastElementChild.querySelector('.bu-lnk-url').focus();
 }
 
 async function _buSaveSoubory(typId) {
