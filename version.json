@@ -1,8 +1,8 @@
 {
-  "verze": 16,
-  "popis": "Přepracování modalu Nová výrobní zakázka: info blok místo dropdownu, destinace Zákazník/Sklad, počet ks → N zakázek",
+  "verze": 17,
+  "popis": "Modal Nová zakázka: Stav se nezobrazuje (automaticky Čeká), jen při editaci",
   "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "13:54",
-  "git_commit": "c4ce17c"
+  "cas": "13:57",
+  "git_commit": "6ecc47c"
 }

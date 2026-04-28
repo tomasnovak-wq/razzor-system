@@ -3134,6 +3134,8 @@ async function editZakazka(id, prefill={}) {
       </div>
       `}
 
+      <!-- Stav: jen při editaci, pro nové zakázky se automaticky nastaví "Čeká" -->
+      ${isEdit ? `
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs text-gray-500">Stav</label>
           <select class="select" id="zak-stav">
@@ -3142,6 +3144,12 @@ async function editZakazka(id, prefill={}) {
         </div>
         <div><label class="text-xs text-gray-500">Termín</label><input class="input" id="zak-termin" type="date" value="${z.termin}"></div>
       </div>
+      ` : `
+      <div>
+        <label class="text-xs text-gray-500">Termín</label>
+        <input class="input" id="zak-termin" type="date" value="${z.termin}">
+      </div>
+      `}
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-xs text-gray-500">Zákazník</label>
           <select class="select" id="zak-destinace">
@@ -3195,7 +3203,7 @@ async function saveZakazka(existingId) {
     typ_casu_id:    finalTypId,
     hn_cislo:       hnCislo,
     nazev:          nazev,
-    stav:           document.getElementById('zak-stav').value,
+    stav:           document.getElementById('zak-stav')?.value || 'Čeká',
     pocet_ks:       1,
     termin:         document.getElementById('zak-termin').value,
     destinace:      destinace,
