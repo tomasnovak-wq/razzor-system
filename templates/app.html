@@ -1853,11 +1853,11 @@ function _buRender() {
   </div>`;
 
   // Tab navigation with left/right arrows
-  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily'];
+  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'Soubory'];
   const btnBase = 'border:none;background:none;cursor:pointer;font-size:.85rem;padding:8px 18px;white-space:nowrap;margin-bottom:-2px';
   const tabNav = `
   <div style="display:flex;align-items:center;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:16px">
-    <button onclick="_buSwitchTab(${_buTab > 1 ? _buTab - 1 : 3})"
+    <button onclick="_buSwitchTab(${_buTab > 1 ? _buTab - 1 : 4})"
       style="${btnBase};color:#9ca3af;font-size:1.1rem;padding:6px 10px" title="Předchozí záložka">←</button>
     ${TAB_NAMES.map((name, i) => {
       const idx = i + 1;
@@ -1866,7 +1866,7 @@ function _buRender() {
         style="${btnBase};font-weight:${active?'700':'500'};color:${active?'#1d4ed8':'#6b7280'};
                border-bottom:${active?'2px solid #1d4ed8':'2px solid transparent'}">${name}</button>`;
     }).join('')}
-    <button onclick="_buSwitchTab(${_buTab < 3 ? _buTab + 1 : 1})"
+    <button onclick="_buSwitchTab(${_buTab < 4 ? _buTab + 1 : 1})"
       style="${btnBase};color:#9ca3af;font-size:1.1rem;padding:6px 10px" title="Další záložka">→</button>
   </div>`;
 
@@ -1874,6 +1874,7 @@ function _buRender() {
   if (_buTab === 1)      tabContent = _buTabSpec(t, typId);
   else if (_buTab === 2) tabContent = _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData);
   else if (_buTab === 3) tabContent = _buTabProfily(typId, profilyData);
+  else if (_buTab === 4) tabContent = _buTabSoubory(typId, links);
 
   openModal(`
   <div class="flex items-start justify-between mb-3">
@@ -2091,6 +2092,66 @@ function _buTabProfily(typId, profilyData) {
   <div style="display:flex;gap:8px;padding-top:8px;border-top:1px solid #e5e7eb">
     <button class="btn btn-primary flex-1" onclick="_buSaveProfily(${typId})">💾 Uložit profily</button>
   </div>`;
+}
+
+function _buTabSoubory(typId, links) {
+  const rows = links.map(lnk => `
+    <div class="bu-link-row flex gap-2 items-center mb-2">
+      <input class="bu-lnk-nazev input flex-1" placeholder="Název souboru / odkazu"
+             value="${lnk.nazev.replace(/"/g,'&quot;')}">
+      <input class="bu-lnk-url input" style="flex:2" type="url" placeholder="https://…"
+             value="${lnk.url.replace(/"/g,'&quot;')}">
+      <button class="text-red-400 hover:text-red-600 px-2 text-lg leading-none"
+              onclick="this.closest('.bu-link-row').remove()" title="Odebrat">✕</button>
+    </div>`).join('');
+
+  return `
+  <p class="text-xs text-gray-500 mb-4">
+    Zadej URL odkaz na soubor v Google Drive, SharePointu, Dropboxu apod. — odkaz zkopíruješ ze sdíleného souboru.<br>
+    Prázdné řádky se při uložení přeskočí.
+  </p>
+  <div id="bu-links-list">
+    ${rows || '<p class="text-sm text-gray-400 italic mb-3">Zatím žádné soubory ani odkazy.</p>'}
+  </div>
+  <button class="btn btn-secondary text-xs mt-1" onclick="_buLinkAdd()">+ Přidat řádek</button>
+  <div class="pt-4 mt-4 border-t border-gray-100">
+    <button class="btn btn-primary w-full" onclick="_buSaveSoubory(${typId})">💾 Uložit</button>
+  </div>`;
+}
+
+function _buLinkAdd() {
+  const container = document.getElementById('bu-links-list');
+  if (!container) return;
+  // Odstraňme případný "zatím žádné" text
+  const empty = container.querySelector('p.italic');
+  if (empty) empty.remove();
+  const div = document.createElement('div');
+  div.className = 'bu-link-row flex gap-2 items-center mb-2';
+  div.innerHTML = `
+    <input class="bu-lnk-nazev input flex-1" placeholder="Název souboru / odkazu">
+    <input class="bu-lnk-url input" style="flex:2" type="url" placeholder="https://…">
+    <button class="text-red-400 hover:text-red-600 px-2 text-lg leading-none"
+            onclick="this.closest('.bu-link-row').remove()" title="Odebrat">✕</button>`;
+  container.appendChild(div);
+  div.querySelector('input').focus();
+}
+
+async function _buSaveSoubory(typId) {
+  const links = [];
+  document.querySelectorAll('.bu-link-row').forEach(row => {
+    const nazev = (row.querySelector('.bu-lnk-nazev')?.value || '').trim();
+    const url   = (row.querySelector('.bu-lnk-url')?.value   || '').trim();
+    if (url) links.push({ nazev: nazev || url, url });
+  });
+  const r = await api(`/api/typy-casu/${typId}/links`, 'POST', { links });
+  if (r.error) { alert('Chyba: ' + r.error); return; }
+  const [newData, casData, profilyData] = await Promise.all([
+    api(`/api/typy-casu/${typId}`),
+    api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
+    api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] }))
+  ]);
+  _buData = { ..._buData, data: newData, casData, profilyData };
+  _buRender();
 }
 
 async function _buSaveSpec(typId) {
