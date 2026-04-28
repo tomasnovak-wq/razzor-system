@@ -1853,21 +1853,29 @@ function _buRender() {
   </div>`;
 
   // Tab navigation with left/right arrows
-  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'Soubory'];
-  const btnBase = 'border:none;background:none;cursor:pointer;font-size:.85rem;padding:8px 18px;white-space:nowrap;margin-bottom:-2px';
+  const TAB_NAMES  = ['Specifikace', 'Materiály', 'Profily', 'Soubory'];
+  const TAB_COLORS = [
+    { bg:'#eff6ff', bgA:'#1d4ed8', txt:'#1d4ed8', txtA:'#fff', border:'#bfdbfe' },  // modrá
+    { bg:'#f0fdf4', bgA:'#16a34a', txt:'#16a34a', txtA:'#fff', border:'#bbf7d0' },  // zelená
+    { bg:'#fdf4ff', bgA:'#7e22ce', txt:'#7e22ce', txtA:'#fff', border:'#e9d5ff' },  // fialová
+    { bg:'#fff7ed', bgA:'#c2410c', txt:'#c2410c', txtA:'#fff', border:'#fed7aa' },  // oranžová
+  ];
   const tabNav = `
-  <div style="display:flex;align-items:center;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:16px">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:16px">
     <button onclick="_buSwitchTab(${_buTab > 1 ? _buTab - 1 : 4})"
-      style="${btnBase};color:#9ca3af;font-size:1.1rem;padding:6px 10px" title="Předchozí záložka">←</button>
+      style="border:none;background:none;cursor:pointer;color:#9ca3af;font-size:1.1rem;padding:4px 6px" title="Předchozí záložka">←</button>
     ${TAB_NAMES.map((name, i) => {
       const idx = i + 1;
       const active = idx === _buTab;
+      const c = TAB_COLORS[i];
       return `<button onclick="_buSwitchTab(${idx})"
-        style="${btnBase};font-weight:${active?'700':'500'};color:${active?'#1d4ed8':'#6b7280'};
-               border-bottom:${active?'2px solid #1d4ed8':'2px solid transparent'}">${name}</button>`;
+        style="border:1px solid ${active?c.bgA:c.border};border-radius:20px;cursor:pointer;font-size:.82rem;padding:5px 16px;
+               font-weight:${active?'700':'500'};white-space:nowrap;
+               background:${active?c.bgA:c.bg};color:${active?c.txtA:c.txt};
+               transition:all .15s">${name}</button>`;
     }).join('')}
     <button onclick="_buSwitchTab(${_buTab < 4 ? _buTab + 1 : 1})"
-      style="${btnBase};color:#9ca3af;font-size:1.1rem;padding:6px 10px" title="Další záložka">→</button>
+      style="border:none;background:none;cursor:pointer;color:#9ca3af;font-size:1.1rem;padding:4px 6px" title="Další záložka">→</button>
   </div>`;
 
   let tabContent = '';
