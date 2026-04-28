@@ -1,8 +1,8 @@
 {
-  "verze": 12,
-  "popis": "Dnes",
-  "autor": "Tom",
+  "verze": 13,
+  "popis": "Unified BOM popup: merge BOM+Upravit+Profily into one tabbed dialog with stats bar",
+  "autor": "Ludek",
   "datum": "28.04.2026",
-  "cas": "10:42",
-  "git_commit": "dc80996"
+  "cas": "11:52",
+  "git_commit": "6bf6244"
 }

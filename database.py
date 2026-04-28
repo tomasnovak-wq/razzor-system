@@ -938,6 +938,14 @@ def auto_migrate():
         c.execute("INSERT INTO _migrations (name) VALUES ('kan_prio_okamzite_v1')")
         log.append("  [OK] migrace kan_prio_okamzite_v1: priorita 'Řešit okamžitě' → 'Okamžitě'")
 
+    # ── BOM IMPORT — ignorované kódy ────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS bom_import_ignore (
+            kod     TEXT PRIMARY KEY,
+            popis   TEXT DEFAULT ''
+        )
+    """)
+
     conn.commit()
     conn.close()
     if log:

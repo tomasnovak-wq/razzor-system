@@ -383,9 +383,13 @@ def api_typ_casu_detail(typ_id):
         c.execute("SELECT id, nazev, url, poradi FROM typy_casu_links WHERE typ_casu_id=? ORDER BY poradi, id", (typ_id,))
         links = [dict(r) for r in c.fetchall()]
 
+    c.execute("SELECT COUNT(*) FROM profily_plan WHERE typ_casu_id=?", (typ_id,))
+    profily_count = c.fetchone()[0]
+
     conn.close()
     return jsonify({'typ': dict(typ), 'bom': bom, 'spojeniky': spojeniky,
-                    'cena_dilu': cena_dilu, 'hmotnost_bom': hmotnost_bom, 'links': links})
+                    'cena_dilu': cena_dilu, 'hmotnost_bom': hmotnost_bom, 'links': links,
+                    'profily_count': profily_count})
 
 @app.route('/api/typy-casu/<int:typ_id>/debug-spojeniky')
 def api_bom_debug_spojeniky(typ_id):
@@ -3237,7 +3241,6 @@ def api_cas_vypocet(typ_id):
         return f"{h}h {m:02d}min" if h else f"{m}min"
 
     # Cenové parametry pro výpočet správné MC
-    c2 = conn.cursor() if not conn else conn.cursor()
     conn2 = get_db()
     c2 = conn2.cursor()
     c2.execute("SELECT klic, hodnota FROM cas_parametry WHERE sekce='Ceny'")
@@ -4845,6 +4848,36 @@ def api_nastaveni_email_test():
         return jsonify({'error': str(e)}), 500
 
 
+# ── BOM IMPORT — ignorované kódy ─────────────────────────────────────────────
+
+@app.route('/api/bom-import-ignore', methods=['GET'])
+def api_bom_import_ignore_get():
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT kod, popis FROM bom_import_ignore ORDER BY kod")
+    rows = [{'kod': r[0], 'popis': r[1]} for r in c.fetchall()]
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/bom-import-ignore', methods=['POST'])
+def api_bom_import_ignore_post():
+    d = request.get_json() or {}
+    kod = (d.get('kod') or '').strip()
+    popis = (d.get('popis') or '').strip()
+    if not kod:
+        return jsonify({'error': 'Chybí kód'}), 400
+    conn = get_db(); c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO bom_import_ignore (kod, popis) VALUES (?,?)", (kod, popis))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/bom-import-ignore/<kod>', methods=['DELETE'])
+def api_bom_import_ignore_delete(kod):
+    conn = get_db(); c = conn.cursor()
+    c.execute("DELETE FROM bom_import_ignore WHERE kod=?", (kod,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 if __name__ == '__main__':
     init_db()
     auto_migrate()
@@ -4853,4 +4886,4 @@ if __name__ == '__main__':
     print("  Otevři v prohlížeči: http://localhost:5001")
     print("  Ze sítě:             http://<IP-tohoto-PC>:5001")
     print("="*60 + "\n")
-    app.run(host='0.0.0.0', port=5001, debug=False)
+    app.run(host='0.0.0.0', port=5001, debug=True)
