@@ -1699,8 +1699,9 @@ async function bomDetail(typId) {
 
 // ── UNIFIED BOM DETAIL ────────────────────────────────────────────────────
 let _buData   = null;   // cached data for unified BOM detail popup
-let _buTab    = 2;      // 1=Specifikace, 2=Materiály, 3=Profily–rozměry
+let _buTab    = 2;      // 1=Specifikace, 2=Materiály, 3=Profily
 let _buActive = false;  // true while unified popup is open
+let _buDraft  = {};     // unsaved form values per tab (spec, profily)
 
 async function bomDetailUnified(typId, tab) {
   if (tab === undefined) tab = 2;
@@ -1716,12 +1717,77 @@ async function bomDetailUnified(typId, tab) {
   _buRender();
 }
 
+function _buSaveDraft() {
+  if (_buTab === 1) {
+    _buDraft.spec = {
+      nazev:           document.getElementById('bu-nazev')?.value ?? null,
+      typ_korpusu:     document.getElementById('bu-typ')?.value ?? null,
+      vnitrni_sirka:   document.getElementById('bu-s')?.value ?? null,
+      vnitrni_vyska:   document.getElementById('bu-v')?.value ?? null,
+      vnitrni_hloubka: document.getElementById('bu-h')?.value ?? null,
+      poznamka:        document.getElementById('bu-poz')?.value ?? null,
+    };
+  } else if (_buTab === 3) {
+    const l = [], h = [];
+    for (let i = 0; i < (L_SLOTS||10); i++) {
+      l.push({
+        ks:       document.getElementById(`pfs-l-ks-${i}`)?.value || '',
+        rozmer:   document.getElementById(`pfs-l-rozmer-${i}`)?.value || '',
+        zakonceni: document.querySelector(`.pfs-rez-btn[data-type="l"][data-idx="${i}"][data-active="1"]`)?.dataset.val ?? null,
+      });
+    }
+    for (let i = 0; i < (H_SLOTS||15); i++) {
+      h.push({
+        ks:       document.getElementById(`pfs-h-ks-${i}`)?.value || '',
+        rozmer:   document.getElementById(`pfs-h-rozmer-${i}`)?.value || '',
+        zakonceni: document.querySelector(`.pfs-rez-btn[data-type="h"][data-idx="${i}"][data-active="1"]`)?.dataset.val ?? null,
+      });
+    }
+    _buDraft.profily = { l, h };
+  }
+}
+
+function _buRestoreProfilyDraft() {
+  const d = _buDraft.profily;
+  if (!d) return;
+  d.l.forEach((row, i) => {
+    const ksEl  = document.getElementById(`pfs-l-ks-${i}`);
+    const rozEl = document.getElementById(`pfs-l-rozmer-${i}`);
+    if (ksEl  && row.ks)     ksEl.value  = row.ks;
+    if (rozEl && row.rozmer) rozEl.value = row.rozmer;
+    if (row.zakonceni != null) {
+      document.querySelectorAll(`.pfs-rez-btn[data-type="l"][data-idx="${i}"]`).forEach(b => {
+        const active = b.dataset.val === row.zakonceni;
+        b.dataset.active   = active ? '1' : '';
+        b.style.background = active ? '#6b2040' : '#f9fafb';
+        b.style.color      = active ? 'white'   : '#374151';
+      });
+    }
+  });
+  d.h.forEach((row, i) => {
+    const ksEl  = document.getElementById(`pfs-h-ks-${i}`);
+    const rozEl = document.getElementById(`pfs-h-rozmer-${i}`);
+    if (ksEl  && row.ks)     ksEl.value  = row.ks;
+    if (rozEl && row.rozmer) rozEl.value = row.rozmer;
+    if (row.zakonceni != null) {
+      document.querySelectorAll(`.pfs-rez-btn[data-type="h"][data-idx="${i}"]`).forEach(b => {
+        const active = b.dataset.val === row.zakonceni;
+        b.dataset.active   = active ? '1' : '';
+        b.style.background = active ? '#6b2040' : '#f9fafb';
+        b.style.color      = active ? 'white'   : '#374151';
+      });
+    }
+  });
+}
+
 function _buSwitchTab(tab) {
+  _buSaveDraft();
   _buTab = tab;
   _buRender();
 }
 
 function _buClose() {
+  _buDraft  = {};
   _buActive = false;
   closeModal();
   if (currentPage === 'typy-casu') {
@@ -1785,7 +1851,7 @@ function _buRender() {
   </div>`;
 
   // Tab navigation with left/right arrows
-  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily\u00a0–\u00a0rozměry'];
+  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily'];
   const btnBase = 'border:none;background:none;cursor:pointer;font-size:.85rem;padding:8px 18px;white-space:nowrap;margin-bottom:-2px';
   const tabNav = `
   <div style="display:flex;align-items:center;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:16px">
@@ -1823,10 +1889,14 @@ function _buRender() {
   ${tabNav}
   ${tabContent}
   `, 'xl');
+  // Obnov neuložené změny pro záložku Profily
+  if (_buTab === 3) _buRestoreProfilyDraft();
 }
 
 function _buTabSpec(t, typId) {
   const typy = ['Rack','Klávesy','Hlava/kombo','Accessory case','Pedalboard','Mikrofony','Ostatní'];
+  const d = _buDraft.spec || {};
+  const val = (field, fallback) => (d[field] != null ? String(d[field]).replace(/"/g,'&quot;') : String(fallback ?? '').replace(/"/g,'&quot;'));
   return `
   <div class="space-y-3">
     <div class="grid grid-cols-2 gap-3">
@@ -1834,20 +1904,20 @@ function _buTabSpec(t, typId) {
         <label class="text-xs text-gray-500">HN číslo</label>
         <input class="input" value="${t.hn_cislo}" disabled style="background:#f8fafc;color:#64748b">
       </div>
-      <div><label class="text-xs text-gray-500">Název *</label><input class="input" id="bu-nazev" value="${t.nazev.replace(/"/g,'&quot;')}"></div>
+      <div><label class="text-xs text-gray-500">Název *</label><input class="input" id="bu-nazev" value="${val('nazev', t.nazev)}"></div>
     </div>
     <div><label class="text-xs text-gray-500">Typ korpusu</label>
       <select class="select" id="bu-typ">
         <option value="">– Nevybráno –</option>
-        ${typy.map(tp=>`<option value="${tp}" ${t.typ_korpusu===tp?'selected':''}>${tp}</option>`).join('')}
+        ${typy.map(tp=>`<option value="${tp}" ${(d.typ_korpusu??t.typ_korpusu)===tp?'selected':''}>${tp}</option>`).join('')}
       </select>
     </div>
     <div class="grid grid-cols-3 gap-3">
-      <div><label class="text-xs text-gray-500">Šířka (mm)</label><input class="input" id="bu-s" type="number" value="${t.vnitrni_sirka||0}"></div>
-      <div><label class="text-xs text-gray-500">Výška (mm)</label><input class="input" id="bu-v" type="number" value="${t.vnitrni_vyska||0}"></div>
-      <div><label class="text-xs text-gray-500">Hloubka (mm)</label><input class="input" id="bu-h" type="number" value="${t.vnitrni_hloubka||0}"></div>
+      <div><label class="text-xs text-gray-500">Šířka (mm)</label><input class="input" id="bu-s" type="number" value="${val('vnitrni_sirka', t.vnitrni_sirka||0)}"></div>
+      <div><label class="text-xs text-gray-500">Výška (mm)</label><input class="input" id="bu-v" type="number" value="${val('vnitrni_vyska', t.vnitrni_vyska||0)}"></div>
+      <div><label class="text-xs text-gray-500">Hloubka (mm)</label><input class="input" id="bu-h" type="number" value="${val('vnitrni_hloubka', t.vnitrni_hloubka||0)}"></div>
     </div>
-    <div><label class="text-xs text-gray-500">Poznámka</label><textarea class="input" id="bu-poz" rows="2">${t.poznamka||''}</textarea></div>
+    <div><label class="text-xs text-gray-500">Poznámka</label><textarea class="input" id="bu-poz" rows="2">${d.poznamka ?? t.poznamka ?? ''}</textarea></div>
     <div class="flex gap-2 pt-2">
       <button class="btn btn-primary flex-1" onclick="_buSaveSpec(${typId})">💾 Uložit</button>
     </div>
@@ -2034,6 +2104,7 @@ async function _buSaveSpec(typId) {
   const r = await api(`/api/typy-casu/${typId}`, 'PUT', data);
   if (r.error) return alert('Chyba: ' + r.error);
   _cache.typy = null;
+  _buDraft.spec = null;
   const [newData, casData, profilyData] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
@@ -2063,6 +2134,7 @@ async function _buSaveProfily(typId) {
   }
   const r = await api(`/api/typy-casu/${typId}/profily-plan`, 'POST', { profily });
   if (r.error) { alert('Chyba: ' + r.error); return; }
+  _buDraft.profily = null;
   const [newData, casData, newProfilyData] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
