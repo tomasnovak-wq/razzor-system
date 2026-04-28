@@ -1311,7 +1311,7 @@ function _tcRow(i) {
   const koef  = parseFloat(cp.koeficient_mc)||2.2;
   const dph   = parseFloat(cp.dph)||21;
   const mcTitle = `(${fmtKc(i.cena_dilu||0)} dílů + ${fmt(i.cas_narocnost||0,1)}h × ${sazba} Kč/h) × ${koef} × ${100+dph}%`;
-  return `<tr class="tr-hover cursor-pointer" onclick="bomDetailUnified(${i.id}, 2)">
+  return `<tr class="tr-hover cursor-pointer" onclick="bomDetailUnified(${i.id}, 1)">
     <td class="font-mono text-blue-600 text-xs font-semibold">${i.hn_cislo}</td>
     <td class="font-medium">${i.nazev}</td>
     <td class="text-xs text-gray-500">${i.typ_korpusu||'–'}</td>
@@ -1323,7 +1323,7 @@ function _tcRow(i) {
     <td class="text-right font-semibold text-green-700" data-sort="${i.prodej_ap_bez_dph||0}">${i.prodej_ap_bez_dph > 0 ? fmtKc(i.prodej_ap_bez_dph) : '–'}</td>
     <td class="text-right font-semibold text-purple-700" data-sort="${mc}" title="${mcTitle}">${mc > 0 ? fmtKc(mc) : '–'}</td>
     <td onclick="event.stopPropagation()"><div class="flex gap-1">
-      <button class="btn btn-primary py-1 px-2 text-xs" onclick="bomDetailUnified(${i.id}, 2)">Editovat</button>
+      <button class="btn btn-primary py-1 px-2 text-xs" onclick="bomDetailUnified(${i.id}, 1)">Editovat</button>
       <button class="btn btn-success py-1 px-2 text-xs" onclick="novaZakazkaZTypu(${i.id},'${i.hn_cislo}','${i.nazev.replace(/'/g,"\\'")}')">+ Zakázka</button>
     </div></td>
   </tr>`;
