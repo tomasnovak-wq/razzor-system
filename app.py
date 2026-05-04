@@ -3680,7 +3680,89 @@ def api_cas_vypocet(typ_id):
     peny_celkem        = peny_pistole + peny_cleanup + peny_fix + peny_mat_cas
     peny_defaults_cnt  = sum(1 for m in peny_materialy if m['pouzit_default'])
 
-    celkem_s       = cnc_celkem + mont_celkem + peny_celkem
+    # ── PROFILY – řezání L a H hliníků ───────────────────────────────────────
+    # Data z profily_plan: každý profil má typ (L/H), ks a rozmer_mm (délka)
+    c.execute("""
+        SELECT typ_profilu, poradi, ks, rozmer_mm
+        FROM profily_plan WHERE typ_casu_id=? AND ks > 0
+        ORDER BY typ_profilu, poradi
+    """, (typ_id,))
+    profily_rows = db_rows_to_list(c.fetchall())
+
+    prof_setup       = p('Profily', 'setup',         120) if profily_rows else 0
+    cas_rez_L        = p('Profily', 'cas_na_rez_L',   45)
+    cas_rez_H        = p('Profily', 'cas_na_rez_H',   60)
+    del_fak_L        = p('Profily', 'delka_faktor_L', 0.0)
+    del_fak_H        = p('Profily', 'delka_faktor_H', 0.0)
+    REF_DELKA        = 500  # mm — reference, pod touto délkou žádný faktor
+
+    profily_polozky = []
+    for pr in profily_rows:
+        typ_p  = pr['typ_profilu']  # 'L' nebo 'H'
+        ks     = pr['ks']
+        delka  = pr.get('rozmer_mm') or 0
+        if typ_p == 'L':
+            base_s = cas_rez_L
+            fak    = del_fak_L
+        else:
+            base_s = cas_rez_H
+            fak    = del_fak_H
+        extra_s = max(0, (delka - REF_DELKA) / 100.0) * fak if delka > REF_DELKA else 0
+        cas_j  = base_s + extra_s
+        cas    = round(cas_j * ks, 1)
+        profily_polozky.append({
+            'typ_profilu':  typ_p,
+            'poradi':       pr['poradi'],
+            'ks':           ks,
+            'rozmer_mm':    delka,
+            'cas_s_j':      round(cas_j, 1),
+            'cas_celkem_s': cas,
+        })
+
+    prof_mat_cas   = sum(p2['cas_celkem_s'] for p2 in profily_polozky)
+    prof_celkem    = prof_setup + prof_mat_cas
+    n_L            = sum(p2['ks'] for p2 in profily_polozky if p2['typ_profilu'] == 'L')
+    n_H            = sum(p2['ks'] for p2 in profily_polozky if p2['typ_profilu'] == 'H')
+
+    # ── DĚROVÁNÍ L profilů ────────────────────────────────────────────────────
+    # Přeskočit, pokud BOM obsahuje L profil Q6506 (Casemaker FUSION 30x30mm)
+    FUSION_KOD     = 'Q6506'
+    ma_fusion      = any(pol['material_kod'] == FUSION_KOD for pol in bom)
+    der_setup      = p('Derovani', 'setup',          180) if (n_L > 0 and not ma_fusion) else 0
+    der_cas_profil = p('Derovani', 'cas_na_profil',  120)
+
+    der_mat_cas    = round(der_cas_profil * n_L, 1) if (n_L > 0 and not ma_fusion) else 0.0
+    der_celkem     = der_setup + der_mat_cas
+
+    # ── MŮSTKY – odstraňování výstupků po CNC ────────────────────────────────
+    # Počet desek: primárně z DXF (součet ks přes vrstvy deska), fallback z BOM
+    c.execute("""
+        SELECT vrstvy_json FROM typy_casu_dxf WHERE typ_casu_id=?
+        ORDER BY id DESC LIMIT 1
+    """, (typ_id,))
+    dxf_row = c.fetchone()
+    mus_pocet_desek = 0
+    mus_zdroj       = 'bom'
+    if dxf_row:
+        import json as _json
+        try:
+            vrstvy = _json.loads(dxf_row['vrstvy_json'] or '[]')
+            dxf_ks = sum(v.get('kusu', 0) for v in vrstvy if v.get('typ') == 'deska')
+            if dxf_ks > 0:
+                mus_pocet_desek = dxf_ks
+                mus_zdroj       = 'dxf'
+        except Exception:
+            pass
+    if mus_pocet_desek == 0:
+        mus_pocet_desek = int(sum(pol['mnozstvi'] for pol in bom
+                                  if is_deska(norm_typ(pol.get('typ') or ''))))
+
+    mus_cas_j      = p('Mustky', 'cas_na_mustek',    20)
+    mus_na_desku   = p('Mustky', 'mustku_na_desku',   4)
+    mus_celkem     = round(mus_cas_j * mus_na_desku * mus_pocet_desek)
+
+    # ── CELKOVÝ SOUČET ────────────────────────────────────────────────────────
+    celkem_s       = cnc_celkem + mont_celkem + peny_celkem + prof_celkem + der_celkem + mus_celkem
     total_defaults = cnc_defaults_cnt + mont_defaults_cnt + peny_defaults_cnt
 
     def fmt_hm(s):
@@ -3704,29 +3786,29 @@ def api_cas_vypocet(typ_id):
         'defaults_cnt':    total_defaults,
         'ceny_par':        ceny_par,
         'cnc': {
-            'celkem_s':      round(cnc_celkem),
-            'celkem_fmt':    fmt_hm(cnc_celkem),
-            'setup_s':       cnc_setup,
-            'data_prep_s':   cnc_data_prep,
-            'fix_mat_s':     cnc_fix,
-            'mat_cas_s':     round(cnc_mat_cas, 1),
-            'defaults_cnt':  cnc_defaults_cnt,
+            'celkem_s':       round(cnc_celkem),
+            'celkem_fmt':     fmt_hm(cnc_celkem),
+            'setup_s':        cnc_setup,
+            'data_prep_s':    cnc_data_prep,
+            'fix_mat_s':      cnc_fix,
+            'mat_cas_s':      round(cnc_mat_cas, 1),
+            'defaults_cnt':   cnc_defaults_cnt,
             'deska_fallback': deska_fallback,
-            'n_typy_desek':  cnc_mat_pocet,
-            'polozky':       cnc_materialy,
+            'n_typy_desek':   cnc_mat_pocet,
+            'polozky':        cnc_materialy,
         },
         'montaz': {
-            'celkem_s':         round(mont_celkem),
-            'celkem_fmt':       fmt_hm(mont_celkem),
-            'fixed_scaled_s':   mont_fixed_scaled,
-            'hw_cas_s':         round(mont_hw_cas, 1),
-            'handling_factor':  round(handling_factor, 3),
-            'total_nits':       total_nits,
-            'nit_cas_s':        nit_cas,
-            'cas_na_nyt':       cas_na_nyt,
-            'defaults_cnt':     mont_defaults_cnt,
-            'hw_fallback':      hw_fallback,
-            'polozky':          mont_materialy,
+            'celkem_s':        round(mont_celkem),
+            'celkem_fmt':      fmt_hm(mont_celkem),
+            'fixed_scaled_s':  mont_fixed_scaled,
+            'hw_cas_s':        round(mont_hw_cas, 1),
+            'handling_factor': round(handling_factor, 3),
+            'total_nits':      total_nits,
+            'nit_cas_s':       nit_cas,
+            'cas_na_nyt':      cas_na_nyt,
+            'defaults_cnt':    mont_defaults_cnt,
+            'hw_fallback':     hw_fallback,
+            'polozky':         mont_materialy,
         },
         'peny': {
             'celkem_s':      round(peny_celkem),
@@ -3738,6 +3820,32 @@ def api_cas_vypocet(typ_id):
             'defaults_cnt':  peny_defaults_cnt,
             'pena_fallback': pena_fallback,
             'polozky':       peny_materialy,
+        },
+        'profily': {
+            'celkem_s':  round(prof_celkem),
+            'celkem_fmt': fmt_hm(prof_celkem),
+            'setup_s':   prof_setup,
+            'mat_cas_s': round(prof_mat_cas, 1),
+            'n_L':       int(n_L),
+            'n_H':       int(n_H),
+            'polozky':   profily_polozky,
+        },
+        'derovani': {
+            'celkem_s':      round(der_celkem),
+            'celkem_fmt':    fmt_hm(der_celkem),
+            'setup_s':       der_setup,
+            'mat_cas_s':     round(der_mat_cas, 1),
+            'n_L':           int(n_L),
+            'ma_fusion':     ma_fusion,
+            'cas_na_profil': der_cas_profil,
+        },
+        'mustky': {
+            'celkem_s':     round(mus_celkem),
+            'celkem_fmt':   fmt_hm(mus_celkem),
+            'pocet_desek':  mus_pocet_desek,
+            'na_desku':     int(mus_na_desku),
+            'cas_j':        mus_cas_j,
+            'zdroj':        mus_zdroj,
         },
         'celkem_s':    round(celkem_s),
         'celkem_fmt':  fmt_hm(celkem_s),

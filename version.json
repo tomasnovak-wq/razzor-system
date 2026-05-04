@@ -1,8 +1,8 @@
 {
-  "verze": 28,
-  "popis": "Aktualizace CLAUDE.md: DXF parser, typy_casu_dxf, JSON.stringify gotcha, barvy UI",
+  "verze": 29,
+  "popis": "Výpočet časů: Profily, Děrování, Můstky",
   "autor": "Ludek",
-  "datum": "28.04.2026",
-  "cas": "17:31",
-  "git_commit": "f9c3702"
+  "datum": "04.05.2026",
+  "cas": "08:59",
+  "git_commit": "39703a7"
 }

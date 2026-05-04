@@ -685,6 +685,19 @@ def auto_migrate():
         ('Ceny',   'sazba_prace',      300,  'Hodinová sazba práce pro výpočet správné MC (Kč/h)'),
         ('Ceny',   'koeficient_mc',    2.2,  'Prodejní koeficient – náklady × koeficient = cena bez DPH'),
         ('Ceny',   'dph',               21,  'Sazba DPH (%)'),
+        # Řezání hliníkových profilů
+        ('Profily', 'setup',            120, 'Příprava pily a odměřování před řezáním profilů (s)'),
+        ('Profily', 'cas_na_rez_L',      45, 'Čas na 1 řez L profilu (upnutí + řez + odměření) (s)'),
+        ('Profily', 'cas_na_rez_H',      60, 'Čas na 1 řez H profilu (upnutí + řez + odměření) (s)'),
+        ('Profily', 'delka_faktor_L',   0.0, 'Přídavek na délku L profilu – extra sekundy na 100 mm nad 500 mm (s/100mm)'),
+        ('Profily', 'delka_faktor_H',   0.0, 'Přídavek na délku H profilu – extra sekundy na 100 mm nad 500 mm (s/100mm)'),
+        # Děrování L profilů
+        ('Derovani', 'setup',           180, 'Příprava děrovačky a nastavení zarážky (s)'),
+        ('Derovani', 'cas_na_profil',   120, 'Čas děrování 1 ks L profilu (přestavení + průchody) (s)'),
+        ('Derovani', 'vyjimka_kod',       0, 'Kód materiálu L profilu bez děrování (0 = Q6506 Casemaker FUSION)'),
+        # Můstky po CNC
+        ('Mustky', 'cas_na_mustek',      20, 'Čas odříznutí 1 můstku nožem (s)'),
+        ('Mustky', 'mustku_na_desku',     4, 'Průměrný počet můstků na 1 řezanou desku (ks)'),
     ]
     for sekce, klic, hodnota, popis in _cas_defaults:
         c.execute(
