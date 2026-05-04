@@ -8,6 +8,7 @@ import sqlite3
 import os
 import sys
 import json
+import re
 import csv
 import io
 import subprocess
@@ -3476,32 +3477,28 @@ def api_cas_prepocitat_vse():
 
 @app.route('/api/typy-casu/<int:typ_id>/cas-vypocet', methods=['GET'])
 def api_cas_vypocet(typ_id):
-    """Výpočet odhadovaného výrobního času pro daný BOM.
+    """Výpočet odhadovaného výrobního času – workflow montáže krok po kroku.
 
-    Logika:
-      CNC    = setup + data_prep + fix×(počet typů desek) + Σ(cas_s_eff × qty × size_factor)
-               size_factor = √(šířka×hloubka / ref_šířka×ref_hloubka)  — plocha, 2D
+    Kroky (zatím implementované):
+      1. Orientace  – 1 min (≤ mez desek) nebo 3 min (> mez desek)
+      2. Přinesení profilů – 2 min fixní (jen pokud existuje plán profilů)
+      3. Řezání profilů:
+         - FUSION/R1 (kód Q* nebo NE*): Σ ks × cas_fusion_ks_s
+         - Standardní: unikátní rozměry L × cas_L_uniq_s + unikátní H × cas_H_uniq_s
+         - Motýlové zámky: Σ ks × cas_motyl_zkos_s (sražení hybridů)
 
-      Montáž = (setup + cleanup + kontrola) × handling_factor
-               + Σ(cas_s_eff × qty × handling_factor)
-               + total_nýtů × cas_na_nýt
-               handling_factor = ∛(š×v×h / ref_š×ref_v×ref_h)  — objem, 3D
-
-      Pěny   = pistole + fix + cleanup + Σ(cas_s_eff × qty × size_factor)
-               Pěny jsou plošná práce → stejný size_factor jako CNC
-
-    Položky s cas_s=0 používají záložní hodnotu z cas_parametry (pouzit_default=True).
+    Další kroky budou doplňovány postupně.
     """
-    import math
     conn = get_db()
     c = conn.cursor()
 
     # Načti typ case + rozměry
     c.execute("SELECT * FROM typy_casu WHERE id=?", (typ_id,))
-    typ = c.fetchone()
-    if not typ:
+    _row = c.fetchone()
+    if not _row:
         conn.close()
         return jsonify({'error': 'Typ nenalezen'}), 404
+    typ = dict(_row)  # dict umožňuje .get() s defaultem (sqlite3.Row .get() nepodporuje)
 
     # Načti parametry
     c.execute("SELECT sekce, klic, hodnota FROM cas_parametry")
@@ -3512,176 +3509,19 @@ def api_cas_vypocet(typ_id):
     def p(sekce, klic, default=0):
         return par.get(sekce, {}).get(klic, default)
 
-    # ── Rozměry case ──────────────────────────────────────────────────────────
-    sirka   = typ['vnitrni_sirka']   or 0
-    vyska   = typ['vnitrni_vyska']   or 0
-    hloubka = typ['vnitrni_hloubka'] or 0
-    ref_s   = p('CNC',    'ref_sirka',   600)
-    ref_h   = p('CNC',    'ref_hloubka', 500)
-    ref_v   = p('Montaz', 'ref_vyska',   350)
-
-    # SIZE-FACTOR: √(plocha / ref_plocha) – pro CNC a Pěny (plošná práce)
-    if sirka > 0 and hloubka > 0 and ref_s > 0 and ref_h > 0:
-        size_factor = math.sqrt((sirka * hloubka) / (ref_s * ref_h))
-    else:
-        size_factor = 1.0
-    size_factor = max(0.3, min(size_factor, 6.0))
-
-    # HANDLING-FACTOR: ∛(objem / ref_objem) – pro Montáž (3D manipulace)
-    # Pokud chybí výška, použij size_factor jako proxy
-    if sirka > 0 and vyska > 0 and hloubka > 0 and ref_s > 0 and ref_v > 0 and ref_h > 0:
-        handling_factor = (sirka * vyska * hloubka / (ref_s * ref_v * ref_h)) ** (1/3)
-    else:
-        handling_factor = size_factor  # fallback na 2D factor
-    handling_factor = max(0.3, min(handling_factor, 6.0))
-
-    # Načti BOM materiály s typem, cas_s a nity
+    # Načti BOM
     c.execute("""
-        SELECT k.material_kod, k.mnozstvi, m.nazev, m.typ, m.cas_s,
-               COALESCE(m.nity, 0) as nity
+        SELECT k.material_kod, k.mnozstvi, m.nazev, m.typ,
+               COALESCE(m.nity, 0) as nity,
+               COALESCE(m.druh, '') as druh,
+               COALESCE(m.cas_s, 0) as cas_s
         FROM kusovniky k
         JOIN materialy m ON m.kod = k.material_kod
         WHERE k.typ_casu_id = ?
     """, (typ_id,))
     bom = db_rows_to_list(c.fetchall())
-    conn.close()
 
-    # Pomocná normalizace typu
-    def norm_typ(t):
-        if not t:
-            return ''
-        t = t.upper()
-        for f, r in [('Á','A'),('Č','C'),('Ď','D'),('É','E'),('Ě','E'),
-                     ('Í','I'),('Ň','N'),('Ó','O'),('Ř','R'),('Š','S'),
-                     ('Ť','T'),('Ú','U'),('Ů','U'),('Ý','Y'),('Ž','Z')]:
-            t = t.replace(f, r)
-        return t
-
-    def is_deska(nt):
-        return 'DESKA' in nt or 'PREKLIZK' in nt or 'PLAYWOOD' in nt
-
-    def is_hw(nt):
-        return (nt.startswith('HW') or 'PROFIL' in nt or 'KOULE' in nt or
-                'MADLO' in nt or 'KOLECKO' in nt or 'PANTL' in nt or
-                'ZAPAD' in nt or 'ZAMEK' in nt or 'LOGO' in nt)
-
-    def is_pena(nt):
-        return 'PEN' in nt or 'FOAM' in nt or 'BALDACHIN' in nt or 'BALDACYN' in nt
-
-    # Záložní hodnoty (fallback) pro případ cas_s = 0
-    deska_fallback = p('CNC',    'deska_default_s', 180)
-    hw_fallback    = p('Montaz', 'hw_default_s',     30)
-    pena_fallback  = p('Peny',   'pena_default_s',  240)
-
-    # ── CNC ──────────────────────────────────────────────────────────────────
-    # Každý typ desky: pevný overhead (příprava materiálu) + čas řezání × qty × size_factor
-    cnc_materialy  = []
-    cnc_mat_pocet  = 0   # počet unikátních typů desek
-    for pol in bom:
-        nt = norm_typ(pol.get('typ') or '')
-        if not is_deska(nt):
-            continue
-        cas_s_raw      = pol['cas_s'] or 0
-        pouzit_default = cas_s_raw == 0
-        cas_s_eff      = cas_s_raw if not pouzit_default else deska_fallback
-        cas            = cas_s_eff * pol['mnozstvi'] * size_factor
-        cnc_materialy.append({
-            'material_kod':  pol['material_kod'],
-            'nazev':         pol['nazev'],
-            'typ':           pol['typ'],
-            'mnozstvi':      pol['mnozstvi'],
-            'cas_s_j':       cas_s_eff,
-            'cas_s_orig':    cas_s_raw,
-            'pouzit_default': pouzit_default,
-            'size_factor':   round(size_factor, 3),
-            'cas_celkem_s':  round(cas, 1),
-        })
-        cnc_mat_pocet += 1
-
-    cnc_setup         = p('CNC', 'setup', 900)
-    cnc_data_prep     = p('CNC', 'data_prep', 600)
-    cnc_fix           = p('CNC', 'fix_per_mat', 60) * cnc_mat_pocet
-    cnc_mat_cas       = sum(m['cas_celkem_s'] for m in cnc_materialy)
-    cnc_celkem        = cnc_setup + cnc_data_prep + cnc_fix + cnc_mat_cas
-    cnc_defaults_cnt  = sum(1 for m in cnc_materialy if m['pouzit_default'])
-
-    # ── MONTÁŽ ────────────────────────────────────────────────────────────────
-    # Fixní časy ŠKÁLOVANÉ handling_factorem: velký case se hůř otáčí, pokládá, pracuje s ním
-    # HW časy (cas_s × qty) TAKÉ škálované: stejný počet rohů, ale na velkém casu trvá práce déle
-    # Nýty: celkový počet nýtů × čas/nýt (neškálováno – každý nýt je stejná operace)
-    mont_materialy  = []
-    total_nits      = 0.0   # Σ(mnozstvi × nity)
-    for pol in bom:
-        nt = norm_typ(pol.get('typ') or '')
-        # Nýty sbíráme ze všech položek s nity > 0 (ne jen z HW)
-        total_nits += pol['mnozstvi'] * (pol.get('nity') or 0)
-        if not is_hw(nt):
-            continue
-        cas_s_raw      = pol['cas_s'] or 0
-        pouzit_default = cas_s_raw == 0
-        cas_s_eff      = cas_s_raw if not pouzit_default else hw_fallback
-        if cas_s_eff == 0:
-            continue
-        # HW čas škálovaný handling_factorem (velký case = těžší manipulace)
-        cas = cas_s_eff * pol['mnozstvi'] * handling_factor
-        mont_materialy.append({
-            'material_kod':   pol['material_kod'],
-            'nazev':          pol['nazev'],
-            'typ':            pol['typ'],
-            'mnozstvi':       pol['mnozstvi'],
-            'cas_s_j':        cas_s_eff,
-            'cas_s_orig':     cas_s_raw,
-            'pouzit_default': pouzit_default,
-            'handling_factor': round(handling_factor, 3),
-            'cas_celkem_s':   round(cas, 1),
-        })
-
-    mont_setup         = p('Montaz', 'setup',    600)
-    mont_cleanup       = p('Montaz', 'cleanup',  300)
-    mont_kontrola      = p('Montaz', 'kontrola', 180)
-    cas_na_nyt         = p('Montaz', 'cas_na_nyt', 15)
-    total_nits         = round(total_nits)
-    nit_cas            = round(total_nits * cas_na_nyt)
-    # Fixní overhead rovněž škálovaný: velký case = pomalejší příprava/úklid pracoviště
-    mont_fixed_scaled  = round((mont_setup + mont_cleanup + mont_kontrola) * handling_factor)
-    mont_hw_cas        = sum(m['cas_celkem_s'] for m in mont_materialy)
-    mont_celkem        = mont_fixed_scaled + mont_hw_cas + nit_cas
-    mont_defaults_cnt  = sum(1 for m in mont_materialy if m['pouzit_default'])
-
-    # ── PĚNY ──────────────────────────────────────────────────────────────────
-    # Pěny jsou plošná práce (fitting, řezání, lepení) → škálujeme size_factorem stejně jako CNC
-    peny_materialy  = []
-    has_peny        = False
-    for pol in bom:
-        nt = norm_typ(pol.get('typ') or '')
-        if not is_pena(nt):
-            continue
-        has_peny       = True
-        cas_s_raw      = pol['cas_s'] or 0
-        pouzit_default = cas_s_raw == 0
-        cas_s_eff      = cas_s_raw if not pouzit_default else pena_fallback
-        cas            = cas_s_eff * pol['mnozstvi'] * size_factor   # ← size_factor!
-        peny_materialy.append({
-            'material_kod':   pol['material_kod'],
-            'nazev':          pol['nazev'],
-            'typ':            pol['typ'],
-            'mnozstvi':       pol['mnozstvi'],
-            'cas_s_j':        cas_s_eff,
-            'cas_s_orig':     cas_s_raw,
-            'pouzit_default': pouzit_default,
-            'size_factor':    round(size_factor, 3),
-            'cas_celkem_s':   round(cas, 1),
-        })
-
-    peny_pistole       = p('Peny', 'pistole',     180) if has_peny else 0
-    peny_cleanup       = p('Peny', 'cleanup',     120) if has_peny else 0
-    peny_fix           = p('Peny', 'fix_session',  60) if has_peny else 0
-    peny_mat_cas       = sum(m['cas_celkem_s'] for m in peny_materialy)
-    peny_celkem        = peny_pistole + peny_cleanup + peny_fix + peny_mat_cas
-    peny_defaults_cnt  = sum(1 for m in peny_materialy if m['pouzit_default'])
-
-    # ── PROFILY – řezání L a H hliníků ───────────────────────────────────────
-    # Data z profily_plan: každý profil má typ (L/H), ks a rozmer_mm (délka)
+    # Načti plán profilů
     c.execute("""
         SELECT typ_profilu, poradi, ks, rozmer_mm
         FROM profily_plan WHERE typ_casu_id=? AND ks > 0
@@ -3689,167 +3529,999 @@ def api_cas_vypocet(typ_id):
     """, (typ_id,))
     profily_rows = db_rows_to_list(c.fetchall())
 
-    prof_setup       = p('Profily', 'setup',         120) if profily_rows else 0
-    cas_rez_L        = p('Profily', 'cas_na_rez_L',   45)
-    cas_rez_H        = p('Profily', 'cas_na_rez_H',   60)
-    del_fak_L        = p('Profily', 'delka_faktor_L', 0.0)
-    del_fak_H        = p('Profily', 'delka_faktor_H', 0.0)
-    REF_DELKA        = 500  # mm — reference, pod touto délkou žádný faktor
-
-    profily_polozky = []
-    for pr in profily_rows:
-        typ_p  = pr['typ_profilu']  # 'L' nebo 'H'
-        ks     = pr['ks']
-        delka  = pr.get('rozmer_mm') or 0
-        if typ_p == 'L':
-            base_s = cas_rez_L
-            fak    = del_fak_L
-        else:
-            base_s = cas_rez_H
-            fak    = del_fak_H
-        extra_s = max(0, (delka - REF_DELKA) / 100.0) * fak if delka > REF_DELKA else 0
-        cas_j  = base_s + extra_s
-        cas    = round(cas_j * ks, 1)
-        profily_polozky.append({
-            'typ_profilu':  typ_p,
-            'poradi':       pr['poradi'],
-            'ks':           ks,
-            'rozmer_mm':    delka,
-            'cas_s_j':      round(cas_j, 1),
-            'cas_celkem_s': cas,
-        })
-
-    prof_mat_cas   = sum(p2['cas_celkem_s'] for p2 in profily_polozky)
-    prof_celkem    = prof_setup + prof_mat_cas
-    n_L            = sum(p2['ks'] for p2 in profily_polozky if p2['typ_profilu'] == 'L')
-    n_H            = sum(p2['ks'] for p2 in profily_polozky if p2['typ_profilu'] == 'H')
-
-    # ── DĚROVÁNÍ L profilů ────────────────────────────────────────────────────
-    # Přeskočit, pokud BOM obsahuje L profil Q6506 (Casemaker FUSION 30x30mm)
-    FUSION_KOD     = 'Q6506'
-    ma_fusion      = any(pol['material_kod'] == FUSION_KOD for pol in bom)
-    der_setup      = p('Derovani', 'setup',          180) if (n_L > 0 and not ma_fusion) else 0
-    der_cas_profil = p('Derovani', 'cas_na_profil',  120)
-
-    der_mat_cas    = round(der_cas_profil * n_L, 1) if (n_L > 0 and not ma_fusion) else 0.0
-    der_celkem     = der_setup + der_mat_cas
-
-    # ── MŮSTKY – odstraňování výstupků po CNC ────────────────────────────────
-    # Počet desek: primárně z DXF (součet ks přes vrstvy deska), fallback z BOM
+    # Načti DXF data (pro výpočet můstků)
     c.execute("""
-        SELECT vrstvy_json FROM typy_casu_dxf WHERE typ_casu_id=?
-        ORDER BY id DESC LIMIT 1
+        SELECT vrstvy_json, overrides_json
+        FROM typy_casu_dxf WHERE typ_casu_id=?
     """, (typ_id,))
     dxf_row = c.fetchone()
-    mus_pocet_desek = 0
-    mus_zdroj       = 'bom'
-    if dxf_row:
-        import json as _json
-        try:
-            vrstvy = _json.loads(dxf_row['vrstvy_json'] or '[]')
-            dxf_ks = sum(v.get('kusu', 0) for v in vrstvy if v.get('typ') == 'deska')
-            if dxf_ks > 0:
-                mus_pocet_desek = dxf_ks
-                mus_zdroj       = 'dxf'
-        except Exception:
-            pass
-    if mus_pocet_desek == 0:
-        mus_pocet_desek = int(sum(pol['mnozstvi'] for pol in bom
-                                  if is_deska(norm_typ(pol.get('typ') or ''))))
 
-    mus_cas_j      = p('Mustky', 'cas_na_mustek',    20)
-    mus_na_desku   = p('Mustky', 'mustku_na_desku',   4)
-    mus_celkem     = round(mus_cas_j * mus_na_desku * mus_pocet_desek)
+    conn.close()
 
-    # ── CELKOVÝ SOUČET ────────────────────────────────────────────────────────
-    celkem_s       = cnc_celkem + mont_celkem + peny_celkem + prof_celkem + der_celkem + mus_celkem
-    total_defaults = cnc_defaults_cnt + mont_defaults_cnt + peny_defaults_cnt
+    import math  # potřeba pro math.ceil v řezání hybridů
+
+    # ── Pomocné funkce ────────────────────────────────────────────────────────
+    def norm(t):
+        """Normalizuje string na ASCII uppercase pro porovnání."""
+        if not t: return ''
+        t = t.upper()
+        for f, r in [('Á','A'),('Č','C'),('Ď','D'),('É','E'),('Ě','E'),
+                     ('Í','I'),('Ň','N'),('Ó','O'),('Ř','R'),('Š','S'),
+                     ('Ť','T'),('Ú','U'),('Ů','U'),('Ý','Y'),('Ž','Z')]:
+            t = t.replace(f, r)
+        return t
+
+    def is_deska(pol):
+        nt = norm(pol.get('typ') or '')
+        return 'DESKA' in nt or 'PREKLIZK' in nt or 'PLAYWOOD' in nt
+
+    def is_fusion_profil(pol):
+        """FUSION/R1 profil: kód začíná Q nebo NE a typ obsahuje PROFIL."""
+        kod = pol.get('material_kod') or ''
+        nt  = norm(pol.get('typ') or '')
+        return (kod.startswith('Q') or kod.startswith('NE')) and 'PROFIL' in nt
+
+    def is_motylovy_zamek(pol):
+        """Motýlový zámek – detekce podle názvu."""
+        return 'MOTYL' in norm(pol.get('nazev') or '')
+
+    def is_otocne_kolecko(pol):
+        """Otočné kolečko vyžadující natírání: typ=PODVOZEK, druh=OTOČNÉ."""
+        return norm(pol.get('typ') or '') == 'PODVOZEK' and 'OTOCN' in norm(pol.get('druh') or '')
 
     def fmt_hm(s):
-        h = int(s // 3600)
-        m = int((s % 3600) // 60)
+        s = int(round(s))
+        if s < 60:
+            return f"{s}s"
+        h = s // 3600
+        m = (s % 3600) // 60
         return f"{h}h {m:02d}min" if h else f"{m}min"
 
-    # Cenové parametry pro výpočet správné MC
-    conn2 = get_db()
-    c2 = conn2.cursor()
-    c2.execute("SELECT klic, hodnota FROM cas_parametry WHERE sekce='Ceny'")
-    ceny_par = {r['klic']: r['hodnota'] for r in c2.fetchall()}
-    conn2.close()
+    kroky = []
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 1 – Orientace v dokumentaci
+    # ════════════════════════════════════════════════════════════════════════
+    pocet_desek   = int(sum(pol['mnozstvi'] for pol in bom if is_deska(pol)))
+    mez_desek     = int(p('Priprava', 'orientace_mez_desek',     10))
+    cas_jednod    = p('Priprava', 'orientace_jednoducha_s',      60)
+    cas_slozity   = p('Priprava', 'orientace_slozita_s',        180)
+    je_slozity    = pocet_desek > mez_desek
+    orientace_s   = cas_slozity if je_slozity else cas_jednod
+
+    kroky.append({
+        'id':     'orientace',
+        'label':  'Orientace v dokumentaci',
+        'cas_s':  round(orientace_s),
+        'cas_fmt': fmt_hm(orientace_s),
+        'detail': {
+            'pocet_desek': pocet_desek,
+            'mez_desek':   mez_desek,
+            'je_slozity':  je_slozity,
+        },
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 2 – Přinesení profilů
+    # ════════════════════════════════════════════════════════════════════════
+    ma_profily  = bool(profily_rows)
+    noseni_s    = p('Priprava', 'noseni_profilu_s', 120) if ma_profily else 0
+
+    kroky.append({
+        'id':     'noseni_profilu',
+        'label':  'Přinesení profilů',
+        'cas_s':  round(noseni_s),
+        'cas_fmt': fmt_hm(noseni_s),
+        'detail': {
+            'ma_profily': ma_profily,
+        },
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 3 – Řezání profilů
+    # ════════════════════════════════════════════════════════════════════════
+    # Detekce: je v BOM jakýkoliv FUSION/R1 profil (Q* nebo NE*)?
+    je_fusion      = any(is_fusion_profil(pol) for pol in bom)
+
+    rezani_s       = 0
+    rezani_detail  = {'je_fusion': je_fusion}
+
+    if je_fusion:
+        # FUSION/R1: každý kus = 1 kolmý řez, čas cas_fusion_ks_s
+        cas_fus   = p('Rezani', 'cas_fusion_ks_s', 25)
+        fus_kusy  = int(sum(pr['ks'] for pr in profily_rows))
+        rezani_s  = fus_kusy * cas_fus
+        rezani_detail.update({
+            'fusion_kusy':    fus_kusy,
+            'cas_fusion_ks_s': cas_fus,
+        })
+    else:
+        # Standardní: L profily seskupené 4× naráz → každý unikátní rozměr = 1 řez
+        # H profily (hybridy) → každý unikátní rozměr = 1 řez (jiný čas)
+        L_rozm = {}
+        H_rozm = {}
+        for pr in profily_rows:
+            rozm = pr.get('rozmer_mm') or 0
+            if pr['typ_profilu'] == 'L':
+                L_rozm[rozm] = L_rozm.get(rozm, 0) + pr['ks']
+            else:
+                H_rozm[rozm] = H_rozm.get(rozm, 0) + pr['ks']
+
+        cas_L      = p('Rezani', 'cas_L_uniq_s', 60)
+        cas_H_par  = p('Rezani', 'cas_H_par_s',  60)
+        L_uniq     = len(L_rozm)
+        H_kusy_rez = int(sum(H_rozm.values()))
+        H_paru     = math.ceil(H_kusy_rez / 2) if H_kusy_rez > 0 else 0
+        rezani_s   = L_uniq * cas_L + H_paru * cas_H_par
+        rezani_detail.update({
+            'L_uniq':       L_uniq,
+            'H_kusy':       H_kusy_rez,
+            'H_paru':       H_paru,
+            'L_rozmery':    sorted(L_rozm.keys()),
+            'H_rozmery':    sorted(H_rozm.keys()),
+            'cas_L_uniq_s': cas_L,
+            'cas_H_par_s':  cas_H_par,
+        })
+
+    # Motýlové zámky → sražení hybridů na pile (ke každému zámku +40 s)
+    motyl_kusy = int(sum(pol['mnozstvi'] for pol in bom if is_motylovy_zamek(pol)))
+    if motyl_kusy > 0:
+        cas_motyl  = p('Rezani', 'cas_motyl_zkos_s', 40)
+        rezani_s  += motyl_kusy * cas_motyl
+        rezani_detail.update({
+            'motyl_kusy':      motyl_kusy,
+            'cas_motyl_zkos_s': cas_motyl,
+        })
+    else:
+        rezani_detail['motyl_kusy'] = 0
+
+    # FUSION Q6504 + motýlové zámky → vyřezání zámků do profilů na pile
+    je_q6504 = any((pol.get('material_kod') or '').upper() == 'Q6504' for pol in bom)
+    if je_q6504 and motyl_kusy > 0:
+        cas_q6504_motyl = p('Rezani', 'cas_fusion_q6504_motyl_s', 240)
+        rezani_s += motyl_kusy * cas_q6504_motyl
+        rezani_detail.update({
+            'q6504_motyl':              True,
+            'cas_fusion_q6504_motyl_s': cas_q6504_motyl,
+        })
+    else:
+        rezani_detail['q6504_motyl'] = False
+
+    kroky.append({
+        'id':     'rezani_profilu',
+        'label':  'Řezání profilů',
+        'cas_s':  round(rezani_s) if ma_profily else 0,
+        'cas_fmt': fmt_hm(rezani_s) if ma_profily else '0min',
+        'detail': rezani_detail,
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 4 – Děrování L profilů
+    # Přeskočí se pokud: je FUSION/R1 nebo žádné profily v plánu.
+    # Děruje se každý L profil zvlášť, jen s délkou > min_delka_mm.
+    # Každý unikátní rozměr = přenastavení pravítka (cas_nastaveni_pravitka_s)
+    # Každý kus = cas_na_profil_s
+    # ════════════════════════════════════════════════════════════════════════
+    derovani_s      = 0
+    derovani_detail = {'je_fusion': je_fusion, 'ma_profily': ma_profily}
+
+    if ma_profily and not je_fusion:
+        min_delka    = p('Derovani', 'min_delka_mm',              128)
+        cas_pravitko = p('Derovani', 'cas_nastaveni_pravitka_s',   10)
+        cas_kus      = p('Derovani', 'cas_na_profil_s',            15)
+
+        # Jen L profily delší než min_delka_mm
+        D_rozm = {}
+        for pr in profily_rows:
+            if pr['typ_profilu'] != 'L':
+                continue
+            rozm = pr.get('rozmer_mm') or 0
+            if rozm <= min_delka:
+                continue
+            D_rozm[rozm] = D_rozm.get(rozm, 0) + pr['ks']
+
+        D_uniq     = len(D_rozm)
+        D_kusy     = int(sum(D_rozm.values()))
+        derovani_s = D_uniq * cas_pravitko + D_kusy * cas_kus
+
+        derovani_detail.update({
+            'D_uniq':                   D_uniq,
+            'D_kusy':                   D_kusy,
+            'min_delka_mm':             int(min_delka),
+            'cas_nastaveni_pravitka_s': int(cas_pravitko),
+            'cas_na_profil_s':          int(cas_kus),
+            'D_rozmery':                sorted(D_rozm.keys()),
+        })
+    elif je_fusion:
+        derovani_detail['duvod_skip'] = 'fusion'
+    else:
+        derovani_detail['duvod_skip'] = 'bez_profilu'
+
+    kroky.append({
+        'id':      'derovani',
+        'label':   'Děrování L profilů',
+        'cas_s':   round(derovani_s),
+        'cas_fmt': fmt_hm(derovani_s),
+        'detail':  derovani_detail,
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 5 – Broušení hybrid hliníků
+    # Podmínka: case má pěny v BOM (typ = PĚNA) + není FUSION/R1
+    # Čas: počet ks H profilů (z plánu profilů) × cas_na_hybrid_s
+    # ════════════════════════════════════════════════════════════════════════
+    ma_peny   = any('PENA' in norm(pol.get('typ') or '') for pol in bom)
+    H_kusy    = int(sum(r['ks'] for r in profily_rows if r['typ_profilu'] == 'H'))
+    cas_hybrid = p('BrouseniHybrid', 'cas_na_hybrid_s', 10)
+
+    if ma_peny and not je_fusion and H_kusy > 0:
+        brouseni_s = H_kusy * cas_hybrid
+        brouseni_detail = {
+            'ma_peny':          True,
+            'je_fusion':        je_fusion,
+            'H_kusy':           H_kusy,
+            'cas_na_hybrid_s':  int(cas_hybrid),
+        }
+    else:
+        brouseni_s = 0
+        brouseni_detail = {
+            'ma_peny':   ma_peny,
+            'je_fusion': je_fusion,
+            'H_kusy':    H_kusy,
+            'duvod_skip': (
+                'fusion'    if je_fusion else
+                'bez_pen'   if not ma_peny else
+                'bez_H_profilu'
+            ),
+        }
+
+    kroky.append({
+        'id':      'brouseni_hybrid',
+        'label':   'Broušení hybridů',
+        'cas_s':   round(brouseni_s),
+        'cas_fmt': fmt_hm(brouseni_s),
+        'detail':  brouseni_detail,
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 6 – Natírání otočných podvozků (kolečka typ=PODVOZEK, druh=OTOČNÉ)
+    # ════════════════════════════════════════════════════════════════════════
+    cas_kolo      = p('Podvozky', 'cas_na_kolo_s', 120)
+    kolecka_kusy  = int(sum(pol['mnozstvi'] for pol in bom if is_otocne_kolecko(pol)))
+    natireni_s    = kolecka_kusy * cas_kolo
+
+    kroky.append({
+        'id':      'natireni_podvozku',
+        'label':   'Natírání podvozků',
+        'cas_s':   round(natireni_s),
+        'cas_fmt': fmt_hm(natireni_s),
+        'detail': {
+            'kolecka_kusy':  kolecka_kusy,
+            'cas_na_kolo_s': int(cas_kolo),
+        },
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 6 – Můstky (odlamování odpadků po CNC řezání desek)
+    # Primární zdroj: DXF import – počet desek s tloušťkou ≤ max_tloustka_mm
+    # Záloha: BOM – pokud case obsahuje desky ≤ max_tloustka_mm → flat rate
+    # ════════════════════════════════════════════════════════════════════════
+    max_tl       = p('Mustky', 'max_tloustka_mm',   10)
+    cas_deska    = p('Mustky', 'cas_per_deska_s',   20)
+    cas_fallback = p('Mustky', 'cas_bom_fallback_s', 120)
+
+    mustky_s      = 0
+    mustky_detail = {}
+
+    if dxf_row and dxf_row['vrstvy_json']:
+        # ── Primární: z DXF ──────────────────────────────────────────────
+        vrstvy    = json.loads(dxf_row['vrstvy_json'])
+        overrides = json.loads(dxf_row['overrides_json'] or '{}')
+
+        def dxf_eff(v):
+            """Vrátí efektivní {typ, tloustka_mm} s ohledem na override."""
+            ov = overrides.get(v['nazev'], 'auto')
+            if ov == 'ignore':
+                return None
+            if ov.startswith('deska:'):
+                return {'typ': 'deska', 'tloustka_mm': float(ov.split(':')[1])}
+            if ov.startswith('pena:'):
+                return {'typ': 'pena', 'tloustka_mm': float(ov.split(':')[1])}
+            return {'typ': v.get('typ', 'jine'), 'tloustka_mm': v.get('tloustka_mm')}
+
+        dxf_pocet = 0
+        for v in vrstvy:
+            eff = dxf_eff(v)
+            if not eff or eff['typ'] != 'deska':
+                continue
+            tl = eff['tloustka_mm']
+            if tl is not None and tl <= max_tl:
+                dxf_pocet += int(v.get('ks', 0))
+
+        mustky_s = dxf_pocet * cas_deska
+        mustky_detail = {
+            'zdroj':          'dxf',
+            'pocet_desek':    dxf_pocet,
+            'max_tloustka_mm': int(max_tl),
+            'cas_per_deska_s': int(cas_deska),
+        }
+    else:
+        # ── Záloha: z BOM ────────────────────────────────────────────────
+        def tloustka_z_nazvu(nazev):
+            m = re.search(r'(\d+[,.]?\d*)\s*mm', nazev or '')
+            return float(m.group(1).replace(',', '.')) if m else None
+
+        ma_tenkou_desku = any(
+            norm(pol.get('typ') or '') in ('DESKA', 'PREKLIZKA', 'PLAYWOOD')
+            and (tloustka_z_nazvu(pol.get('nazev')) or 999) <= max_tl
+            for pol in bom
+        )
+        mustky_s = cas_fallback if ma_tenkou_desku else 0
+        mustky_detail = {
+            'zdroj':              'bom',
+            'ma_tenkou_desku':    ma_tenkou_desku,
+            'max_tloustka_mm':    int(max_tl),
+            'cas_bom_fallback_s': int(cas_fallback),
+        }
+
+    kroky.append({
+        'id':      'mustky',
+        'label':   'Můstky',
+        'cas_s':   round(mustky_s),
+        'cas_fmt': fmt_hm(mustky_s),
+        'detail':  mustky_detail,
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 7 – Sestřílení (základní kompletace desek pistolí)
+    # Přeskočí se pro: Jiný typ, Inlay, Akustický panel *, R1 system
+    # Čas = Σ ks_hlavniho_materialu × (cas_base_s + cas_per_m2_s × plocha_m2/ks)
+    # Hlavní materiál = deska ≤ 10 mm s nejvíce kusy v DXF
+    # Záloha bez DXF: největší plocha odhadnuta z rozměrů casu
+    # ════════════════════════════════════════════════════════════════════════
+    SESTRILENI_VYLOUCENE = {
+        norm('Jiný typ'), norm('Inlay'),
+        norm('Akustický panel 60x60 v rámu'),
+        norm('Akustický panel 120x60 bez rámu'),
+        norm('R1 system'),
+    }
+    typ_korpusu_norm = norm(typ['typ_korpusu'] or '')
+    je_klasicky_case  = typ_korpusu_norm not in SESTRILENI_VYLOUCENE
+
+    cas_base   = p('Sestrileni', 'cas_base_s',    5)
+    cas_per_m2 = p('Sestrileni', 'cas_per_m2_s', 40)
+
+    sestril_s      = 0
+    sestril_detail = {'je_klasicky_case': je_klasicky_case}
+
+    if je_klasicky_case:
+        max_tl_dest = p('Mustky', 'max_tloustka_mm', 10)  # stejná mez jako můstky
+
+        if dxf_row and dxf_row['vrstvy_json']:
+            vrstvy    = json.loads(dxf_row['vrstvy_json'])
+            overrides = json.loads(dxf_row['overrides_json'] or '{}')
+
+            # Najdi hlavní materiál: deska ≤ max_tl_dest s nejvíce kusy
+            kandidati = []
+            for v in vrstvy:
+                ov = overrides.get(v['nazev'], 'auto')
+                if ov == 'ignore':
+                    continue
+                if ov.startswith('deska:'):
+                    tl = float(ov.split(':')[1])
+                    vtyp = 'deska'
+                elif ov.startswith('pena:'):
+                    continue
+                else:
+                    tl   = v.get('tloustka_mm')
+                    vtyp = v.get('typ', 'jine')
+                if vtyp != 'deska' or tl is None or tl > max_tl_dest:
+                    continue
+                kandidati.append({
+                    'nazev':    v['nazev'],
+                    'ks':       int(v.get('ks', 0)),
+                    'plocha_m2': v.get('plocha_m2', 0),
+                    'tloustka_mm': tl,
+                })
+
+            if kandidati:
+                hlavni = max(kandidati, key=lambda x: x['ks'])
+                plocha_per_ks = (hlavni['plocha_m2'] / hlavni['ks']) if hlavni['ks'] > 0 else 0
+                cas_per_desku = cas_base + cas_per_m2 * plocha_per_ks
+                sestril_s = hlavni['ks'] * cas_per_desku
+                sestril_detail.update({
+                    'zdroj':         'dxf',
+                    'hlavni_nazev':  hlavni['nazev'],
+                    'hlavni_ks':     hlavni['ks'],
+                    'plocha_per_ks_m2': round(plocha_per_ks, 3),
+                    'cas_per_desku_s':  round(cas_per_desku, 1),
+                    'cas_base_s':    int(cas_base),
+                    'cas_per_m2_s':  int(cas_per_m2),
+                })
+            else:
+                sestril_detail['zdroj'] = 'dxf_bez_desek'
+
+        else:
+            # Záloha: odhadni plochu z rozměrů casu (největší stěna)
+            s = (typ['vnitrni_sirka'] or 0) / 1000   # mm → m
+            v_dim = (typ['vnitrni_vyska'] or 0) / 1000
+            h = (typ['vnitrni_hloubka'] or 0) / 1000
+            # Největší strana (přibližná plocha nejpočetnější desky)
+            plocha_odhad = max(s * h, s * v_dim, h * v_dim) if s and h else 0
+
+            # Počet desek z BOM
+            pocet_bom_desek = int(sum(
+                pol['mnozstvi'] for pol in bom
+                if norm(pol.get('typ') or '') in ('DESKA', 'PREKLIZKA', 'PLAYWOOD')
+            ))
+            if pocet_bom_desek > 0 and plocha_odhad > 0:
+                cas_per_desku = cas_base + cas_per_m2 * plocha_odhad
+                sestril_s = pocet_bom_desek * cas_per_desku
+                sestril_detail.update({
+                    'zdroj':           'bom_odhad',
+                    'pocet_bom_desek': pocet_bom_desek,
+                    'plocha_odhad_m2': round(plocha_odhad, 3),
+                    'cas_per_desku_s': round(cas_per_desku, 1),
+                    'cas_base_s':      int(cas_base),
+                    'cas_per_m2_s':    int(cas_per_m2),
+                })
+            else:
+                sestril_detail['zdroj'] = 'nelze_odhadnout'
+    else:
+        sestril_detail['duvod_skip'] = typ['typ_korpusu'] or 'neznámý typ'
+
+    kroky.append({
+        'id':      'sestrileni',
+        'label':   'Sestřílení',
+        'cas_s':   round(sestril_s),
+        'cas_fmt': fmt_hm(sestril_s),
+        'detail':  sestril_detail,
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 8 – Sesbírání HW materiálu ze skladu
+    # Počítají se všechny BOM položky KROMĚ: DESKA, PĚNA, PROFIL AL, OSTATNÍ
+    # • počet různých druhů × cas_per_druh_s   (10 s/druh)
+    # • celkové ks        × cas_per_ks_s       (2 s/ks)
+    # ════════════════════════════════════════════════════════════════════════
+    HW_VYLOUCENE_TYPY = {'DESKA', 'PĚNA', 'PROFIL AL', 'OSTATNÍ'}
+
+    cas_druh = p('SbiraniHW', 'cas_per_druh_s', 10)
+    cas_ks   = p('SbiraniHW', 'cas_per_ks_s',    2)
+
+    hw_polozky = [
+        pol for pol in bom
+        if norm(pol.get('typ') or '') not in {norm(t) for t in HW_VYLOUCENE_TYPY}
+    ]
+    hw_druhu   = len(hw_polozky)                            # počet různých řádků BOM
+    hw_kusu    = int(sum(pol['mnozstvi'] for pol in hw_polozky))  # celkem ks
+    sbir_s     = hw_druhu * cas_druh + hw_kusu * cas_ks
+
+    kroky.append({
+        'id':      'sbir_hw',
+        'label':   'Sesbírání HW materiálu',
+        'cas_s':   round(sbir_s),
+        'cas_fmt': fmt_hm(sbir_s),
+        'detail': {
+            'hw_druhu':        hw_druhu,
+            'hw_kusu':         hw_kusu,
+            'cas_per_druh_s':  int(cas_druh),
+            'cas_per_ks_s':    int(cas_ks),
+            'polozky':         [{'typ': p['typ'], 'nazev': p['nazev'], 'ks': int(p['mnozstvi'])}
+                                for p in hw_polozky],
+        },
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 9 – Kompletace case
+    # Větve: panel (paušál) → R1 → FUSION → Standard
+    # HW čas (ks × cas_s) se přičítá u všech variant kromě panelů
+    # ════════════════════════════════════════════════════════════════════════
+
+    # ── Pomocná funkce: HW čas z BOM (ks × cas_s, vše kromě desek/pěn/profilů) ──
+    HW_VYLOUCENE_NORM = {norm(t) for t in ('DESKA', 'PĚNA', 'PROFIL AL', 'OSTATNÍ')}
+
+    def hw_cas_z_bom():
+        """Vrátí (celkem_s, detail_list) z BOM položek (typ × cas_s)."""
+        total = 0
+        items = []
+        for pol in bom:
+            if norm(pol.get('typ') or '') in HW_VYLOUCENE_NORM:
+                continue
+            cs = float(pol.get('cas_s') or 0)
+            if cs <= 0:
+                continue
+            ks  = int(pol['mnozstvi'])
+            sub = ks * cs
+            total += sub
+            items.append({'nazev': pol['nazev'], 'typ': pol['typ'], 'ks': ks,
+                          'cas_s': cs, 'sub_s': sub})
+        return total, items
+
+    # ── Parametry ──────────────────────────────────────────────────────────
+    std_roztes  = p('Kompletace', 'std_nit_roztes_mm',  64)
+    std_nyt_s   = p('Kompletace', 'std_nitovani_s',      9)
+    std_L_min   = p('Kompletace', 'std_L_min_mm',      128)
+    std_L_us    = p('Kompletace', 'std_L_usazeni_s',    15)
+    std_H_us    = p('Kompletace', 'std_H_usazeni_s',    10)
+    fus_s       = p('Kompletace', 'fus_profil_s',      180)
+    fus_100mm   = p('Kompletace', 'fus_per_100mm_s',     3)
+    r1_hl_s     = p('Kompletace', 'r1_hliniky_s',      600)
+    pan6060_s   = p('Kompletace', 'panel_6060_s',     3600)
+    pan12060_s  = p('Kompletace', 'panel_12060_s',    2700)
+
+    komp_s      = 0
+    komp_detail = {}
+
+    # ── Detekce větve ──────────────────────────────────────────────────────
+    je_r1 = (
+        norm(typ['typ_korpusu'] or '') == norm('R1 system') or
+        any((pol.get('material_kod') or '').startswith('NE') and
+            'PROFIL' in norm(pol.get('typ') or '') for pol in bom)
+    )
+
+    if typ_korpusu_norm == norm('Akustický panel 60x60 v rámu'):
+        komp_s = pan6060_s
+        komp_detail = {'vetev': 'panel_6060', 'cas_s': int(pan6060_s)}
+
+    elif typ_korpusu_norm == norm('Akustický panel 120x60 bez rámu'):
+        komp_s = pan12060_s
+        komp_detail = {'vetev': 'panel_12060', 'cas_s': int(pan12060_s)}
+
+    elif je_r1:
+        hw_total, hw_items = hw_cas_z_bom()
+        komp_s = r1_hl_s + hw_total
+        komp_detail = {
+            'vetev':       'r1',
+            'r1_hliniky_s': int(r1_hl_s),
+            'hw_total_s':  round(hw_total),
+            'hw_polozky':  hw_items,
+        }
+
+    elif je_fusion:
+        # FUSION: každý kus profilu z profily_plan = 180s + délka/100*3s
+        fus_profily_s = 0
+        fus_profily_detail = []
+        for pr in profily_rows:
+            rozm = pr.get('rozmer_mm') or 0
+            ks   = pr['ks']
+            cas_kus = fus_s + (rozm / 100.0) * fus_100mm
+            sub  = ks * cas_kus
+            fus_profily_s += sub
+            fus_profily_detail.append({
+                'rozmer_mm': rozm, 'ks': ks,
+                'cas_kus_s': round(cas_kus, 1), 'sub_s': round(sub, 1),
+            })
+
+        hw_total, hw_items = hw_cas_z_bom()
+        komp_s = fus_profily_s + hw_total
+        komp_detail = {
+            'vetev':          'fusion',
+            'fus_profily_s':  round(fus_profily_s),
+            'fus_polozky':    fus_profily_detail,
+            'fus_profil_s':   int(fus_s),
+            'fus_per_100mm_s': int(fus_100mm),
+            'hw_total_s':     round(hw_total),
+            'hw_polozky':     hw_items,
+        }
+
+    else:
+        # Standard: L nýtování + L usazení + H usazení + HW
+        nyt_s     = 0
+        L_us_s    = 0
+        H_us_s    = 0
+        nyt_detail = []
+        L_us_detail = []
+        H_us_detail = []
+
+        for pr in profily_rows:
+            rozm = pr.get('rozmer_mm') or 0
+            ks   = pr['ks']
+            if pr['typ_profilu'] == 'L':
+                # Usazení: všechny L profily
+                sub_us = ks * std_L_us
+                L_us_s += sub_us
+                # Nýtování: jen L profily > std_L_min
+                if rozm > std_L_min:
+                    nity_ks = int(rozm // std_roztes)
+                    sub_nyt = ks * nity_ks * std_nyt_s
+                    nyt_s  += sub_nyt
+                    nyt_detail.append({
+                        'rozmer_mm': rozm, 'ks': ks,
+                        'nity_ks': nity_ks, 'sub_s': round(sub_nyt),
+                    })
+                L_us_detail.append({'rozmer_mm': rozm, 'ks': ks, 'sub_s': round(sub_us)})
+            else:  # H profil
+                sub_h = ks * std_H_us
+                H_us_s += sub_h
+                H_us_detail.append({'rozmer_mm': rozm, 'ks': ks, 'sub_s': round(sub_h)})
+
+        hw_total, hw_items = hw_cas_z_bom()
+        komp_s = nyt_s + L_us_s + H_us_s + hw_total
+        komp_detail = {
+            'vetev':        'standard',
+            'nyt_s':        round(nyt_s),
+            'L_us_s':       round(L_us_s),
+            'H_us_s':       round(H_us_s),
+            'hw_total_s':   round(hw_total),
+            'nyt_detail':   nyt_detail,
+            'L_us_detail':  L_us_detail,
+            'H_us_detail':  H_us_detail,
+            'hw_polozky':   hw_items,
+            'std_nit_roztes_mm': int(std_roztes),
+            'std_nitovani_s':    int(std_nyt_s),
+            'std_L_usazeni_s':   int(std_L_us),
+            'std_H_usazeni_s':   int(std_H_us),
+        }
+
+    kroky.append({
+        'id':      'kompletace',
+        'label':   'Kompletace',
+        'cas_s':   round(komp_s),
+        'cas_fmt': fmt_hm(komp_s),
+        'detail':  komp_detail,
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 10b – Broušení desek před lepením pěn
+    # Podmínka: ma_peny AND BOM obsahuje fenol desku ≤ max_tloustka_desky_mm
+    # Plocha: z DXF pěny s tloustka_mm ≤ max_tloustka_peny_mm, záloha: 0
+    # Čas = Σ plocha_m2 (filtrovaných pěn) × cas_per_m2_s
+    # ════════════════════════════════════════════════════════════════════════
+    def _tloustka_z_nazvu(nazev):
+        _m = re.search(r'(\d+[,.]?\d*)\s*mm', nazev or '')
+        return float(_m.group(1).replace(',', '.')) if _m else None
+
+    max_fenol_tl       = p('BrouseniDesek', 'max_tloustka_desky_mm', 10)
+    max_pena_tl_bd     = p('BrouseniDesek', 'max_tloustka_peny_mm',  20)
+    brouseni_d_per_m2  = p('BrouseniDesek', 'cas_per_m2_s',          45)
+
+    # Množství fenol desek ≤ max_fenol_tl vs. ostatních desek
+    ks_fenol   = sum(
+        (pol.get('mnozstvi') or 0)
+        for pol in bom
+        if is_deska(pol)
+        and 'FENOL' in norm(pol.get('nazev') or '')
+        and (_tloustka_z_nazvu(pol.get('nazev')) or 999) <= max_fenol_tl
+    )
+    ks_ostatni = sum(
+        (pol.get('mnozstvi') or 0)
+        for pol in bom
+        if is_deska(pol)
+        and 'FENOL' not in norm(pol.get('nazev') or '')
+    )
+    # Broušení má smysl jen pokud fenol desky tvoří hlavní (nebo alespoň stejný) podíl
+    ma_fenol_desku      = ks_fenol > 0
+    fenol_je_hlavni     = ks_fenol >= ks_ostatni  # pokud ostatní převažují → přepážka, neprovádět
+
+    brouseni_d_s      = 0.0
+    brouseni_d_detail = {
+        'ma_peny':                ma_peny,
+        'ma_fenol_desku':         ma_fenol_desku,
+        'fenol_je_hlavni':        fenol_je_hlavni,
+        'ks_fenol':               round(ks_fenol, 2),
+        'ks_ostatni':             round(ks_ostatni, 2),
+        'max_tloustka_desky_mm':  int(max_fenol_tl),
+        'max_tloustka_peny_mm':   int(max_pena_tl_bd),
+        'cas_per_m2_s':           int(brouseni_d_per_m2),
+    }
+
+    if ma_peny and ma_fenol_desku and fenol_je_hlavni:
+        if dxf_row and dxf_row['vrstvy_json']:
+            _vrstvy_bd    = json.loads(dxf_row['vrstvy_json'])
+            _overrides_bd = json.loads(dxf_row['overrides_json'] or '{}')
+            plocha_sum    = 0.0
+            peny_bd       = []
+            for v in _vrstvy_bd:
+                ov = _overrides_bd.get(v['nazev'], 'auto')
+                if ov == 'ignore':
+                    continue
+                if ov.startswith('pena:'):
+                    vtyp = 'pena'
+                    vtl  = float(ov.split(':')[1])
+                elif ov.startswith('deska:'):
+                    continue
+                else:
+                    vtyp = v.get('typ', 'jine')
+                    vtl  = v.get('tloustka_mm')
+                if vtyp != 'pena':
+                    continue
+                if vtl is not None and vtl > max_pena_tl_bd:
+                    continue
+                plocha = float(v.get('plocha_m2') or 0)
+                plocha_sum += plocha
+                peny_bd.append({
+                    'nazev':       v['nazev'],
+                    'tloustka_mm': vtl,
+                    'plocha_m2':   round(plocha, 3),
+                })
+            brouseni_d_s = plocha_sum * brouseni_d_per_m2
+            brouseni_d_detail.update({
+                'zdroj':      'dxf',
+                'peny':       peny_bd,
+                'plocha_m2':  round(plocha_sum, 3),
+            })
+        else:
+            # Záloha: mnozstvi pěn z BOM je v m² — sečteme pěny ≤ max_pena_tl_bd
+            peny_bom = []
+            plocha_bom = 0.0
+            for pol in bom:
+                nt = norm(pol.get('typ') or '')
+                if not ('PEN' in nt or 'FOAM' in nt or 'BALDACHIN' in nt or 'BALDACYN' in nt):
+                    continue
+                tl_bom = _tloustka_z_nazvu(pol.get('nazev'))
+                if tl_bom is not None and tl_bom > max_pena_tl_bd:
+                    continue
+                plocha = float(pol.get('mnozstvi') or 0)
+                plocha_bom += plocha
+                peny_bom.append({
+                    'nazev':       pol.get('nazev', ''),
+                    'tloustka_mm': tl_bom,
+                    'plocha_m2':   round(plocha, 3),
+                })
+            brouseni_d_s = plocha_bom * brouseni_d_per_m2
+            brouseni_d_detail.update({
+                'zdroj':     'bom',
+                'peny':      peny_bom,
+                'plocha_m2': round(plocha_bom, 3),
+            })
+    else:
+        _duvod = []
+        if not ma_peny:            _duvod.append('bez_pen')
+        if not ma_fenol_desku:     _duvod.append('bez_fenol_desky')
+        if not fenol_je_hlavni:    _duvod.append('fenol_pouze_prepazka')
+        brouseni_d_detail['duvod_skip'] = '+'.join(_duvod)
+
+    kroky.append({
+        'id':      'brouseni_desek',
+        'label':   'Broušení desek před lepením pěn',
+        'cas_s':   round(brouseni_d_s),
+        'cas_fmt': fmt_hm(brouseni_d_s),
+        'detail':  brouseni_d_detail,
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 10 – Rack lišty
+    # Podmínka: BOM obsahuje PROFIL AL s druh=RACK
+    # Počet lišt = zaokrouhlení celkové délky / výška casu → nejbližší sudé číslo
+    # Čas / lišta = montáž + guma + (výška/22.5 RU) × čas_matice
+    # ════════════════════════════════════════════════════════════════════════
+    cas_montaz_l  = p('RackListy', 'cas_montaz_listy_s',  120)
+    cas_guma_l    = p('RackListy', 'cas_guma_listy_s',     30)
+    ru_vyska      = p('RackListy', 'rack_unit_vyska_mm',  22.5)
+    cas_matice_ru = p('RackListy', 'cas_matice_ru_s',       6)
+
+    rack_bom = [
+        pol for pol in bom
+        if norm(pol.get('typ') or '') == 'PROFIL AL'
+        and norm(pol.get('druh') or '') == 'RACK'
+    ]
+
+    rack_s      = 0
+    rack_detail = {'ma_rack': bool(rack_bom)}
+
+    if rack_bom:
+        vys_mm = typ['vnitrni_vyska'] or 0   # výška casu v mm
+
+        # Celková délka rack profilů: mnozstvi v metrech → mm
+        celk_mm = sum(pol['mnozstvi'] * 1000 for pol in rack_bom)
+
+        if vys_mm > 0:
+            # Počet lišt: zaokrouhli na nejbližší sudé číslo
+            pocet_raw = celk_mm / vys_mm
+            pocet_list = int(round(pocet_raw / 2)) * 2
+            if pocet_list < 2:
+                pocet_list = 2   # minimum 2 lišty (aspoň pár)
+
+            # Rack units v casu
+            rack_units = int(round(vys_mm / ru_vyska))
+
+            # Čas na 1 lištu
+            cas_per_lista = cas_montaz_l + cas_guma_l + rack_units * cas_matice_ru
+            rack_s = pocet_list * cas_per_lista
+
+            rack_detail.update({
+                'celk_mm':          round(celk_mm),
+                'vnitrni_vyska_mm': int(vys_mm),
+                'pocet_raw':        round(pocet_raw, 2),
+                'pocet_list':       pocet_list,
+                'rack_units':       rack_units,
+                'cas_per_lista_s':  round(cas_per_lista),
+                'cas_montaz_s':     int(cas_montaz_l),
+                'cas_guma_s':       int(cas_guma_l),
+                'cas_matice_ru_s':  int(cas_matice_ru),
+                'ru_vyska_mm':      ru_vyska,
+            })
+        else:
+            # Chybí výška → použij jen počet BOM položek × 2 jako odhad
+            pocet_list = len(rack_bom) * 2
+            rack_units = 0
+            cas_per_lista = cas_montaz_l + cas_guma_l
+            rack_s = pocet_list * cas_per_lista
+            rack_detail.update({
+                'pocet_list':      pocet_list,
+                'duvod':           'chybi_vyska',
+                'cas_per_lista_s': round(cas_per_lista),
+            })
+
+    kroky.append({
+        'id':      'rack_listy',
+        'label':   'Rack lišty',
+        'cas_s':   round(rack_s),
+        'cas_fmt': fmt_hm(rack_s),
+        'detail':  rack_detail,
+    })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 11 – Lepení pěn
+    # DXF: každá pěna → 60s příprava + max(30s, plocha×120s), × koeficient
+    # Záloha: fallback_ks dle typu casu × min čas, × koeficient
+    # ════════════════════════════════════════════════════════════════════════
+
+    # Mapování typ_korpusu → klíč parametrů
+    _TYP_KLIC = {
+        norm('Hlava / kombo'):              'hlava',
+        norm('Mixpult'):                    'mixpult',
+        norm('Klávesy'):                    'klavesy',
+        norm('Rack'):                       'rack',
+        norm('Rack Sliding door'):          'rack_slide',
+        norm('Accessory case'):             'access',
+        norm('Pedalboard'):                 'pedal',
+        norm('Case pro světelné hlavy'):    'svetlo',
+        norm('Case pro TV'):               'tv',
+        norm('Šatní skříň'):               'satna',
+        norm('Jiný typ'):                  'jiny',
+        norm('Inlay'):                     'inlay',
+    }
+    tk = _TYP_KLIC.get(typ_korpusu_norm, 'jiny')
+
+    pen_priprava  = p('LepeniPen', 'cas_priprava_s',      300)
+    pen_prep_ks   = p('LepeniPen', 'cas_priprava_peny_s',  60)
+    pen_per_m2    = p('LepeniPen', 'cas_per_m2_s',        120)
+    pen_min       = p('LepeniPen', 'cas_min_s',            30)
+    pen_koef      = p('LepeniPen', f'koef_{tk}',           1.0)
+    pen_fks       = p('LepeniPen', f'fks_{tk}',            10)
+
+    pen_s      = 0
+    pen_detail = {'typ_klic': tk, 'koeficient': pen_koef}
+
+    if dxf_row and dxf_row['vrstvy_json']:
+        vrstvy    = json.loads(dxf_row['vrstvy_json'])
+        overrides = json.loads(dxf_row['overrides_json'] or '{}')
+
+        peny_dxf = []
+        for v in vrstvy:
+            ov = overrides.get(v['nazev'], 'auto')
+            if ov == 'ignore':
+                continue
+            if ov.startswith('pena:'):
+                vtyp = 'pena'
+            elif ov.startswith('deska:'):
+                continue
+            elif ov == 'auto':
+                vtyp = v.get('typ', 'jine')
+            else:
+                vtyp = v.get('typ', 'jine')
+            if vtyp != 'pena':
+                continue
+
+            plocha = v.get('plocha_m2') or 0
+            ks     = int(v.get('ks', 0))
+            cas_obsah_ks = max(pen_min, plocha * pen_per_m2)
+            cas_peny_ks  = pen_prep_ks + cas_obsah_ks
+            sub = ks * cas_peny_ks
+            peny_dxf.append({
+                'nazev':       v['nazev'],
+                'ks':          ks,
+                'plocha_m2':   round(plocha, 3),
+                'cas_ks_s':    round(cas_peny_ks, 1),
+                'sub_s':       round(sub, 1),
+            })
+
+        brutto = pen_priprava + sum(x['sub_s'] for x in peny_dxf)
+        pen_s  = brutto * pen_koef
+        pen_detail.update({
+            'zdroj':      'dxf',
+            'peny':       peny_dxf,
+            'brutto_s':   round(brutto),
+            'cas_priprava_s':   int(pen_priprava),
+            'cas_priprava_peny_s': int(pen_prep_ks),
+            'cas_per_m2_s':    int(pen_per_m2),
+            'cas_min_s':       int(pen_min),
+        })
+    else:
+        # Záloha: fallback ks × (příprava + min čas), × koeficient
+        brutto = pen_priprava + pen_fks * (pen_prep_ks + pen_min)
+        pen_s  = brutto * pen_koef
+        pen_detail.update({
+            'zdroj':       'fallback',
+            'fallback_ks': int(pen_fks),
+            'brutto_s':    round(brutto),
+        })
+
+    # ════════════════════════════════════════════════════════════════════════
+    # KROK 12 – Polep tapetou (materiál kód = 'POLEP ART')
+    # ════════════════════════════════════════════════════════════════════════
+    ma_polep   = any((pol.get('material_kod') or '').strip().upper() == 'POLEP ART' for pol in bom)
+    polep_s    = p('Polep', 'cas_polep_s', 3000) if ma_polep else 0
+
+    kroky.append({
+        'id':      'polep',
+        'label':   'Polep tapetou',
+        'cas_s':   round(polep_s),
+        'cas_fmt': fmt_hm(polep_s),
+        'detail':  {'ma_polep': ma_polep, 'cas_polep_s': int(p('Polep', 'cas_polep_s', 3000))},
+    })
+
+    kroky.append({
+        'id':      'lepeni_pen',
+        'label':   'Lepení pěn',
+        'cas_s':   round(pen_s),
+        'cas_fmt': fmt_hm(pen_s),
+        'detail':  pen_detail,
+    })
+
+    # KROK 13 – Prostoje (zametání, ofukování, odnesení casu atd.)
+    # ════════════════════════════════════════════════════════════════════════
+    prostoje_delitel = p('Prostoje', 'delitel', 8)
+    prostoje_delitel = prostoje_delitel if prostoje_delitel else 8
+    cas_pred_prostoji = sum(k['cas_s'] for k in kroky)
+    prostoje_s = cas_pred_prostoji / prostoje_delitel
+
+    kroky.append({
+        'id':      'prostoje',
+        'label':   'Prostoje',
+        'cas_s':   round(prostoje_s),
+        'cas_fmt': fmt_hm(prostoje_s),
+        'detail':  {
+            'cas_pred_prostoji_s': cas_pred_prostoji,
+            'delitel':             prostoje_delitel,
+        },
+    })
+
+    # ── Cenové parametry pro výpočet správné MC ───────────────────────────────
+    ceny_par = {klic: val for klic, val in par.get('Ceny', {}).items()}
+
+    # ── Vícepráce (empirické korekce uložené na typu casu) ────────────────────
+    vp_komp_s = int(typ.get('viceprace_kompletace_s') or 0)
+    vp_peny_s = int(typ.get('viceprace_peny_s') or 0)
+
+    kroky_s   = sum(k['cas_s'] for k in kroky)
+    celkem_s  = kroky_s + vp_komp_s + vp_peny_s
 
     return jsonify({
-        'typ_id': typ_id,
-        'hn_cislo': typ['hn_cislo'],
-        'size_factor':     round(size_factor, 3),
-        'handling_factor': round(handling_factor, 3),
-        'ma_defaults':     total_defaults > 0,
-        'defaults_cnt':    total_defaults,
-        'ceny_par':        ceny_par,
-        'cnc': {
-            'celkem_s':       round(cnc_celkem),
-            'celkem_fmt':     fmt_hm(cnc_celkem),
-            'setup_s':        cnc_setup,
-            'data_prep_s':    cnc_data_prep,
-            'fix_mat_s':      cnc_fix,
-            'mat_cas_s':      round(cnc_mat_cas, 1),
-            'defaults_cnt':   cnc_defaults_cnt,
-            'deska_fallback': deska_fallback,
-            'n_typy_desek':   cnc_mat_pocet,
-            'polozky':        cnc_materialy,
-        },
-        'montaz': {
-            'celkem_s':        round(mont_celkem),
-            'celkem_fmt':      fmt_hm(mont_celkem),
-            'fixed_scaled_s':  mont_fixed_scaled,
-            'hw_cas_s':        round(mont_hw_cas, 1),
-            'handling_factor': round(handling_factor, 3),
-            'total_nits':      total_nits,
-            'nit_cas_s':       nit_cas,
-            'cas_na_nyt':      cas_na_nyt,
-            'defaults_cnt':    mont_defaults_cnt,
-            'hw_fallback':     hw_fallback,
-            'polozky':         mont_materialy,
-        },
-        'peny': {
-            'celkem_s':      round(peny_celkem),
-            'celkem_fmt':    fmt_hm(peny_celkem),
-            'pistole_s':     peny_pistole,
-            'cleanup_s':     peny_cleanup,
-            'fix_s':         peny_fix,
-            'mat_cas_s':     round(peny_mat_cas, 1),
-            'defaults_cnt':  peny_defaults_cnt,
-            'pena_fallback': pena_fallback,
-            'polozky':       peny_materialy,
-        },
-        'profily': {
-            'celkem_s':  round(prof_celkem),
-            'celkem_fmt': fmt_hm(prof_celkem),
-            'setup_s':   prof_setup,
-            'mat_cas_s': round(prof_mat_cas, 1),
-            'n_L':       int(n_L),
-            'n_H':       int(n_H),
-            'polozky':   profily_polozky,
-        },
-        'derovani': {
-            'celkem_s':      round(der_celkem),
-            'celkem_fmt':    fmt_hm(der_celkem),
-            'setup_s':       der_setup,
-            'mat_cas_s':     round(der_mat_cas, 1),
-            'n_L':           int(n_L),
-            'ma_fusion':     ma_fusion,
-            'cas_na_profil': der_cas_profil,
-        },
-        'mustky': {
-            'celkem_s':     round(mus_celkem),
-            'celkem_fmt':   fmt_hm(mus_celkem),
-            'pocet_desek':  mus_pocet_desek,
-            'na_desku':     int(mus_na_desku),
-            'cas_j':        mus_cas_j,
-            'zdroj':        mus_zdroj,
-        },
-        'celkem_s':    round(celkem_s),
-        'celkem_fmt':  fmt_hm(celkem_s),
+        'typ_id':     typ_id,
+        'hn_cislo':   typ['hn_cislo'],
+        'kroky':      kroky,
+        'kroky_s':    round(kroky_s),
+        'celkem_s':   round(celkem_s),
+        'celkem_fmt': fmt_hm(celkem_s),
+        'ceny_par':   ceny_par,
+        'viceprace_kompletace_s': vp_komp_s,
+        'viceprace_peny_s':       vp_peny_s,
+        # Metadata pro kompatibilitu s MC výpočtem
+        'pocet_desek': pocet_desek,
+        'je_fusion':   je_fusion,
     })
+
+
+@app.route('/api/typy-casu/<int:typ_id>/viceprace', methods=['PATCH'])
+def api_viceprace_patch(typ_id):
+    """Uloží vícepráce (empirické korekce) pro typ casu."""
+    data = request.get_json(force=True)
+    vp_komp = int(data.get('viceprace_kompletace_s', 0) or 0)
+    vp_peny = int(data.get('viceprace_peny_s', 0) or 0)
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE typy_casu
+           SET viceprace_kompletace_s = ?,
+               viceprace_peny_s       = ?
+         WHERE id = ?
+    """, (vp_komp, vp_peny, typ_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'viceprace_kompletace_s': vp_komp, 'viceprace_peny_s': vp_peny})
 
 # ─── NÁKUPY – PRŮMĚRNÁ SPOTŘEBA & NÁVRH OBJEDNÁVKY ───────────────────────
 

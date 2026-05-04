@@ -601,6 +601,8 @@ def auto_migrate():
     add_column('typy_casu', 'cas_narocnost',     'REAL DEFAULT 0')
     add_column('typy_casu', 'cena_dilu',         'REAL DEFAULT 0')
     add_column('typy_casu', 'spravna_mc',        'REAL DEFAULT 0')  # Správná maloobchodní cena (z importu)
+    add_column('typy_casu', 'viceprace_kompletace_s', 'INTEGER DEFAULT 0')  # Vícepráce – kompletace (empirická korekce)
+    add_column('typy_casu', 'viceprace_peny_s',       'INTEGER DEFAULT 0')  # Vícepráce – pěny (empirická korekce)
 
     # materialy – web odkaz
     add_column('materialy', 'web_url', 'TEXT')
@@ -685,19 +687,100 @@ def auto_migrate():
         ('Ceny',   'sazba_prace',      300,  'Hodinová sazba práce pro výpočet správné MC (Kč/h)'),
         ('Ceny',   'koeficient_mc',    2.2,  'Prodejní koeficient – náklady × koeficient = cena bez DPH'),
         ('Ceny',   'dph',               21,  'Sazba DPH (%)'),
-        # Řezání hliníkových profilů
-        ('Profily', 'setup',            120, 'Příprava pily a odměřování před řezáním profilů (s)'),
-        ('Profily', 'cas_na_rez_L',      45, 'Čas na 1 řez L profilu (upnutí + řez + odměření) (s)'),
-        ('Profily', 'cas_na_rez_H',      60, 'Čas na 1 řez H profilu (upnutí + řez + odměření) (s)'),
-        ('Profily', 'delka_faktor_L',   0.0, 'Přídavek na délku L profilu – extra sekundy na 100 mm nad 500 mm (s/100mm)'),
-        ('Profily', 'delka_faktor_H',   0.0, 'Přídavek na délku H profilu – extra sekundy na 100 mm nad 500 mm (s/100mm)'),
-        # Děrování L profilů
-        ('Derovani', 'setup',           180, 'Příprava děrovačky a nastavení zarážky (s)'),
-        ('Derovani', 'cas_na_profil',   120, 'Čas děrování 1 ks L profilu (přestavení + průchody) (s)'),
-        ('Derovani', 'vyjimka_kod',       0, 'Kód materiálu L profilu bez děrování (0 = Q6506 Casemaker FUSION)'),
-        # Můstky po CNC
-        ('Mustky', 'cas_na_mustek',      20, 'Čas odříznutí 1 můstku nožem (s)'),
-        ('Mustky', 'mustku_na_desku',     4, 'Průměrný počet můstků na 1 řezanou desku (ks)'),
+        # ── Workflow montáže ─────────────────────────────────────────────────
+        # Krok 1: Orientace v dokumentaci
+        ('Priprava', 'orientace_jednoducha_s',  60, 'Orientace – jednoduchý case (≤ mez desek): čas v sekundách'),
+        ('Priprava', 'orientace_slozita_s',    180, 'Orientace – složitý case (> mez desek): čas v sekundách'),
+        ('Priprava', 'orientace_mez_desek',     10, 'Hranice počtu desek: ≤ tato hodnota = jednoduchý case'),
+        # Krok 2: Přinesení profilů
+        ('Priprava', 'noseni_profilu_s',       120, 'Přinesení a příprava profilů: čas v sekundách'),
+        # Krok 3: Řezání profilů – FUSION/R1 (kódy Q* nebo NE*)
+        ('Rezani', 'cas_fusion_ks_s',           25, 'FUSION/R1: čas na 1 řez (1 profil kolmý řez) v sekundách'),
+        # Krok 3: Řezání profilů – standardní (ostatní kódy)
+        ('Rezani', 'cas_L_uniq_s',              60, 'Standardní L profil: čas na 1 unikátní rozměr (4 ks naráz) v sekundách'),
+        ('Rezani', 'cas_H_uniq_s',             110, 'Hybrid H profil: čas na 1 unikátní rozměr v sekundách (zastaralé)'),
+        ('Rezani', 'cas_H_par_s',               60, 'Hybrid H profil: čas na 1 pár (2 ks naráz) v sekundách'),
+        # Krok 3: Sražení hybridů u motýlových zámků
+        ('Rezani', 'cas_motyl_zkos_s',          40, 'Sražení hybridu na pile: čas na 1 motýlový zámek v sekundách'),
+        # Krok 3: FUSION Q6504 + motýlové zámky → vyřezání zámků do profilů na pile
+        ('Rezani', 'cas_fusion_q6504_motyl_s', 240, 'Vyřezání motýlových zámků do FUSION Q6504 profilů na pile: čas v sekundách'),
+        # Krok 4: Děrování L profilů (ne FUSION/R1, jen delší než min_delka_mm)
+        ('Derovani', 'cas_nastaveni_pravitka_s', 10, 'Přenastavení pravítka děrovačky: čas na 1 unikátní rozměr v sekundách'),
+        ('Derovani', 'cas_na_profil_s',          15, 'Děrování: čas na 1 kus L profilu v sekundách'),
+        ('Derovani', 'min_delka_mm',            128, 'Minimální délka profilu pro děrování – kratší se přeskočí (mm)'),
+        # Krok 5: Natírání otočných podvozků (typ=PODVOZEK, druh=OTOČNÉ)
+        ('Podvozky', 'cas_na_kolo_s',           120, 'Natírání otočného kolečka: čas na 1 kus v sekundách'),
+        # Krok 5: Broušení hybrid hliníků (jen pokud jsou pěny a není FUSION/R1)
+        ('BrouseniHybrid', 'cas_na_hybrid_s',   10, 'Broušení H profilu: čas na 1 kus v sekundách'),
+        # Krok 10b: Broušení desek před lepením pěn (fenol desky ≤10mm + pěny ≤20mm)
+        ('BrouseniDesek', 'max_tloustka_desky_mm', 10, 'Broušení desek: max tloušťka fenol desky [mm]'),
+        ('BrouseniDesek', 'max_tloustka_peny_mm',  20, 'Broušení desek: max tloušťka pěny zahrnuté do plochy [mm]'),
+        ('BrouseniDesek', 'cas_per_m2_s',          45, 'Broušení desek: čas na 1 m² plochy pěny [s]'),
+        # Krok 6: Můstky – frézování odpadků z desek (jen desky ≤ max_tloustka_mm)
+        ('Mustky', 'max_tloustka_mm',            10, 'Maximální tloušťka desky s můstky (mm) – silnější překližky jsou bez můstků'),
+        ('Mustky', 'cas_per_deska_s',            20, 'Čas na 1 desku z DXF (s můstky) v sekundách'),
+        ('Mustky', 'cas_bom_fallback_s',        120, 'Záložní čas na 1 case (bez DXF, jen z BOM) v sekundách'),
+        # Krok 7: Sesbírání HW (vše kromě desek, pěn, profilů AL, ostatní)
+        ('SbiraniHW', 'cas_per_druh_s',          10, 'Čas na 1 druh HW položky (sesbírání ze skladu) v sekundách'),
+        ('SbiraniHW', 'cas_per_ks_s',             2, 'Čas na 1 ks HW (příprava / odkládání) v sekundách'),
+        # Krok 8: Sestřílení – základní kompletace pistolí (jen klasické casy)
+        ('Sestrileni', 'cas_base_s',             10, 'Základní čas na 1 desku (fixní složka) v sekundách'),
+        ('Sestrileni', 'cas_per_m2_s',           40, 'Přídavek za plochu desky: čas na 1 m² v sekundách'),
+        # Krok 12: Polep tapetou
+        ('Polep', 'cas_polep_s', 3000, 'Čas polepu case tapetou (materiál kód POLEP ART) v sekundách'),
+        # Krok 11: Lepení pěn (DXF nebo BOM fallback)
+        ('LepeniPen', 'cas_priprava_s',       300, 'Celková příprava před lepením pěn v sekundách'),
+        ('LepeniPen', 'cas_priprava_peny_s',   60, 'Příprava na 1 kus pěny v sekundách'),
+        ('LepeniPen', 'cas_per_m2_s',         120, 'Čas lepení na 1 m² pěny v sekundách'),
+        ('LepeniPen', 'cas_min_s',             30, 'Minimální čas lepení 1 kusu pěny v sekundách'),
+        # Koeficienty složitosti (koef_*)
+        ('LepeniPen', 'koef_hlava',           1.0, 'Koeficient: Hlava / kombo'),
+        ('LepeniPen', 'koef_mixpult',         1.2, 'Koeficient: Mixpult'),
+        ('LepeniPen', 'koef_klavesy',         1.2, 'Koeficient: Klávesy'),
+        ('LepeniPen', 'koef_rack',            1.0, 'Koeficient: Rack'),
+        ('LepeniPen', 'koef_rack_slide',      1.0, 'Koeficient: Rack Sliding door'),
+        ('LepeniPen', 'koef_access',          1.0, 'Koeficient: Accessory case'),
+        ('LepeniPen', 'koef_pedal',           1.0, 'Koeficient: Pedalboard'),
+        ('LepeniPen', 'koef_svetlo',          1.4, 'Koeficient: Case pro světelné hlavy'),
+        ('LepeniPen', 'koef_tv',              1.2, 'Koeficient: Case pro TV'),
+        ('LepeniPen', 'koef_satna',           1.0, 'Koeficient: Šatní skříň'),
+        ('LepeniPen', 'koef_jiny',            1.0, 'Koeficient: Jiný typ'),
+        ('LepeniPen', 'koef_inlay',           1.0, 'Koeficient: Inlay'),
+        # Fallback počet ks pěn bez DXF (fks_*)
+        ('LepeniPen', 'fks_hlava',            10, 'Fallback ks pěn bez DXF: Hlava / kombo'),
+        ('LepeniPen', 'fks_mixpult',          16, 'Fallback ks pěn bez DXF: Mixpult'),
+        ('LepeniPen', 'fks_klavesy',          16, 'Fallback ks pěn bez DXF: Klávesy'),
+        ('LepeniPen', 'fks_rack',              2, 'Fallback ks pěn bez DXF: Rack'),
+        ('LepeniPen', 'fks_rack_slide',        2, 'Fallback ks pěn bez DXF: Rack Sliding door'),
+        ('LepeniPen', 'fks_access',           10, 'Fallback ks pěn bez DXF: Accessory case'),
+        ('LepeniPen', 'fks_pedal',             9, 'Fallback ks pěn bez DXF: Pedalboard'),
+        ('LepeniPen', 'fks_svetlo',           30, 'Fallback ks pěn bez DXF: Case pro světelné hlavy'),
+        ('LepeniPen', 'fks_tv',               16, 'Fallback ks pěn bez DXF: Case pro TV'),
+        ('LepeniPen', 'fks_satna',             2, 'Fallback ks pěn bez DXF: Šatní skříň'),
+        ('LepeniPen', 'fks_jiny',             10, 'Fallback ks pěn bez DXF: Jiný typ'),
+        ('LepeniPen', 'fks_inlay',             1, 'Fallback ks pěn bez DXF: Inlay'),
+        # Krok 10: Rack lišty (PROFIL AL, druh=RACK)
+        ('RackListy', 'cas_montaz_listy_s',   120, 'Čas montáže 1 rack lišty v sekundách'),
+        ('RackListy', 'cas_guma_listy_s',       30, 'Čas montáže gumového těsnění / 1 lišta v sekundách'),
+        ('RackListy', 'rack_unit_vyska_mm',    22.5,'Výška 1 rack unit v mm (standardně 22,5 mm = 1U)'),
+        ('RackListy', 'cas_matice_ru_s',         6, 'Čas montáže matic do lišty / 1 rack unit v sekundách'),
+        # Krok 9: Kompletace case
+        # – Standard: nýtování L profilů + usazení + hybridy + HW
+        ('Kompletace', 'std_nit_roztes_mm',      64, 'Dělitel délky L profilu pro počet nýtů (rozteč 128mm × 2 strany = 64)'),
+        ('Kompletace', 'std_nitovani_s',          9, 'Čas nýtování / 1 nýt v sekundách'),
+        ('Kompletace', 'std_L_min_mm',          128, 'Minimální délka L profilu pro nýtování (kratší se nenýtují)'),
+        ('Kompletace', 'std_L_usazeni_s',        15, 'Čas usazení L profilu na case / 1 ks v sekundách'),
+        ('Kompletace', 'std_H_usazeni_s',        10, 'Čas usazení H (hybrid) profilu / 1 ks v sekundách'),
+        # – FUSION
+        ('Kompletace', 'fus_profil_s',          180, 'FUSION: základní čas montáže / 1 kus profilu v sekundách'),
+        ('Kompletace', 'fus_per_100mm_s',         3, 'FUSION: přídavek za každých 100 mm délky profilu v sekundách'),
+        # – R1 system
+        ('Kompletace', 'r1_hliniky_s',          600, 'R1 system: celkový čas kompletace hliníků v sekundách'),
+        # – Speciální typy (paušál)
+        ('Kompletace', 'panel_6060_s',          3600, 'Akustický panel 60x60 v rámu: celkový čas kompletace v sekundách'),
+        ('Kompletace', 'panel_12060_s',         2700, 'Akustický panel 120x60 bez rámu: celkový čas kompletace v sekundách'),
+        # Krok 13: Prostoje (zametání, ofukování, odnesení casu atd.)
+        ('Prostoje', 'delitel',                  8, 'Dělitel pro výpočet prostojů (součet všech kroků / dělitel)'),
     ]
     for sekce, klic, hodnota, popis in _cas_defaults:
         c.execute(
@@ -989,6 +1072,16 @@ def auto_migrate():
             c.execute("INSERT INTO typy_korpusu (nazev, poradi) VALUES (?, ?)", (nazev, i))
         c.execute("INSERT INTO _migrations (name) VALUES ('typy_korpusu_init_v1')")
         log.append("[OK] typy_korpusu — výchozí typy vloženy")
+
+    # ── Oprava Sestřílení: cas_base_s 5→10 (správná výchozí hodnota) ─────────
+    c.execute("SELECT 1 FROM _migrations WHERE name='sestrileni_base_5to10_v1'")
+    if not c.fetchone():
+        c.execute("""
+            UPDATE cas_parametry SET hodnota = 10
+            WHERE sekce = 'Sestrileni' AND klic = 'cas_base_s' AND hodnota = 5
+        """)
+        c.execute("INSERT INTO _migrations (name) VALUES ('sestrileni_base_5to10_v1')")
+        log.append("[OK] cas_parametry — Sestrileni.cas_base_s opraveno 5→10")
 
     # ── VÝCHOZÍ BOM (materiály automaticky vkládané do každého nového HN) ──
     c.execute("""

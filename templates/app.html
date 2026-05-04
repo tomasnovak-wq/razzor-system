@@ -1335,6 +1335,190 @@ function _pocitejMC(cenaDilu, casH, cenyPar) {
   return (cenaDilu + cenaPrace) * koef * (1 + dph / 100);
 }
 
+// ── Detail textu pro každý krok časového výpočtu (globální – sdílí _casPanelHtml i _buTabCasVyroby)
+function krokDetail(k) {
+  const d = k.detail || {};
+  if (k.id === 'orientace') {
+    return `${d.pocet_desek} druh${d.pocet_desek === 1 ? '' : 'y'} desek → ${d.je_slozity ? 'složitý' : 'jednoduchý'} case`;
+  }
+  if (k.id === 'noseni_profilu') {
+    return d.ma_profily ? 'přinesení + příprava' : '– žádné profily v plánu';
+  }
+  if (k.id === 'rezani_profilu') {
+    if (!d.ma_profily && d.ma_profily !== undefined) return '– žádné profily v plánu';
+    if (d.je_fusion) {
+      let parts = [`FUSION/R1: ${d.fusion_kusy} ks × ${d.cas_fusion_ks_s}s`];
+      if (d.motyl_kusy > 0) parts.push(`sražení ${d.motyl_kusy}× motýl × ${d.cas_motyl_zkos_s}s`);
+      if (d.q6504_motyl) parts.push(`Q6504 vyřezání: ${d.motyl_kusy}× × ${d.cas_fusion_q6504_motyl_s}s`);
+      return parts.join(' + ');
+    } else {
+      let parts = [];
+      if (d.L_uniq > 0) parts.push(`L: ${d.L_uniq} rozměr${d.L_uniq>1?'y':''} × ${d.cas_L_uniq_s}s`);
+      if (d.H_kusy > 0) parts.push(`H: ${d.H_kusy} ks ÷ 2 = ${d.H_paru} párů × ${d.cas_H_par_s}s`);
+      if (d.motyl_kusy > 0) parts.push(`${d.motyl_kusy}× motýl sražení × ${d.cas_motyl_zkos_s}s`);
+      if (d.q6504_motyl) parts.push(`Q6504 vyřezání: ${d.motyl_kusy}× × ${d.cas_fusion_q6504_motyl_s}s`);
+      return parts.join(' + ') || '– žádné profily v plánu';
+    }
+  }
+  if (k.id === 'derovani') {
+    if (d.je_fusion) return '– FUSION/R1: děrování se neprovádí';
+    if (!d.ma_profily) return '– žádné profily v plánu';
+    if (d.D_uniq === 0) return `– žádný L profil delší než ${d.min_delka_mm} mm`;
+    return `L > ${d.min_delka_mm}mm: ${d.D_uniq} rozměr${d.D_uniq>1?'y':''} × ${d.cas_nastaveni_pravitka_s}s + ${d.D_kusy} ks × ${d.cas_na_profil_s}s`;
+  }
+  if (k.id === 'brouseni_hybrid') {
+    if (d.je_fusion) return '– FUSION/R1: broušení se neprovádí';
+    if (!d.ma_peny)  return '– žádné pěny v BOM';
+    if (d.H_kusy === 0) return '– žádné H profily v plánu';
+    return `${d.H_kusy} ks H profilů × ${d.cas_na_hybrid_s}s`;
+  }
+  if (k.id === 'brouseni_desek') {
+    if (!d.ma_peny)        return '– žádné pěny v BOM';
+    if (!d.ma_fenol_desku) return `– žádná fenol deska ≤${d.max_tloustka_desky_mm}mm v BOM`;
+    if (!d.fenol_je_hlavni) return `– fenol pouze přepážka (${d.ks_fenol} ks fenol < ${d.ks_ostatni} ks ostatní)`;
+    if (d.zdroj === 'dxf') {
+      if (!d.plocha_m2) return `– DXF: žádné pěny ≤${d.max_tloustka_peny_mm}mm`;
+      return `DXF: ${d.plocha_m2.toFixed(3)} m² × ${d.cas_per_m2_s}s`;
+    }
+    if (d.zdroj === 'bom') {
+      if (!d.plocha_m2) return `– BOM: žádné pěny ≤${d.max_tloustka_peny_mm}mm`;
+      return `BOM: ${d.plocha_m2.toFixed(3)} m² × ${d.cas_per_m2_s}s`;
+    }
+    return '– neznámý zdroj';
+  }
+  if (k.id === 'natireni_podvozku') {
+    if (d.kolecka_kusy === 0) return '– žádné otočné podvozky v BOM';
+    return `${d.kolecka_kusy} ks × ${d.cas_na_kolo_s}s`;
+  }
+  if (k.id === 'sbir_hw') {
+    if (d.hw_druhu === 0) return '– žádný HW v BOM';
+    return `${d.hw_druhu} druhů × ${d.cas_per_druh_s}s + ${d.hw_kusu} ks × ${d.cas_per_ks_s}s`;
+  }
+  if (k.id === 'sestrileni') {
+    if (!d.je_klasicky_case) return `– přeskočeno (${d.duvod_skip})`;
+    if (d.zdroj === 'dxf') {
+      return `DXF: ${d.hlavni_ks} ks „${d.hlavni_nazev}" (${d.plocha_per_ks_m2} m²/ks → ${d.cas_per_desku_s}s/ks)`;
+    }
+    if (d.zdroj === 'bom_odhad') {
+      return `BOM záloha: ${d.pocet_bom_desek} ks, odhad plochy ${d.plocha_odhad_m2} m² → ${d.cas_per_desku_s}s/ks`;
+    }
+    if (d.zdroj === 'dxf_bez_desek') return '– DXF neobsahuje desky ≤ mez';
+    return '– nelze odhadnout (chybí rozměry)';
+  }
+  if (k.id === 'polep') {
+    return d.ma_polep ? `POLEP ART nalezen → ${d.cas_polep_s}s` : '– materiál POLEP ART není v BOM';
+  }
+  if (k.id === 'lepeni_pen') {
+    const koef = d.koeficient !== 1 ? ` ×${d.koeficient}` : '';
+    if (d.zdroj === 'dxf') {
+      const np = (d.peny || []).length;
+      const totalKs = (d.peny || []).reduce((a, p) => a + (p.ks || 0), 0);
+      return `DXF: ${np} druhů pěn (${totalKs} ks), brutto ${Math.round(d.brutto_s)}s${koef}`;
+    }
+    if (d.zdroj === 'fallback') {
+      return `záloha: ${d.fallback_ks} ks pěn (bez DXF), brutto ${Math.round(d.brutto_s)}s${koef}`;
+    }
+    return '';
+  }
+  if (k.id === 'prostoje') {
+    return `${Math.round(d.cas_pred_prostoji_s)}s / ${d.delitel} = ${k.cas_s}s`;
+  }
+  if (k.id === 'rack_listy') {
+    if (!d.ma_rack) return '– žádný rack profil v BOM';
+    if (d.duvod === 'chybi_vyska') return `– chybí výška casu, odhad ${d.pocet_list} lišt`;
+    return `${d.pocet_list} lišt (${d.celk_mm}mm/${d.vnitrni_vyska_mm}mm≈${d.pocet_raw}) · ${d.rack_units}U · ${d.cas_per_lista_s}s/lišta`;
+  }
+  if (k.id === 'kompletace') {
+    const v = d.vetev;
+    if (v === 'panel_6060')  return `paušál Akustický panel 60×60`;
+    if (v === 'panel_12060') return `paušál Akustický panel 120×60`;
+    if (v === 'r1') {
+      return `R1: hliníky ${Math.round(d.r1_hliniky_s)}s + HW ${Math.round(d.hw_total_s)}s`;
+    }
+    if (v === 'fusion') {
+      const np = d.fus_polozky ? d.fus_polozky.length : 0;
+      return `FUSION: ${np} řad profilů (${d.fus_profil_s}s+délka) + HW ${Math.round(d.hw_total_s)}s`;
+    }
+    if (v === 'standard') {
+      const parts = [];
+      if (d.nyt_s > 0)   parts.push(`nýtování ${Math.round(d.nyt_s)}s`);
+      if (d.L_us_s > 0)  parts.push(`L usazení ${Math.round(d.L_us_s)}s`);
+      if (d.H_us_s > 0)  parts.push(`H usazení ${Math.round(d.H_us_s)}s`);
+      if (d.hw_total_s > 0) parts.push(`HW ${Math.round(d.hw_total_s)}s`);
+      return parts.join(' + ') || '– žádné profily ani HW';
+    }
+    return '';
+  }
+  if (k.id === 'mustky') {
+    if (d.zdroj === 'dxf') {
+      if (d.pocet_desek === 0) return `DXF: žádná deska ≤ ${d.max_tloustka_mm} mm`;
+      return `DXF: ${d.pocet_desek} ks desek ≤ ${d.max_tloustka_mm}mm × ${d.cas_per_deska_s}s`;
+    } else {
+      if (!d.ma_tenkou_desku) return `BOM: žádná deska ≤ ${d.max_tloustka_mm} mm`;
+      return `BOM (záloha): case s tenkou deskou → ${d.cas_bom_fallback_s}s paušál`;
+    }
+  }
+  return '';
+}
+
+// ── Panel výpočtu výrobního času (step-by-step workflow) ─────────────────
+function _casPanelHtml(casData, typId) {
+  if (!casData || !casData.kroky) return '';
+  const kroky = casData.kroky;
+
+  // Ikony a barvy pro každý krok
+  const KROK_STYLE = {
+    orientace:      { icon: '📋', color: 'indigo',  label: 'Orientace' },
+    noseni_profilu: { icon: '🚶', color: 'slate',   label: 'Přinesení profilů' },
+    rezani_profilu: { icon: '🔩', color: 'gray',    label: 'Řezání profilů' },
+    derovani:           { icon: '🔨', color: 'orange',  label: 'Děrování' },
+    brouseni_hybrid:    { icon: '🪚', color: 'lime',    label: 'Broušení hybridů' },
+    natireni_podvozku:  { icon: '🎨', color: 'pink',    label: 'Natírání podvozků' },
+    mustky:             { icon: '✂️', color: 'red',     label: 'Můstky' },
+    sbir_hw:            { icon: '📦', color: 'amber',   label: 'Sesbírání HW' },
+    sestrileni:         { icon: '🔫', color: 'zinc',    label: 'Sestřílení' },
+    kompletace:         { icon: '🔧', color: 'blue',    label: 'Kompletace' },
+    brouseni_desek:     { icon: '🪵', color: 'yellow',  label: 'Broušení desek' },
+    rack_listy:         { icon: '🗄️', color: 'slate',   label: 'Rack lišty' },
+    polep:              { icon: '🎨', color: 'violet',  label: 'Polep tapetou' },
+    lepeni_pen:         { icon: '🟩', color: 'green',   label: 'Lepení pěn' },
+    prostoje:           { icon: '🧹', color: 'stone',   label: 'Prostoje' },
+
+    cnc_desky:      { icon: '🔵', color: 'purple',  label: 'CNC' },
+    kompletace:     { icon: '🔧', color: 'blue',    label: 'Kompletace' },
+    peny:           { icon: '🟢', color: 'green',   label: 'Pěny' },
+  };
+
+  const radky = kroky.map(k => {
+    const st = KROK_STYLE[k.id] || { icon: '⏱', color: 'gray', label: k.label };
+    const det = krokDetail(k);
+    const prazdny = k.cas_s === 0;
+    return `<div class="flex items-center gap-3 px-4 py-2.5 border-b border-orange-100 last:border-0 ${prazdny ? 'opacity-40' : ''}">
+      <span class="text-base w-6 text-center flex-shrink-0">${st.icon}</span>
+      <div class="flex-1 min-w-0">
+        <span class="text-sm font-medium text-gray-700">${k.label}</span>
+        ${det ? `<span class="ml-2 text-xs text-gray-400">${det}</span>` : ''}
+      </div>
+      <span class="font-mono text-sm font-semibold text-${st.color}-700 whitespace-nowrap">${k.cas_fmt}</span>
+    </div>`;
+  }).join('');
+
+  return `
+  <div class="border border-orange-200 rounded-xl overflow-hidden bg-orange-50 mb-4" id="cas-vypocet-panel">
+    <div class="flex items-center justify-between px-4 py-2 bg-orange-100">
+      <p class="font-semibold text-orange-800 text-sm">⏱ Výrobní čas – celkem: <strong>${casData.celkem_fmt}</strong></p>
+      <button class="btn btn-secondary py-1 px-3 text-xs whitespace-nowrap"
+              onclick="ulozitCasVyroby(${typId}, ${casData.celkem_s})"
+              title="Uloží vypočítaný čas jako Čas výroby">💾 Uložit</button>
+    </div>
+    ${radky}
+    <div class="flex justify-between items-center px-4 py-2 bg-orange-100 font-bold text-orange-900 text-sm border-t border-orange-200">
+      <span>Celkem</span>
+      <span class="font-mono text-base">${casData.celkem_fmt}</span>
+    </div>
+  </div>`;
+}
+
 function _tcRow(i) {
   const hmotnost = i.hmotnost > 0 ? `${fmt(i.hmotnost,2)} kg` : '–';
   const cas = i.cas_narocnost > 0 ? `${fmt(i.cas_narocnost,1)} h` : '–';
@@ -1479,10 +1663,9 @@ async function bomDetail(typId) {
         <p class="text-gray-400 text-xs">Cena výroby</p>
         <p class="font-bold text-green-600">${fmtKc(t.cena_vyroby)}</p>
       </div>
-      <div class="bg-orange-50 rounded-lg p-3 flex-1 text-center min-w-20 cursor-pointer" onclick="document.getElementById('cas-vypocet-panel').classList.toggle('hidden')" title="Klikni pro detail výpočtu">
-        <p class="text-gray-400 text-xs">Čas výroby ▾</p>
+      <div class="bg-orange-50 rounded-lg p-3 flex-1 text-center min-w-20">
+        <p class="text-gray-400 text-xs">Čas výroby</p>
         <p class="font-bold text-orange-600">${casData ? casData.celkem_fmt : (t.cas_narocnost > 0 ? fmt(t.cas_narocnost,1)+' h' : '–')}</p>
-        ${casData && casData.ma_defaults ? `<p class="text-xs text-amber-600 mt-0.5" title="${casData.defaults_cnt} položek používá záložní čas (cas_s=0)">⚠ ${casData.defaults_cnt}× odhad</p>` : ''}
       </div>
       <div class="bg-gray-50 rounded-lg p-3 flex-1 text-center min-w-20">
         <p class="text-gray-400 text-xs">Hmotnost</p>
@@ -1510,163 +1693,7 @@ async function bomDetail(typId) {
         </div>` : '';
       })()}
     </div>
-    ${casData && casData.cnc ? `
-    <div id="cas-vypocet-panel" class="hidden mb-4 border border-orange-200 rounded-xl overflow-hidden bg-orange-50">
-      <div class="flex items-center justify-between px-4 py-2 bg-orange-100">
-        <p class="font-semibold text-orange-800 text-sm cursor-pointer" onclick="this.closest('.mb-4').querySelector('.grid').classList.toggle('hidden')">
-          ⏱ Výpočet výrobního času – celkem: <strong>${casData.celkem_fmt}</strong>
-          ${casData.ma_defaults ? `<span class="ml-2 bg-amber-200 text-amber-800 text-xs rounded px-1.5 py-0.5">⚠ ${casData.defaults_cnt}× záložní čas</span>` : ''}
-        </p>
-        <div class="flex items-center gap-3">
-          <span class="text-orange-500 text-xs">size: ${casData.size_factor}× · manip: ${casData.handling_factor}×</span>
-          <button class="btn btn-secondary py-1 px-3 text-xs whitespace-nowrap"
-                  onclick="ulozitCasVyroby(${typId}, ${casData.celkem_s})"
-                  title="Uloží vypočítaný čas jako Čas výroby jen pro tento BOM">
-            💾 Uložit jen tento
-          </button>
-        </div>
-      </div>
-      ${casData.ma_defaults ? `
-      <div class="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-800">
-        ⚠ <strong>${casData.defaults_cnt} položek</strong> nemá nastaven vlastní čas (<code>cas_s = 0</code>) – používá záložní hodnotu.
-        <button class="underline text-amber-700 ml-1" onclick="closeModal();nastaveni('cas-param')">Nastavení → Časy výroby</button>
-        · <button class="underline text-amber-700" onclick="closeModal();navigate('materialy')">Přehled materiálů</button>
-      </div>` : ''}
-      <div class="grid grid-cols-3 gap-0 divide-x divide-orange-200 text-xs">
-        <!-- CNC -->
-        <div class="p-3">
-          <p class="font-bold text-purple-700 text-sm mb-2">🔵 CNC – ${casData.cnc.celkem_fmt}
-            ${casData.cnc.defaults_cnt > 0 ? `<span class="font-normal text-amber-600 ml-1">(${casData.cnc.defaults_cnt}× ~${casData.cnc.deska_fallback}s)</span>` : ''}
-          </p>
-          <div class="space-y-1 text-gray-600">
-            <div class="flex justify-between"><span>Příprava prostoru</span><span class="font-mono">${Math.round(casData.cnc.setup_s/60)} min</span></div>
-            <div class="flex justify-between"><span>Příprava dat / programu</span><span class="font-mono">${Math.round(casData.cnc.data_prep_s/60)} min</span></div>
-            <div class="flex justify-between"><span>Overhead – ${casData.cnc.n_typy_desek} typ${casData.cnc.n_typy_desek===1?'':'y'} desek</span><span class="font-mono">${Math.round(casData.cnc.fix_mat_s/60)} min</span></div>
-            <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-              <span>Řezání (×${casData.size_factor} size)</span>
-              <span class="font-mono">${Math.round(casData.cnc.mat_cas_s/60)} min</span>
-            </div>
-            ${casData.cnc.polozky.length ? `
-            <details class="mt-1" open>
-              <summary class="cursor-pointer text-gray-400">Desky (${casData.cnc.polozky.length})</summary>
-              ${casData.cnc.polozky.map(pol => `
-                <div class="flex justify-between py-0.5 pl-2 ${pol.pouzit_default ? 'text-amber-700' : 'text-gray-500'}">
-                  <span class="truncate flex-1 mr-1" title="${pol.nazev}">${pol.pouzit_default?'~':''}${pol.nazev}</span>
-                  <span class="font-mono whitespace-nowrap">${fmt(pol.mnozstvi,1)}×${pol.cas_s_j}s×${pol.size_factor}=${Math.round(pol.cas_celkem_s)}s</span>
-                </div>`).join('')}
-            </details>` : '<p class="text-gray-400 italic mt-1">Žádné desky v BOM</p>'}
-          </div>
-        </div>
-        <!-- Montáž -->
-        <div class="p-3">
-          <p class="font-bold text-blue-700 text-sm mb-2">🔧 Montáž – ${casData.montaz.celkem_fmt}
-            ${casData.montaz.defaults_cnt > 0 ? `<span class="font-normal text-amber-600 ml-1">(${casData.montaz.defaults_cnt}× ~${casData.montaz.hw_fallback}s)</span>` : ''}
-          </p>
-          <div class="space-y-1 text-gray-600">
-            <div class="flex justify-between">
-              <span>Příprava + úklid + kontrola <span class="text-blue-400">(×${casData.montaz.handling_factor} manip.)</span></span>
-              <span class="font-mono">${Math.round(casData.montaz.fixed_scaled_s/60)} min</span>
-            </div>
-            <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-              <span>HW montáž <span class="text-blue-400">(×${casData.montaz.handling_factor})</span></span>
-              <span class="font-mono">${Math.round(casData.montaz.hw_cas_s/60)} min</span>
-            </div>
-            <div class="flex justify-between font-medium text-indigo-700">
-              <span>🔩 Nýty: ${casData.montaz.total_nits} ks × ${casData.montaz.cas_na_nyt}s</span>
-              <span class="font-mono">${Math.round(casData.montaz.nit_cas_s/60)} min</span>
-            </div>
-            ${casData.montaz.polozky.length ? `
-            <details class="mt-1" open>
-              <summary class="cursor-pointer text-gray-400">HW (${casData.montaz.polozky.length})</summary>
-              ${casData.montaz.polozky.map(pol => `
-                <div class="flex justify-between py-0.5 pl-2 ${pol.pouzit_default ? 'text-amber-700' : 'text-gray-500'}">
-                  <span class="truncate flex-1 mr-1" title="${pol.nazev}">${pol.pouzit_default?'~':''}${pol.nazev}</span>
-                  <span class="font-mono whitespace-nowrap">${fmt(pol.mnozstvi,1)}×${pol.cas_s_j}s×${pol.handling_factor}=${Math.round(pol.cas_celkem_s)}s</span>
-                </div>`).join('')}
-            </details>` : '<p class="text-gray-400 italic mt-1">Žádné HW v BOM</p>'}
-          </div>
-        </div>
-        <!-- Pěny -->
-        <div class="p-3">
-          <p class="font-bold text-green-700 text-sm mb-2">🟢 Pěny – ${casData.peny.celkem_fmt}
-            ${casData.peny.defaults_cnt > 0 ? `<span class="font-normal text-amber-600 ml-1">(${casData.peny.defaults_cnt}× ~${casData.peny.pena_fallback}s)</span>` : ''}
-          </p>
-          <div class="space-y-1 text-gray-600">
-            <div class="flex justify-between"><span>Nahřívání pistole</span><span class="font-mono">${Math.round(casData.peny.pistole_s/60)} min</span></div>
-            <div class="flex justify-between"><span>Zahájení + úklid</span><span class="font-mono">${Math.round((casData.peny.fix_s+casData.peny.cleanup_s)/60)} min</span></div>
-            <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-              <span>Zpracování pěn <span class="text-green-500">(×${casData.size_factor} size)</span></span>
-              <span class="font-mono">${Math.round(casData.peny.mat_cas_s/60)} min</span>
-            </div>
-            ${casData.peny.polozky.length ? `
-            <details class="mt-1" open>
-              <summary class="cursor-pointer text-gray-400">Pěny (${casData.peny.polozky.length})</summary>
-              ${casData.peny.polozky.map(pol => `
-                <div class="flex justify-between py-0.5 pl-2 ${pol.pouzit_default ? 'text-amber-700' : 'text-gray-500'}">
-                  <span class="truncate flex-1 mr-1" title="${pol.nazev}">${pol.pouzit_default?'~':''}${pol.nazev}</span>
-                  <span class="font-mono whitespace-nowrap">${fmt(pol.mnozstvi,1)}×${pol.cas_s_j}s×${pol.size_factor}=${Math.round(pol.cas_celkem_s)}s</span>
-                </div>`).join('')}
-            </details>` : '<p class="text-gray-400 italic mt-1">Žádné pěny v BOM</p>'}
-          </div>
-        </div>
-      </div>
-      <!-- Druhý řádek: Profily, Děrování, Můstky -->
-      <div class="grid grid-cols-3 gap-0 divide-x divide-orange-200 text-xs border-t border-orange-200">
-        <!-- Profily -->
-        <div class="p-3">
-          <p class="font-bold text-gray-700 text-sm mb-2">🔩 Řezání profilů – ${casData.profily?.celkem_fmt || '–'}
-            ${(!casData.profily?.n_L && !casData.profily?.n_H) ? '<span class="font-normal text-gray-400 ml-1">(není plán)</span>' : ''}
-          </p>
-          <div class="space-y-1 text-gray-600">
-            ${casData.profily?.setup_s > 0 ? `<div class="flex justify-between"><span>Příprava pily</span><span class="font-mono">${Math.round(casData.profily.setup_s/60)} min</span></div>` : ''}
-            <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-              <span>Řezy (${casData.profily?.n_L||0}× L + ${casData.profily?.n_H||0}× H)</span>
-              <span class="font-mono">${Math.round((casData.profily?.mat_cas_s||0)/60)} min</span>
-            </div>
-            ${casData.profily?.polozky?.length ? `
-            <details class="mt-1">
-              <summary class="cursor-pointer text-gray-400">Detail profilů (${casData.profily.polozky.length})</summary>
-              ${casData.profily.polozky.map(p2 => `
-                <div class="flex justify-between py-0.5 pl-2 text-gray-500">
-                  <span>${p2.typ_profilu} ${p2.rozmer_mm}mm</span>
-                  <span class="font-mono">${p2.ks}×${p2.cas_s_j}s=${Math.round(p2.cas_celkem_s)}s</span>
-                </div>`).join('')}
-            </details>` : '<p class="text-gray-400 italic mt-1">Vyplňte plán profilů v BOM editoru</p>'}
-          </div>
-        </div>
-        <!-- Děrování -->
-        <div class="p-3">
-          <p class="font-bold text-orange-700 text-sm mb-2">🔨 Děrování – ${casData.derovani?.celkem_fmt || '–'}
-            ${casData.derovani?.ma_fusion ? '<span class="font-normal text-gray-400 ml-1">(přeskočeno – FUSION)</span>' : ''}
-          </p>
-          <div class="space-y-1 text-gray-600">
-            ${casData.derovani?.ma_fusion ? `
-              <p class="text-gray-400 italic">Case používá Q6506 Casemaker FUSION 30×30 mm — děrování se neprovádí.</p>` : `
-              ${casData.derovani?.setup_s > 0 ? `<div class="flex justify-between"><span>Příprava děrovačky</span><span class="font-mono">${Math.round(casData.derovani.setup_s/60)} min</span></div>` : ''}
-              <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-                <span>Děrování L profilů (${casData.derovani?.n_L||0} ks)</span>
-                <span class="font-mono">${Math.round((casData.derovani?.mat_cas_s||0)/60)} min</span>
-              </div>
-              <p class="text-gray-400 text-xs mt-1">${casData.derovani?.cas_na_profil||0} s / ks profilu</p>`}
-          </div>
-        </div>
-        <!-- Můstky -->
-        <div class="p-3">
-          <p class="font-bold text-red-700 text-sm mb-2">✂️ Můstky – ${casData.mustky?.celkem_fmt || '–'}</p>
-          <div class="space-y-1 text-gray-600">
-            <div class="flex justify-between">
-              <span>Počet desek <span class="text-gray-400">(${casData.mustky?.zdroj === 'dxf' ? 'z DXF' : 'z BOM'})</span></span>
-              <span class="font-mono">${casData.mustky?.pocet_desek||0} ks</span>
-            </div>
-            <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-              <span>Odříznout (${casData.mustky?.pocet_desek||0}×${casData.mustky?.na_desku||4} můstků)</span>
-              <span class="font-mono">${Math.round((casData.mustky?.celkem_s||0)/60)} min</span>
-            </div>
-            <p class="text-gray-400 text-xs mt-1">${casData.mustky?.cas_j||0} s / můstek</p>
-          </div>
-        </div>
-      </div>
-    </div>` : ''}
+    ${casData ? _casPanelHtml(casData, typId) : ''}
     <div class="flex gap-2 mb-2">
       <button class="btn btn-primary text-xs" onclick="addBomItem(${typId})">+ Přidat materiál</button>
       <button class="btn btn-secondary text-xs" onclick="editProfilyPlan(${typId})" style="border-color:#6b2040;color:#6b2040">
@@ -1922,6 +1949,12 @@ function _buCloseConfirm() {
   _buClose();
 }
 
+async function _buSaveActive(typId) {
+  if (_buTab === 1) await _buSaveSpec(typId);
+  else if (_buTab === 6) await _cvUlozitVse(typId);
+  // Tabs 2–5 ukládají inline, centrální uložení není potřeba
+}
+
 async function _buSmazatTyp(typId, hnCislo, nazev) {
   if (!confirm(`Smazat typ casu ${hnCislo} – „${nazev}"?\n\nTato akce smaže i celý kusovník (BOM) tohoto HN. Nelze vrátit zpět.`)) return;
   const r = await api(`/api/typy-casu/${typId}`, 'DELETE');
@@ -1969,11 +2002,9 @@ function _buRender() {
       <p class="text-gray-400 text-xs">Cena výroby</p>
       <p class="font-bold text-green-600">${fmtKc(t.cena_vyroby)}</p>
     </div>
-    <div class="bg-orange-50 rounded-lg p-3 flex-1 text-center min-w-20 cursor-pointer"
-         onclick="document.getElementById('bu-cas-panel').classList.toggle('hidden')" title="Klikni pro detail výpočtu">
-      <p class="text-gray-400 text-xs">Čas výroby ▾</p>
+    <div class="bg-orange-50 rounded-lg p-3 flex-1 text-center min-w-20">
+      <p class="text-gray-400 text-xs">Čas výroby</p>
       <p class="font-bold text-orange-600">${casData ? casData.celkem_fmt : (t.cas_narocnost > 0 ? fmt(t.cas_narocnost,1)+' h' : '–')}</p>
-      ${casData && casData.ma_defaults ? `<p class="text-xs text-amber-600 mt-0.5">⚠ ${casData.defaults_cnt}× odhad</p>` : ''}
     </div>
     <div class="bg-gray-50 rounded-lg p-3 flex-1 text-center min-w-20">
       <p class="text-gray-400 text-xs">Hmotnost</p>
@@ -1993,7 +2024,7 @@ function _buRender() {
   </div>`;
 
   // Tab navigation with left/right arrows
-  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'DXF', 'Soubory'];
+  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'DXF', 'Soubory', 'Čas výroby'];
   const TAB_MAX   = TAB_NAMES.length;
   const tabNav = `
   <div style="background:#f1f5f9;border-radius:10px;padding:4px;margin-bottom:16px;display:flex;align-items:center;gap:2px">
@@ -2002,15 +2033,17 @@ function _buRender() {
     ${TAB_NAMES.map((name, i) => {
       const idx = i + 1;
       const active = idx === _buTab;
-      // DXF badge – pokud má data, zobraz zelený puntík
-      const dxfBadge = (idx === 4 && dxfData) ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-left:4px;vertical-align:middle"></span>` : '';
+      // Barevné puntíky: DXF = zelená, Čas výroby = oranžová (pokud má data)
+      const dxfBadge    = (idx === 4 && dxfData)  ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-left:4px;vertical-align:middle"></span>` : '';
+      const casBadge    = (idx === 6 && casData)   ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f97316;margin-left:4px;vertical-align:middle"></span>` : '';
+      const allBadges   = dxfBadge + casBadge;
       return `<button onclick="_buSwitchTab(${idx})"
         style="border:none;border-radius:7px;cursor:pointer;font-size:.84rem;padding:6px 14px;
                font-weight:${active?'600':'400'};white-space:nowrap;flex:1;
                background:${active?'#fff':'transparent'};
                color:${active?'#1d4ed8':'#64748b'};
                box-shadow:${active?'0 1px 3px rgba(0,0,0,.12)':'none'};
-               transition:all .15s">${name}${dxfBadge}</button>`;
+               transition:all .15s">${name}${allBadges}</button>`;
     }).join('')}
     <button onclick="_buSwitchTab(${_buTab < TAB_MAX ? _buTab + 1 : 1})"
       style="border:none;background:none;cursor:pointer;color:#94a3b8;font-size:1rem;padding:4px 6px;flex-shrink:0" title="Další záložka">→</button>
@@ -2022,6 +2055,7 @@ function _buRender() {
   else if (_buTab === 3) tabContent = _buTabProfily(typId, profilyData);
   else if (_buTab === 4) tabContent = _buTabDxf(typId, dxfData);
   else if (_buTab === 5) tabContent = _buTabSoubory(typId, links);
+  else if (_buTab === 6) tabContent = _buTabCasVyroby(typId, casData);
 
   openModal(`
   <div class="flex items-start justify-between mb-3">
@@ -2031,111 +2065,13 @@ function _buRender() {
       <p class="text-sm text-gray-500">${t.typ_korpusu||''} · ${t.vnitrni_sirka||'?'}×${t.vnitrni_vyska||'?'}×${t.vnitrni_hloubka||'?'} mm</p>
     </div>
     <div class="flex gap-2 items-center">
+      ${[1,6].includes(_buTab) ? `<button id="bu-save-btn" onclick="_buSaveActive(${typId})" class="btn btn-primary py-1 px-3 text-sm">💾 Uložit</button>` : ''}
       <button onclick="_buClose();novaZakazkaZTypu(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}');" class="btn btn-success py-1 px-3 text-sm">+ Nová zakázka</button>
       <button onclick="_buSmazatTyp(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}');" class="btn btn-danger py-1 px-2 text-sm" title="Smazat tento typ casu">🗑</button>
       <button onclick="_buCloseConfirm()" class="btn btn-secondary py-1 px-2">✕</button>
     </div>
   </div>
   ${statsBar}
-  ${casData && casData.cnc ? `
-  <div id="bu-cas-panel" class="hidden mb-4 border border-orange-200 rounded-xl overflow-hidden bg-orange-50">
-    <div class="flex items-center justify-between px-4 py-2 bg-orange-100">
-      <p class="font-semibold text-orange-800 text-sm">
-        ⏱ Výpočet výrobního času – celkem: <strong>${casData.celkem_fmt}</strong>
-        ${casData.ma_defaults ? `<span class="ml-2 bg-amber-200 text-amber-800 text-xs rounded px-1.5 py-0.5">⚠ ${casData.defaults_cnt}× záložní čas</span>` : ''}
-      </p>
-      <button class="btn btn-secondary py-1 px-3 text-xs whitespace-nowrap"
-              onclick="ulozitCasVyroby(${typId}, ${casData.celkem_s})"
-              title="Uloží vypočítaný čas jako Čas výroby jen pro tento BOM">
-        💾 Uložit jen tento
-      </button>
-    </div>
-    ${casData.ma_defaults ? `
-    <div class="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-800">
-      ⚠ <strong>${casData.defaults_cnt} položek</strong> nemá nastaven vlastní čas – používá záložní hodnotu.
-    </div>` : ''}
-    <div class="grid grid-cols-3 gap-0 divide-x divide-orange-200 text-xs">
-      <div class="p-3">
-        <p class="font-bold text-purple-700 text-sm mb-2">🔵 CNC – ${casData.cnc.celkem_fmt}</p>
-        <div class="space-y-1 text-gray-600">
-          <div class="flex justify-between"><span>Příprava prostoru</span><span class="font-mono">${Math.round(casData.cnc.setup_s/60)} min</span></div>
-          <div class="flex justify-between"><span>Příprava dat / programu</span><span class="font-mono">${Math.round(casData.cnc.data_prep_s/60)} min</span></div>
-          <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium"><span>Řezání (×${casData.size_factor})</span><span class="font-mono">${Math.round(casData.cnc.mat_cas_s/60)} min</span></div>
-          ${casData.cnc.polozky.length ? `<details class="mt-1"><summary class="cursor-pointer text-gray-400">Desky (${casData.cnc.polozky.length})</summary>
-            ${casData.cnc.polozky.map(p=>`<div class="flex justify-between py-0.5 pl-2 ${p.pouzit_default?'text-amber-700':'text-gray-500'}"><span class="truncate flex-1 mr-1">${p.pouzit_default?'~':''}${p.nazev}</span><span class="font-mono">${Math.round(p.cas_celkem_s)}s</span></div>`).join('')}
-          </details>` : ''}
-        </div>
-      </div>
-      <div class="p-3">
-        <p class="font-bold text-blue-700 text-sm mb-2">🔧 Montáž – ${casData.montaz.celkem_fmt}</p>
-        <div class="space-y-1 text-gray-600">
-          <div class="flex justify-between"><span>Příprava + úklid</span><span class="font-mono">${Math.round(casData.montaz.fixed_scaled_s/60)} min</span></div>
-          <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium"><span>HW montáž</span><span class="font-mono">${Math.round(casData.montaz.hw_cas_s/60)} min</span></div>
-          <div class="flex justify-between font-medium text-indigo-700"><span>🔩 Nýty: ${casData.montaz.total_nits} ks</span><span class="font-mono">${Math.round(casData.montaz.nit_cas_s/60)} min</span></div>
-          ${casData.montaz.polozky.length ? `<details class="mt-1"><summary class="cursor-pointer text-gray-400">HW (${casData.montaz.polozky.length})</summary>
-            ${casData.montaz.polozky.map(p=>`<div class="flex justify-between py-0.5 pl-2 ${p.pouzit_default?'text-amber-700':'text-gray-500'}"><span class="truncate flex-1 mr-1">${p.pouzit_default?'~':''}${p.nazev}</span><span class="font-mono">${Math.round(p.cas_celkem_s)}s</span></div>`).join('')}
-          </details>` : ''}
-        </div>
-      </div>
-      <div class="p-3">
-        <p class="font-bold text-green-700 text-sm mb-2">🟢 Pěny – ${casData.peny.celkem_fmt}</p>
-        <div class="space-y-1 text-gray-600">
-          <div class="flex justify-between"><span>Nahřívání pistole</span><span class="font-mono">${Math.round(casData.peny.pistole_s/60)} min</span></div>
-          <div class="flex justify-between"><span>Zahájení + úklid</span><span class="font-mono">${Math.round((casData.peny.fix_s+casData.peny.cleanup_s)/60)} min</span></div>
-          <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium"><span>Zpracování pěn</span><span class="font-mono">${Math.round(casData.peny.mat_cas_s/60)} min</span></div>
-          ${casData.peny.polozky.length ? `<details class="mt-1"><summary class="cursor-pointer text-gray-400">Pěny (${casData.peny.polozky.length})</summary>
-            ${casData.peny.polozky.map(p=>`<div class="flex justify-between py-0.5 pl-2 ${p.pouzit_default?'text-amber-700':'text-gray-500'}"><span class="truncate flex-1 mr-1">${p.pouzit_default?'~':''}${p.nazev}</span><span class="font-mono">${Math.round(p.cas_celkem_s)}s</span></div>`).join('')}
-          </details>` : ''}
-        </div>
-      </div>
-    </div>
-    <!-- Druhý řádek: Profily, Děrování, Můstky -->
-    <div class="grid grid-cols-3 gap-0 divide-x divide-orange-200 text-xs border-t border-orange-200">
-      <div class="p-3">
-        <p class="font-bold text-gray-700 text-sm mb-2">🔩 Řezání profilů – ${casData.profily?.celkem_fmt||'–'}
-          ${(!casData.profily?.n_L && !casData.profily?.n_H) ? '<span class="font-normal text-gray-400 ml-1">(není plán)</span>' : ''}
-        </p>
-        <div class="space-y-1 text-gray-600">
-          ${casData.profily?.setup_s > 0 ? `<div class="flex justify-between"><span>Příprava pily</span><span class="font-mono">${Math.round(casData.profily.setup_s/60)} min</span></div>` : ''}
-          <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-            <span>Řezy (${casData.profily?.n_L||0}× L + ${casData.profily?.n_H||0}× H)</span>
-            <span class="font-mono">${Math.round((casData.profily?.mat_cas_s||0)/60)} min</span>
-          </div>
-          ${casData.profily?.polozky?.length ? `<details class="mt-1"><summary class="cursor-pointer text-gray-400">Detail (${casData.profily.polozky.length})</summary>
-            ${casData.profily.polozky.map(p2=>`<div class="flex justify-between py-0.5 pl-2 text-gray-500"><span>${p2.typ_profilu} ${p2.rozmer_mm}mm</span><span class="font-mono">${p2.ks}×${p2.cas_s_j}s=${Math.round(p2.cas_celkem_s)}s</span></div>`).join('')}
-          </details>` : '<p class="text-gray-400 italic mt-1">Vyplňte plán profilů</p>'}
-        </div>
-      </div>
-      <div class="p-3">
-        <p class="font-bold text-orange-700 text-sm mb-2">🔨 Děrování – ${casData.derovani?.celkem_fmt||'–'}
-          ${casData.derovani?.ma_fusion ? '<span class="font-normal text-gray-400 ml-1">(FUSION – přeskočeno)</span>' : ''}
-        </p>
-        <div class="space-y-1 text-gray-600">
-          ${casData.derovani?.ma_fusion ? `<p class="text-gray-400 italic text-xs">Q6506 Casemaker FUSION — děrování se neprovádí.</p>` : `
-            ${casData.derovani?.setup_s > 0 ? `<div class="flex justify-between"><span>Příprava děrovačky</span><span class="font-mono">${Math.round(casData.derovani.setup_s/60)} min</span></div>` : ''}
-            <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-              <span>L profily (${casData.derovani?.n_L||0} ks)</span>
-              <span class="font-mono">${Math.round((casData.derovani?.mat_cas_s||0)/60)} min</span>
-            </div>
-            <p class="text-gray-400 text-xs mt-1">${casData.derovani?.cas_na_profil||0} s / ks</p>`}
-        </div>
-      </div>
-      <div class="p-3">
-        <p class="font-bold text-red-700 text-sm mb-2">✂️ Můstky – ${casData.mustky?.celkem_fmt||'–'}</p>
-        <div class="space-y-1 text-gray-600">
-          <div class="flex justify-between">
-            <span>Desek <span class="text-gray-400">(${casData.mustky?.zdroj==='dxf'?'z DXF':'z BOM'})</span></span>
-            <span class="font-mono">${casData.mustky?.pocet_desek||0} ks</span>
-          </div>
-          <div class="flex justify-between border-t border-orange-200 pt-1 mt-1 font-medium">
-            <span>${casData.mustky?.pocet_desek||0}×${casData.mustky?.na_desku||4} můstků</span>
-            <span class="font-mono">${Math.round((casData.mustky?.celkem_s||0)/60)} min</span>
-          </div>
-          <p class="text-gray-400 text-xs mt-1">${casData.mustky?.cas_j||0} s / můstek</p>
-        </div>
-      </div>
-    </div>
-  </div>` : ''}
   ${tabNav}
   ${tabContent}
   `, 'xl');
@@ -2168,9 +2104,6 @@ function _buTabSpec(t, typId) {
       <div><label class="text-xs text-gray-500">Hloubka (mm)</label><input class="input" id="bu-h" type="number" value="${val('vnitrni_hloubka', t.vnitrni_hloubka||0)}"></div>
     </div>
     <div><label class="text-xs text-gray-500">Poznámka</label><textarea class="input" id="bu-poz" rows="2">${d.poznamka ?? t.poznamka ?? ''}</textarea></div>
-    <div class="flex gap-2 pt-2">
-      <button class="btn btn-primary flex-1" onclick="_buSaveSpec(${typId})">💾 Uložit</button>
-    </div>
   </div>`;
 }
 
@@ -2739,6 +2672,256 @@ function _buTabSoubory(typId, links) {
   <div class="pt-4 mt-4 border-t border-gray-100">
     <button class="btn btn-primary w-full" onclick="_buSaveSoubory(${typId})">💾 Uložit</button>
   </div>`;
+}
+
+function _buTabCasVyroby(typId, casData) {
+  if (!casData || !casData.kroky) {
+    return `
+    <div class="text-center py-10 text-gray-400">
+      <p class="text-4xl mb-3">⏱</p>
+      <p class="text-sm mb-4">Výrobní čas ještě nebyl vypočítán.</p>
+      <button class="btn btn-primary" onclick="_buPrepocitatCas(${typId})">🔄 Spočítat nyní</button>
+    </div>`;
+  }
+
+  const KROK_STYLE = {
+    orientace:           { icon: '📋', color: '#4f46e5' },
+    noseni_profilu:      { icon: '🚶', color: '#64748b' },
+    rezani_profilu:      { icon: '🔩', color: '#6b7280' },
+    derovani:            { icon: '🔨', color: '#d97706' },
+    brouseni_hybrid:     { icon: '🪚', color: '#65a30d' },
+    natireni_podvozku:   { icon: '🎨', color: '#db2777' },
+    mustky:              { icon: '✂️', color: '#dc2626' },
+    sbir_hw:             { icon: '📦', color: '#b45309' },
+    sestrileni:          { icon: '🔫', color: '#71717a' },
+    kompletace:          { icon: '🔧', color: '#2563eb' },
+    brouseni_desek:      { icon: '🪵', color: '#ca8a04' },
+    rack_listy:          { icon: '🗄️', color: '#475569' },
+    polep:               { icon: '🎨', color: '#7c3aed' },
+    lepeni_pen:          { icon: '🟩', color: '#16a34a' },
+    prostoje:            { icon: '🧹', color: '#78716c' },
+  };
+
+  const celkem = casData.celkem_s || 1;
+  const vpKompS = casData.viceprace_kompletace_s || 0;
+  const vpPenyS = casData.viceprace_peny_s || 0;
+  // Zobrazovací hodnoty v minutách (zaokrouhleno na 1 des. místo)
+  const vpKompMin = (vpKompS / 60).toFixed(1);
+  const vpPenyMin = (vpPenyS / 60).toFixed(1);
+
+  function fmtMin(s) {
+    if (!s) return '';
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h ? `${h}h ${String(m).padStart(2,'0')}min` : `${m}min`;
+  }
+
+  function _vpInlineRadek(id, icon, label, valS) {
+    const pct = Math.round(valS / celkem * 100);
+    const fmt = valS < 60 ? `${valS}s` : (Math.floor(valS/3600) ? `${Math.floor(valS/3600)}h ${String(Math.floor((valS%3600)/60)).padStart(2,'0')}min` : `${Math.floor(valS/60)}min`);
+    return `
+    <div id="${id}" style="display:${valS>0?'flex':'none'};align-items:center;gap:12px;padding:6px 0 6px 50px;border-bottom:1px solid #f3e8ff;background:#faf5ff">
+      <div style="width:28px;text-align:center;font-size:1rem;flex-shrink:0">${icon}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.8rem;font-weight:600;color:#6d28d9">${label}</div>
+        <div id="${id}-bar" style="margin-top:3px;height:2px;border-radius:2px;background:#e9d5ff;overflow:hidden;display:${valS>0&&pct>=3?'block':'none'}"><div style="height:100%;width:${pct}%;background:#7c3aed;border-radius:2px"></div></div>
+      </div>
+      <div style="flex-shrink:0;text-align:right">
+        <div id="${id}-fmt" style="font-family:monospace;font-size:.85rem;font-weight:700;color:#7c3aed">${valS > 0 ? fmt : '–'}</div>
+        <div id="${id}-pct" style="font-size:.65rem;color:#a78bfa;text-align:right;display:${valS>0?'block':'none'}">${pct}%</div>
+      </div>
+    </div>`;
+  }
+
+  const radky = casData.kroky.map((k, idx) => {
+    const st  = KROK_STYLE[k.id] || { icon: '⏱', color: '#94a3b8' };
+    const det = krokDetail(k);
+    const pct = Math.round(k.cas_s / celkem * 100);
+    const prazdny = k.cas_s === 0;
+    let extra = '';
+    if (k.id === 'kompletace' && vpKompS > 0) extra = _vpInlineRadek('cv-vp-komp-row', '🔧', 'Vícepráce – kompletace', vpKompS);
+    if (k.id === 'lepeni_pen' && vpPenyS > 0)  extra = _vpInlineRadek('cv-vp-peny-row', '🟩', 'Vícepráce – pěny', vpPenyS);
+    return `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;opacity:${prazdny?'0.35':'1'}">
+      <div style="width:28px;text-align:center;font-size:1.1rem;flex-shrink:0">${st.icon}</div>
+      <div style="width:22px;text-align:right;font-size:.7rem;color:#94a3b8;flex-shrink:0">${idx+1}.</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.875rem;font-weight:600;color:#374151">${k.label}</div>
+        ${det ? `<div style="font-size:.75rem;color:#9ca3af;margin-top:1px">${det}</div>` : ''}
+        ${!prazdny && pct >= 3 ? `
+        <div style="margin-top:4px;height:3px;border-radius:2px;background:#f1f5f9;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${st.color};border-radius:2px;transition:width .3s"></div>
+        </div>` : ''}
+      </div>
+      <div style="flex-shrink:0;text-align:right">
+        <div style="font-family:monospace;font-size:.9rem;font-weight:700;color:${prazdny?'#d1d5db':st.color}">${k.cas_fmt}</div>
+        ${!prazdny ? `<div style="font-size:.65rem;color:#9ca3af;text-align:right">${pct}%</div>` : ''}
+      </div>
+    </div>${extra}`;
+  }).join('');
+
+  // Řádek víceprace pro zobrazení v sekci
+  function vpRadek(label, icon, inputId, valMin, valS) {
+    const pct = Math.round(valS / celkem * 100);
+    const color = '#7c3aed';
+    return `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3e8ff">
+      <div style="width:28px;text-align:center;font-size:1.1rem;flex-shrink:0">${icon}</div>
+      <div style="width:22px;flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.875rem;font-weight:600;color:#6d28d9">${label}</div>
+        <div style="font-size:.75rem;color:#a78bfa;margin-top:1px">empirická korekce · zadej v minutách</div>
+        ${valS > 0 && pct >= 3 ? `
+        <div style="margin-top:4px;height:3px;border-radius:2px;background:#f3e8ff;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${color};border-radius:2px"></div>
+        </div>` : ''}
+      </div>
+      <div style="flex-shrink:0;display:flex;align-items:center;gap:6px">
+        <input id="${inputId}" type="number" min="0" step="0.5"
+               value="${valMin}"
+               style="width:72px;border:1px solid #c4b5fd;border-radius:6px;padding:4px 8px;
+                      font-size:.9rem;font-family:monospace;font-weight:700;color:#6d28d9;
+                      text-align:right;background:#faf5ff;outline:none"
+               oninput="_vpRecalcTotal(${typId})"
+               onblur="_vpSave(${typId})">
+        <span style="font-size:.75rem;color:#a78bfa;flex-shrink:0">min</span>
+        <div style="min-width:52px;text-align:right">
+          <div id="${inputId}-fmt" style="font-family:monospace;font-size:.9rem;font-weight:700;color:${valS>0?color:'#d1d5db'}">${valS > 0 ? fmtMin(valS) : '–'}</div>
+          ${valS > 0 ? `<div style="font-size:.65rem;color:#a78bfa;text-align:right">${pct}%</div>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  return `
+  <div style="border:1px solid #fed7aa;border-radius:10px;overflow:hidden;background:#fff">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#fff7ed;border-bottom:1px solid #fed7aa">
+      <span style="font-weight:600;color:#92400e;font-size:.9rem">⏱ Celkem: <strong id="cv-celkem-fmt" style="font-size:1.05rem">${casData.celkem_fmt}</strong></span>
+      <button class="btn btn-secondary py-1 px-3 text-xs" onclick="_buPrepocitatCas(${typId})">🔄 Přepočítat</button>
+    </div>
+
+    <!-- Automaticky vypočtené kroky -->
+    <div style="padding:0 16px">
+      ${radky}
+    </div>
+
+    <!-- Vícepráce – sekce s barevným odlišením -->
+    <div style="background:#faf5ff;border-top:2px solid #e9d5ff;padding:0 16px">
+      <div style="padding:8px 0 4px;font-size:.7rem;font-weight:700;color:#7c3aed;letter-spacing:.06em;text-transform:uppercase">
+        ➕ Vícepráce (manuální korekce)
+      </div>
+      ${vpRadek('Vícepráce – kompletace', '🔧', 'vp-komp', vpKompMin, vpKompS)}
+      ${vpRadek('Vícepráce – pěny',       '🟩', 'vp-peny', vpPenyMin, vpPenyS)}
+    </div>
+
+    <!-- Celkový součet -->
+    <div id="cv-celkem-bar" style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:#fff7ed;border-top:1px solid #fed7aa;font-weight:700;color:#92400e">
+      <span>Celkem</span>
+      <span id="cv-celkem-val" style="font-family:monospace;font-size:1.1rem">${casData.celkem_fmt}</span>
+    </div>
+  </div>
+  <div id="cv-ulozeno-toast" style="display:none;text-align:center;margin-top:8px;font-size:.8rem;color:#15803d;font-weight:600">✅ Uloženo</div>`;
+}
+
+// Přepočítá celkový čas na základě aktuálních hodnot v inputech (bez uložení)
+function _vpRecalcTotal(typId) {
+  const casData = _buData?.casData;
+  if (!casData) return;
+  const krokyS   = casData.kroky_s ?? casData.kroky.reduce((a,k) => a + k.cas_s, 0);
+  const vpKompMin = parseFloat(document.getElementById('vp-komp')?.value || 0) || 0;
+  const vpPenyMin = parseFloat(document.getElementById('vp-peny')?.value || 0) || 0;
+  const vpKompS   = Math.round(vpKompMin * 60);
+  const vpPenyS   = Math.round(vpPenyMin * 60);
+  const totalS    = krokyS + vpKompS + vpPenyS;
+
+  // Aktualizuj fmt zobrazení vedle inputů
+  function fmtS(s) {
+    if (!s) return '–';
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+    return h ? `${h}h ${String(m).padStart(2,'0')}min` : `${m}min`;
+  }
+  function fmtHM(s) {
+    s = Math.round(s);
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+    return h ? `${h}h ${String(m).padStart(2,'0')}min` : `${m}min`;
+  }
+
+  const kompFmt = document.getElementById('vp-komp-fmt');
+  if (kompFmt) kompFmt.textContent = fmtS(vpKompS);
+  const penyFmt = document.getElementById('vp-peny-fmt');
+  if (penyFmt) penyFmt.textContent = fmtS(vpPenyS);
+
+  // Aktualizuj inline vícepráce řádky v krokovém seznamu
+  const vpKompRow = document.getElementById('cv-vp-komp-row');
+  if (vpKompRow) {
+    vpKompRow.style.display = vpKompS > 0 ? 'flex' : 'none';
+    const f = vpKompRow.querySelector('#cv-vp-komp-row-fmt');
+    if (f) f.textContent = fmtS(vpKompS);
+  }
+  const vpPenyRow = document.getElementById('cv-vp-peny-row');
+  if (vpPenyRow) {
+    vpPenyRow.style.display = vpPenyS > 0 ? 'flex' : 'none';
+    const f = vpPenyRow.querySelector('#cv-vp-peny-row-fmt');
+    if (f) f.textContent = fmtS(vpPenyS);
+  }
+
+  const cel = document.getElementById('cv-celkem-fmt');
+  if (cel) cel.textContent = fmtHM(totalS);
+  const celVal = document.getElementById('cv-celkem-val');
+  if (celVal) celVal.textContent = fmtHM(totalS);
+}
+
+// Uloží vícepráce na server (volá se při onblur inputu)
+async function _vpSave(typId) {
+  const vpKompMin = parseFloat(document.getElementById('vp-komp')?.value || 0) || 0;
+  const vpPenyMin = parseFloat(document.getElementById('vp-peny')?.value || 0) || 0;
+  const vpKompS   = Math.round(vpKompMin * 60);
+  const vpPenyS   = Math.round(vpPenyMin * 60);
+  await api(`/api/typy-casu/${typId}/viceprace`, 'PATCH', {
+    viceprace_kompletace_s: vpKompS,
+    viceprace_peny_s:       vpPenyS,
+  });
+  // Aktualizuj cache
+  if (_buData?.casData) {
+    _buData.casData.viceprace_kompletace_s = vpKompS;
+    _buData.casData.viceprace_peny_s       = vpPenyS;
+    const krokyS = _buData.casData.kroky_s ?? _buData.casData.kroky.reduce((a,k) => a + k.cas_s, 0);
+    _buData.casData.celkem_s = krokyS + vpKompS + vpPenyS;
+  }
+}
+
+// Uloží vícepráce + pak zavolá ulozitCasVyroby s aktuálním celkovým časem
+async function _cvUlozitVse(typId) {
+  // Uloží vícepráce
+  await _vpSave(typId);
+  // Uloží cas_narocnost bez re-renderu menu
+  const casData = _buData?.casData;
+  if (!casData) return;
+  const krokyS  = casData.kroky_s ?? casData.kroky.reduce((a,k) => a + k.cas_s, 0);
+  const vpKompS = casData.viceprace_kompletace_s || 0;
+  const vpPenyS = casData.viceprace_peny_s || 0;
+  const totalS  = krokyS + vpKompS + vpPenyS;
+  const hodiny  = Math.round(totalS / 36) / 100;
+  await api(`/api/typy-casu/${typId}`, 'PUT', { cas_narocnost: hodiny });
+  // Aktualizuj inline vícepráce řádky (pro případ, že uživatel právě zadal hodnoty)
+  _vpRecalcTotal(typId);
+  // Feedback – flash na header tlačítku Uložit
+  const saveBtn = document.getElementById('bu-save-btn');
+  if (saveBtn) {
+    const orig = saveBtn.innerHTML;
+    saveBtn.innerHTML = '✅ Uloženo';
+    saveBtn.disabled = true;
+    setTimeout(() => { saveBtn.innerHTML = orig; saveBtn.disabled = false; }, 2000);
+  }
+  const toast = document.getElementById('cv-ulozeno-toast');
+  if (toast) { toast.style.display = 'block'; setTimeout(() => toast.style.display = 'none', 2500); }
+}
+
+async function _buPrepocitatCas(typId) {
+  const btn = event?.target;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
+  const casData = await api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null);
+  _buData = { ..._buData, casData };
+  _buRender();
 }
 
 function _buLinkAdd() {
@@ -6234,24 +6417,71 @@ async function _renderCasParametry() {
     'Peny.cleanup':        ['Úklid po pěnách',       's', false],
     'Peny.fix_session':    ['Zahájení práce',        's', false],
     'Peny.pena_default_s': ['↩ Záložní / pěna',      's', true ],
-    'Profily.setup':          ['Příprava pily',           's',    false],
-    'Profily.cas_na_rez_L':   ['Čas / 1 řez L profilu',  's',    false],
-    'Profily.cas_na_rez_H':   ['Čas / 1 řez H profilu',  's',    false],
-    'Profily.delka_faktor_L': ['Přídavek L / 100 mm',    's',    false],
-    'Profily.delka_faktor_H': ['Přídavek H / 100 mm',    's',    false],
-    'Derovani.setup':         ['Příprava děrovačky',      's',    false],
-    'Derovani.cas_na_profil': ['Čas / 1 ks L profilu',   's',    false],
-    'Mustky.cas_na_mustek':   ['Čas / 1 můstek',         's',    false],
-    'Mustky.mustku_na_desku': ['Počet můstků / deska',   'ks',   false],
+    'Priprava.orientace_jednoducha_s': ['Orientace – jednoduchý case', 's', false],
+    'Priprava.orientace_slozita_s':    ['Orientace – složitý case',   's', false],
+    'Priprava.orientace_mez_desek':    ['Mez desek (≤ = jednoduchý)', 'ks', false],
+    'Priprava.noseni_profilu_s':       ['Přinesení profilů',          's', false],
+    'Rezani.cas_fusion_ks_s':           ['FUSION/R1: čas / 1 profil',          's', false],
+    'Rezani.cas_L_uniq_s':              ['L profil: čas / 1 unik. rozměr',     's', false],
+    'Rezani.cas_H_uniq_s':              ['H (Hybrid): čas / 1 unik. rozměr (zastaralé)', 's', false],
+    'Rezani.cas_H_par_s':               ['H (Hybrid): čas / 1 pár (2 ks naráz)',          's', false],
+    'Rezani.cas_motyl_zkos_s':          ['Sražení / 1 motýlový zámek',         's', false],
+    'Rezani.cas_fusion_q6504_motyl_s':  ['Q6504 + motýl: vyřezání do profilů', 's', false],
+    'Derovani.cas_nastaveni_pravitka_s': ['Přenastavení pravítka / 1 rozměr',  's', false],
+    'Derovani.cas_na_profil_s':          ['Děrování / 1 kus L profilu',        's', false],
+    'Derovani.min_delka_mm':             ['Minimální délka pro děrování',      'mm', false],
+    'Podvozky.cas_na_kolo_s':            ['Natírání / 1 otočné kolečko',       's',  false],
+    'Mustky.max_tloustka_mm':            ['Max. tloušťka desky s můstky',      'mm', false],
+    'Mustky.cas_per_deska_s':            ['Čas / 1 deska (z DXF)',             's',  false],
+    'Mustky.cas_bom_fallback_s':         ['Záložní čas / case (bez DXF)',      's',  false],
+    'SbiraniHW.cas_per_druh_s':          ['Čas / 1 druh HW položky',           's',  false],
+    'SbiraniHW.cas_per_ks_s':            ['Čas / 1 ks HW',                     's',  false],
+    'Sestrileni.cas_base_s':             ['Sestřílení – základ / 1 desku',      's',  false],
+    'Sestrileni.cas_per_m2_s':           ['Sestřílení – přídavek / 1 m²',       's',  false],
+    'Kompletace.std_nit_roztes_mm':      ['Standard – dělitel délky pro nýty',  'mm', false],
+    'Kompletace.std_nitovani_s':         ['Standard – čas / 1 nýt',             's',  false],
+    'Kompletace.std_L_min_mm':           ['Standard – min. délka L pro nýty',   'mm', false],
+    'Kompletace.std_L_usazeni_s':        ['Standard – usazení / 1 ks L',        's',  false],
+    'Kompletace.std_H_usazeni_s':        ['Standard – usazení / 1 ks H',        's',  false],
+    'Kompletace.fus_profil_s':           ['FUSION – základ / 1 kus profilu',    's',  false],
+    'Kompletace.fus_per_100mm_s':        ['FUSION – přídavek / 100 mm',         's',  false],
+    'Kompletace.r1_hliniky_s':           ['R1 – kompletace hliníků celkem',     's',  false],
+    'Kompletace.panel_6060_s':           ['Panel 60×60 v rámu – paušál',        's',  false],
+    'Kompletace.panel_12060_s':          ['Panel 120×60 bez rámu – paušál',     's',  false],
+    'BrouseniHybrid.cas_na_hybrid_s':    ['Broušení H profilu / 1 ks',           's',  false],
+    'BrouseniDesek.max_tloustka_desky_mm': ['Broušení desek – max tloušťka fenol desky', 'mm', false],
+    'BrouseniDesek.max_tloustka_peny_mm':  ['Broušení desek – max tloušťka pěny',        'mm', false],
+    'BrouseniDesek.cas_per_m2_s':          ['Broušení desek – čas / 1 m² pěny',          's',  false],
+    'Polep.cas_polep_s':                 ['Polep tapetou (POLEP ART)',            's',  false],
+    'Prostoje.delitel':                  ['Dělitel prostojů (Σ kroků / dělitel)', '÷',  false],
+    'LepeniPen.cas_priprava_s':          ['Příprava před lepením celkem',        's',  false],
+    'LepeniPen.cas_priprava_peny_s':     ['Příprava / 1 kus pěny',              's',  false],
+    'LepeniPen.cas_per_m2_s':            ['Lepení / 1 m²',                      's',  false],
+    'LepeniPen.cas_min_s':               ['Minimum / 1 kus pěny',               's',  false],
+    'RackListy.cas_montaz_listy_s':      ['Rack lišta – montáž / 1 ks',         's',  false],
+    'RackListy.cas_guma_listy_s':        ['Rack lišta – gumové těsnění / 1 ks', 's',  false],
+    'RackListy.rack_unit_vyska_mm':      ['Výška 1 rack unit',                  'mm', false],
+    'RackListy.cas_matice_ru_s':         ['Rack matice – čas / 1 RU',           's',  false],
   };
 
   const sekceConf = {
     CNC:      { label: 'CNC',              icon: '🔵', color: 'purple' },
     Montaz:   { label: 'Montáž',           icon: '🔧', color: 'blue'   },
     Peny:     { label: 'Pěny',             icon: '🟢', color: 'green'  },
-    Profily:  { label: 'Řezání profilů',   icon: '🔩', color: 'gray'   },
-    Derovani: { label: 'Děrování',         icon: '🔨', color: 'orange' },
-    Mustky:   { label: 'Můstky (CNC)',     icon: '✂️', color: 'red'    },
+    Priprava: { label: 'Příprava montáže', icon: '📋', color: 'indigo' },
+    Rezani:   { label: 'Řezání profilů',   icon: '🔩', color: 'slate'  },
+    Derovani: { label: 'Děrování L profilů', icon: '🔨', color: 'orange' },
+    Podvozky:       { label: 'Natírání podvozků',  icon: '🎨', color: 'pink'   },
+    BrouseniHybrid: { label: 'Broušení hybridů',   icon: '🪚', color: 'lime'   },
+    BrouseniDesek:  { label: 'Broušení desek před lepením pěn', icon: '🪵', color: 'yellow' },
+    Mustky:    { label: 'Můstky',             icon: '✂️', color: 'red'    },
+    SbiraniHW:  { label: 'Sesbírání HW',      icon: '📦', color: 'amber'  },
+    Sestrileni:  { label: 'Sestřílení',        icon: '🔫', color: 'zinc'   },
+    Kompletace:  { label: 'Kompletace',        icon: '🔧', color: 'blue'   },
+    RackListy:   { label: 'Rack lišty',        icon: '🗄️', color: 'slate'  },
+    Polep:       { label: 'Polep tapetou',               icon: '🎨', color: 'violet' },
+    LepeniPen:   { label: 'Lepení pěn – základní časy', icon: '🟩', color: 'green' },
+    Prostoje:    { label: 'Prostoje',                    icon: '🧹', color: 'stone'  },
   };
 
   const renderSekce = (sekce) => {
@@ -6315,15 +6545,84 @@ async function _renderCasParametry() {
       ${renderSekce('Montaz')}
       ${renderSekce('Peny')}
     </div>
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-3">
-      ${renderSekce('Profily')}
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-3">
+      ${renderSekce('Priprava')}
+      ${renderSekce('Rezani')}
       ${renderSekce('Derovani')}
+      ${renderSekce('BrouseniHybrid')}
+      ${renderSekce('Podvozky')}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-3">
       ${renderSekce('Mustky')}
+      ${renderSekce('SbiraniHW')}
+      ${renderSekce('Sestrileni')}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-3">
+      ${renderSekce('Kompletace')}
+      ${renderSekce('RackListy')}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-3">
+      ${renderSekce('BrouseniDesek')}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-3">
+      ${renderSekce('Polep')}
+      ${renderSekce('Prostoje')}
+      ${renderSekce('LepeniPen')}
+      <div class="card p-4 lg:col-span-2">
+        <p class="font-semibold text-green-700 mb-3 text-sm">🟩 Lepení pěn – koeficienty a fallback ks (bez DXF)</p>
+        <table class="w-full text-xs">
+          <thead><tr class="text-gray-400 border-b">
+            <th class="text-left pb-1">Typ casu</th>
+            <th class="pb-1">Koeficient</th>
+            <th class="pb-1">Fallback ks (bez DXF)</th>
+          </tr></thead>
+          <tbody>
+          ${(() => {
+            const TYPY = [
+              ['Hlava / kombo',             'hlava'],
+              ['Mixpult',                   'mixpult'],
+              ['Klávesy',                   'klavesy'],
+              ['Rack',                      'rack'],
+              ['Rack Sliding door',         'rack_slide'],
+              ['Accessory case',            'access'],
+              ['Pedalboard',                'pedal'],
+              ['Case pro světelné hlavy',   'svetlo'],
+              ['Case pro TV',               'tv'],
+              ['Šatní skříň',              'satna'],
+              ['Jiný typ',                 'jiny'],
+              ['Inlay',                    'inlay'],
+            ];
+            return TYPY.map(([label, klic]) => {
+              const koefPar = pars.find(p => p.sekce==='LepeniPen' && p.klic===`koef_${klic}`);
+              const fksPar  = pars.find(p => p.sekce==='LepeniPen' && p.klic===`fks_${klic}`);
+              return `<tr class="border-b border-gray-50">
+                <td class="py-1 pr-3 text-gray-600">${label}</td>
+                <td class="py-1 text-center">
+                  <input class="border border-gray-200 rounded px-1 py-0.5 text-right text-xs w-14 focus:ring-1 focus:ring-green-400"
+                         id="cp-LepeniPen-koef_${klic}" type="number" step="0.1" min="0"
+                         value="${koefPar ? koefPar.hodnota : 1}"
+                         data-sekce="LepeniPen" data-klic="koef_${klic}" oninput="_casSimPreview()">
+                </td>
+                <td class="py-1 text-center">
+                  <input class="border border-gray-200 rounded px-1 py-0.5 text-right text-xs w-14 focus:ring-1 focus:ring-green-400"
+                         id="cp-LepeniPen-fks_${klic}" type="number" step="1" min="0"
+                         value="${fksPar ? fksPar.hodnota : 0}"
+                         data-sekce="LepeniPen" data-klic="fks_${klic}" oninput="_casSimPreview()">
+                  <span class="text-gray-400 ml-0.5">ks</span>
+                </td>
+              </tr>`;
+            }).join('');
+          })()}
+          </tbody>
+        </table>
+      </div>
     </div>
     <p class="text-xs text-gray-400 mb-3">
-      ℹ️ <strong>Řezání profilů</strong> počítá z řezného plánu (záložka Profily v BOM editoru).
-      <strong>Děrování</strong> se přeskočí, pokud BOM obsahuje Q6506 (Casemaker FUSION 30×30 mm).
-      <strong>Můstky</strong> = počet desek z DXF (nebo BOM) × počet můstků × čas/můstek.
+      ℹ️ <strong>Příprava:</strong> Složitost dle počtu desek v BOM (≤ mez = jednoduchý, &gt; mez = složitý).
+      <strong>Řezání:</strong> Plán profilů ze záložky Profily v BOM editoru. FUSION/R1 = kódy Q* nebo NE*.
+      Q6504+motýl: připočítává se jen když BOM obsahuje zároveň Q6504 i motýlový zámek.
+      <strong>Děrování:</strong> Jen L profily (ne FUSION/R1) delší než minimální délka. Kratší profily se přeskočí.
+      <strong>Natírání podvozků:</strong> Počítá kolečka s typ=PODVOZEK a druh=OTOČNÉ. Pevné a rohové podvozky se nepočítají.
     </p>
     <div class="flex items-center gap-3 mb-5">
       <button class="btn btn-primary" onclick="_saveCasParametry()">💾 Uložit a přepočítat vše</button>
@@ -6421,71 +6720,7 @@ async function _casSimPreview() {
   const fmtS   = s => `${Math.round(s)}s`;
   const defBadge = cnt => cnt > 0 ? `<span class="bg-amber-200 text-amber-800 rounded px-1 text-xs ml-1">~${cnt}× záložní</span>` : '';
 
-  el.innerHTML = `
-    <div class="grid grid-cols-4 gap-3 text-center mb-3">
-      <div class="bg-purple-50 rounded-lg p-3">
-        <p class="text-xs text-gray-400">🔵 CNC ${defBadge(casData.cnc.defaults_cnt)}</p>
-        <p class="text-lg font-bold text-purple-700">${casData.cnc.celkem_fmt}</p>
-        <p class="text-xs text-gray-400">size×${casData.size_factor}</p>
-      </div>
-      <div class="bg-blue-50 rounded-lg p-3">
-        <p class="text-xs text-gray-400">🔧 Montáž ${defBadge(casData.montaz.defaults_cnt)}</p>
-        <p class="text-lg font-bold text-blue-700">${casData.montaz.celkem_fmt}</p>
-        <p class="text-xs text-gray-400">${casData.montaz.polozky.length} HW pol.</p>
-      </div>
-      <div class="bg-green-50 rounded-lg p-3">
-        <p class="text-xs text-gray-400">🟢 Pěny ${defBadge(casData.peny.defaults_cnt)}</p>
-        <p class="text-lg font-bold text-green-700">${casData.peny.celkem_fmt}</p>
-        <p class="text-xs text-gray-400">${casData.peny.polozky.length} pěn. pol.</p>
-      </div>
-      <div class="bg-orange-100 rounded-lg p-3 border border-orange-300">
-        <p class="text-xs text-gray-500">⏱ CELKEM</p>
-        <p class="text-xl font-bold text-orange-700">${casData.celkem_fmt}</p>
-        ${casData.ma_defaults ? `<p class="text-xs text-amber-600">⚠ ${casData.defaults_cnt}× odhad</p>` : '<p class="text-xs text-green-600">✓ přesné časy</p>'}
-      </div>
-    </div>
-    <div class="grid grid-cols-3 gap-3 text-center mb-3">
-      <div class="bg-gray-50 rounded-lg p-3">
-        <p class="text-xs text-gray-400">🔩 Profily</p>
-        <p class="text-lg font-bold text-gray-700">${casData.profily?.celkem_fmt||'–'}</p>
-        <p class="text-xs text-gray-400">${(casData.profily?.n_L||0)}× L, ${(casData.profily?.n_H||0)}× H</p>
-      </div>
-      <div class="bg-orange-50 rounded-lg p-3">
-        <p class="text-xs text-gray-400">🔨 Děrování</p>
-        <p class="text-lg font-bold text-orange-700">${casData.derovani?.celkem_fmt||'–'}</p>
-        <p class="text-xs text-gray-400">${casData.derovani?.ma_fusion ? '⚠ FUSION – přeskočeno' : (casData.derovani?.n_L||0)+' ks L profilů'}</p>
-      </div>
-      <div class="bg-red-50 rounded-lg p-3">
-        <p class="text-xs text-gray-400">✂️ Můstky</p>
-        <p class="text-lg font-bold text-red-700">${casData.mustky?.celkem_fmt||'–'}</p>
-        <p class="text-xs text-gray-400">${(casData.mustky?.pocet_desek||0)} desek (${casData.mustky?.zdroj==='dxf'?'DXF':'BOM'})</p>
-      </div>
-    </div>
-    ${casData.ma_defaults ? `
-    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 mb-2">
-      <strong>Záložní časy</strong> – ${casData.defaults_cnt} položek nemá nastaven vlastní <code>cas_s</code> a používá záložní hodnoty z parametrů výše.
-      Pro přesný výpočet nastavte čas zpracování u těchto materiálů v přehledu materiálů:
-      <div class="mt-1.5 space-y-0.5">
-        ${[...casData.cnc.polozky,...casData.montaz.polozky,...casData.peny.polozky]
-          .filter(p => p.pouzit_default)
-          .map(p => `<span class="inline-block bg-white border border-amber-200 rounded px-1.5 py-0.5 mr-1 mb-1 font-mono">${p.material_kod} <span class="text-gray-500">${p.nazev.substring(0,20)}${p.nazev.length>20?'…':''}</span></span>`)
-          .join('')}
-      </div>
-    </div>` : ''}
-    <div class="grid grid-cols-3 gap-3 text-xs">
-      ${['cnc','montaz','peny'].map(sekce => {
-        const s = casData[sekce];
-        return `<div>
-          <p class="font-semibold text-gray-500 mb-1">Rozpis ${sekce === 'cnc' ? 'CNC' : sekce === 'montaz' ? 'Montáž' : 'Pěny'}:</p>
-          ${s.polozky.map(pol => `
-            <div class="flex justify-between py-0.5 ${pol.pouzit_default ? 'text-amber-600' : 'text-gray-500'}">
-              <span class="truncate" title="${pol.nazev}">${pol.pouzit_default?'~':''}${pol.nazev.substring(0,22)}${pol.nazev.length>22?'…':''}</span>
-              <span class="font-mono ml-1 whitespace-nowrap">${fmtS(pol.cas_celkem_s)}</span>
-            </div>`).join('') || '<p class="text-gray-300 italic">–</p>'}
-        </div>`;
-      }).join('')}
-    </div>
-  `;
+  el.innerHTML = _casPanelHtml(casData, parseInt(typId));
 }
 
 async function _saveCasParametry() {

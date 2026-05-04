@@ -1,8 +1,8 @@
 {
-  "verze": 29,
-  "popis": "Výpočet časů: Profily, Děrování, Můstky",
+  "verze": 32,
+  "popis": "Broušení desek před lepením pěn; oprava fmt_hm pro <60s; H profily řezání po párech; vícepráce inline v Čas výroby; Uložit přesunuto do headeru BOM editoru",
   "autor": "Ludek",
   "datum": "04.05.2026",
-  "cas": "08:59",
-  "git_commit": "39703a7"
+  "cas": "15:29",
+  "git_commit": "41cd4f3"
 }
