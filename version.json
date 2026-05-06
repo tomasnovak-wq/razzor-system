@@ -1,8 +1,8 @@
 {
-  "verze": 78,
-  "popis": "Odstraneni emoji z casovych kroku vyroby",
+  "verze": 79,
+  "popis": "3D legenda — pill styl misto checkboxu, toggle skupin i vrstev",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "21:40",
-  "git_commit": "9770ccc"
+  "cas": "21:45",
+  "git_commit": "2306ab9"
 }

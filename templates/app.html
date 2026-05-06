@@ -4088,23 +4088,49 @@ let _3dScene = null, _3dCamera = null, _3dRenderer = null, _3dControls = null;
 let _3dAnimFrameId = null;
 let _3dMeshMap = {};   // filename → mesh (pro toggles)
 
-function _3dToggleLayer(filename, visible) {
+function _3dToggleLayer(filename) {
   const mesh = _3dMeshMap[filename];
-  if (mesh) mesh.visible = visible;
+  if (!mesh) return;
+  const visible = !mesh.visible;
+  mesh.visible = visible;
+  const id = 'pill3d_' + filename.replace(/[^a-zA-Z0-9]/g, '_');
+  const pill = document.getElementById(id);
+  if (pill) _3dPillSetActive(pill, visible);
 }
 
-function _3dToggleGroup(typ, visible) {
-  // Přepne viditelnost všech meshů daného typu + synchronizuje individuální checkboxy
+function _3dToggleGroup(typ) {
   if (!_3dMeshMap) return;
-  Object.values(_3dMeshMap).forEach(mesh => {
-    if (!mesh.userData?.vrstva) return;
-    if (mesh.userData.vrstva.typ !== typ) return;
+  // Zjisti aktuální stav skupiny — pokud jsou všechny zapnuté, vypni; jinak zapni
+  const meshes = Object.values(_3dMeshMap).filter(m => m.userData?.vrstva?.typ === typ);
+  const allOn  = meshes.every(m => m.visible);
+  const visible = !allOn;
+  meshes.forEach(mesh => {
     mesh.visible = visible;
-    // Synchronizuj individuální checkbox
-    const id = 'chk3d_' + mesh.userData.vrstva.filename.replace(/[^a-zA-Z0-9]/g, '_');
-    const chk = document.getElementById(id);
-    if (chk) chk.checked = visible;
+    const id = 'pill3d_' + mesh.userData.vrstva.filename.replace(/[^a-zA-Z0-9]/g, '_');
+    const pill = document.getElementById(id);
+    if (pill) _3dPillSetActive(pill, visible);
   });
+  // Sync skupinový pill
+  const gid = 'grppill3d_' + typ;
+  const gpill = document.getElementById(gid);
+  if (gpill) _3dPillSetActive(gpill, visible);
+}
+
+function _3dPillSetActive(pill, active) {
+  const col = pill.dataset.color || '#94a3b8';
+  if (active) {
+    pill.style.background = col + '22';
+    pill.style.border = `1.5px solid ${col}88`;
+    pill.style.color = '#374151';
+    pill.style.opacity = '1';
+  } else {
+    pill.style.background = '#f1f5f9';
+    pill.style.border = '1.5px solid #e2e8f0';
+    pill.style.color = '#9ca3af';
+    pill.style.opacity = '0.6';
+  }
+  const swatch = pill.querySelector('[data-swatch]');
+  if (swatch) swatch.style.opacity = active ? '1' : '0.3';
 }
 
 // Barva vrstvy — globální, sdílí _buTab3D (seznam) i _bu3dInitViewer (Three.js mesh)
@@ -4478,35 +4504,34 @@ async function _bu3dInitViewer(typId, vrstvy) {
     ];
     const presentTypes = new Set(meshes.map(m => m.userData.vrstva.typ));
     const groupBtns = GROUP_DEF.filter(g => presentTypes.has(g.typ)).map(g =>
-      `<label title="Zobrazit/skrýt ${g.label}"
-          style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;
-                 background:#1e3a5f;border:1px solid #334155;border-radius:6px;padding:4px 10px;
-                 font-size:.8rem;color:#e2e8f0">
-        <input type="checkbox" checked style="margin:0;cursor:pointer;accent-color:${g.color}"
-               onchange="_3dToggleGroup('${g.typ}', this.checked)">
+      `<button id="grppill3d_${g.typ}" data-color="${g.color}" onclick="_3dToggleGroup('${g.typ}')"
+          title="Zobrazit/skrýt vše: ${g.label}"
+          style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+                 background:${g.color}22;border:1.5px solid ${g.color}88;border-radius:20px;
+                 padding:3px 11px;font-size:.75rem;font-weight:600;color:#374151">
+        <span data-swatch style="width:9px;height:9px;border-radius:50%;background:${g.color};flex-shrink:0"></span>
         ${g.label}
-      </label>`
+      </button>`
     ).join('');
 
     const indivChk = meshes.map(m => {
-      const v   = m.userData.vrstva;
-      const b   = m.userData.bb;
-      const col = '#' + layerColor(v).toString(16).padStart(6, '0');
-      const id  = 'chk3d_' + v.filename.replace(/[^a-zA-Z0-9]/g, '_');
-      const mat = _3dMatMap[(v.nazev || '').toLowerCase().trim()];
+      const v      = m.userData.vrstva;
+      const b      = m.userData.bb;
+      const col    = '#' + layerColor(v).toString(16).padStart(6, '0');
+      const pillId = 'pill3d_' + v.filename.replace(/[^a-zA-Z0-9]/g, '_');
+      const mat    = _3dMatMap[(v.nazev || '').toLowerCase().trim()];
       const bboxTip = b ? `X[${b.xMin}..${b.xMax}] Y[${b.yMin}..${b.yMax}] Z[${b.zMin}..${b.zMax}]` : '';
       const tip     = mat ? `${mat.nazev}${bboxTip ? ' · ' + bboxTip : ''}` : bboxTip;
       const normN   = v.nazev.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
       const dispName = mat ? `${normN} · ${mat.nazev}` : normN;
-      const border  = (col === '#ffffff') ? 'border:1px solid #d1d5db;' : '';
-      return `<label title="${tip}" data-typ="${v.typ}"
-          style="display:inline-flex;align-items:center;gap:5px;background:#f8fafc;
-                 border:1px solid #e2e8f0;border-radius:5px;padding:3px 8px;cursor:pointer;user-select:none">
-        <input type="checkbox" id="${id}" checked style="margin:0;cursor:pointer;accent-color:${col}"
-               onchange="_3dToggleLayer('${v.filename.replace(/'/g,"\\'")}', this.checked)">
-        <span style="width:10px;height:10px;border-radius:2px;background:${col};${border}flex-shrink:0"></span>
-        <span style="font-size:.78rem">${dispName}</span>
-      </label>`;
+      const swatchBorder = (col === '#ffffff') ? 'border:1px solid #d1d5db;' : '';
+      return `<button id="${pillId}" data-color="${col}" data-typ="${v.typ}"
+          title="${tip}" onclick="_3dToggleLayer('${v.filename.replace(/'/g,"\\'")}')"
+          style="display:inline-flex;align-items:center;gap:5px;background:${col}22;
+                 border:1.5px solid ${col}88;border-radius:20px;padding:3px 9px;cursor:pointer">
+        <span data-swatch style="width:9px;height:9px;border-radius:2px;background:${col};${swatchBorder}flex-shrink:0"></span>
+        <span style="font-size:.75rem;color:#374151">${dispName}</span>
+      </button>`;
     }).join('');
 
     legend.innerHTML =
