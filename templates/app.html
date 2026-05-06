@@ -3797,6 +3797,7 @@ const _3D_COLORS = {
   pena:    0x86efac,   // zelená fallback
   hw:      0x94a3b8,   // šedá — hardware (závěsy, zámky, nožičky…)
   profily: 0xfbbf24,   // zlatá — hliníkové profily
+  nyty:    0xd4d4d8,   // světle stříbrná — nýty
   jine:    0xe2e8f0,   // světle šedá — nezařazené
 };
 
@@ -3947,7 +3948,7 @@ function _bu3dModelInfoHtml(typId, model3dData, vrstvy) {
 }
 
 function _bu3dTypOpts(cur) {
-  return [['deska','🪵 Deska'],['pena','🟡 Pěna'],['hw','🔩 HW'],['profily','📐 Profily'],['jine','📦 Jiné'],['ignorovat','🚫 Ignorovat']]
+  return [['deska','🪵 Deska'],['pena','🟡 Pěna'],['hw','🔩 HW'],['profily','📐 Profily'],['nyty','🔗 Nýty'],['jine','📦 Jiné'],['ignorovat','🚫 Ignorovat']]
     .map(([v,l]) => `<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('');
 }
 
@@ -4262,6 +4263,7 @@ async function _bu3dInitViewer(typId, vrstvy) {
       { typ:'pena',    label:'🟡 Pěna',    color:'#86efac' },
       { typ:'hw',      label:'🔩 HW',      color:'#94a3b8' },
       { typ:'profily', label:'📐 Profily', color:'#fbbf24' },
+      { typ:'nyty',    label:'🔗 Nýty',    color:'#d4d4d8' },
       { typ:'jine',    label:'📦 Jiné',    color:'#e2e8f0' },
     ];
     const presentTypes = new Set(meshes.map(m => m.userData.vrstva.typ));

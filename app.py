@@ -1205,6 +1205,11 @@ def api_3d_post(typ_id):
                         typ = 'pena'
                         tloustka = float(m.group(1).replace(',', '.'))
 
+                # Speciální: vrstva "Nyty" / "Nýty" → kategorie nyty
+                norm_name = layer_name_display.lower().replace('ý','y').replace('ú','u').replace('í','i')
+                if norm_name in ('nyty', 'nyty'):
+                    typ = 'nyty'
+
                 vrstvy.append({
                     'nazev':       layer_name_display,
                     'filename':    safe,
@@ -1214,6 +1219,40 @@ def api_3d_post(typ_id):
 
     except zipfile.BadZipFile:
         return jsonify({'error': 'Neplatný ZIP soubor'}), 400
+
+    # ── Přiřazení typů vrstev dle typ_materialu v katalogu ───────────────────
+    # Pro vrstvy kde typ = 'jine' (nezjistil se z názvu): zkusíme najít kód
+    # v tabulce materialy a přiřadit typ dle typ_materialu.
+    try:
+        conn_mat = get_db()
+        cm = conn_mat.cursor()
+        codes = [v['nazev'].strip() for v in vrstvy if v['typ'] == 'jine']
+        if codes:
+            placeholders = ','.join('?' * len(codes))
+            cm.execute(
+                f"SELECT kod, UPPER(COALESCE(typ,'')) as tm FROM materialy WHERE kod IN ({placeholders})",
+                codes
+            )
+            mat_type_map = {row['kod']: row['tm'] for row in cm.fetchall()}
+            conn_mat.close()
+            for v in vrstvy:
+                if v['typ'] != 'jine':
+                    continue
+                tm = mat_type_map.get(v['nazev'].strip(), '')
+                if not tm:
+                    continue
+                if tm.startswith('HW'):
+                    v['typ'] = 'hw'
+                elif 'PROFIL' in tm:
+                    v['typ'] = 'profily'
+                elif tm in ('PENA', 'PÉNA'):
+                    v['typ'] = 'pena'
+                elif tm == 'DESKA':
+                    v['typ'] = 'deska'
+        else:
+            conn_mat.close()
+    except Exception as _me:
+        print(f'[3D mat-lookup] chyba: {_me!r}', flush=True)
 
     # ── AUTO-KOREKCE offsetu ─────────────────────────────────────────────────
     # Primární metoda (LISP v18+): referenční box 1×1×1 mm u WCS (0,0,0).
