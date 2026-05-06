@@ -1,8 +1,8 @@
 {
-  "verze": 33,
-  "popis": "Přidán 3D viewer: záložka 3D v BOM editoru, STL export po vrstvách, Three.js viewer s barvami dle vrstev, LISP skript pro AutoCAD",
+  "verze": 43,
+  "popis": "3D viewer: per-layer visibility checkboxy s bbox tooltipem pro diagnostiku posunu",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "07:32",
-  "git_commit": "3c284eb"
+  "cas": "10:16",
+  "git_commit": "59c3cc4"
 }

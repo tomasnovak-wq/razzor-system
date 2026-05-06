@@ -1974,7 +1974,7 @@ async function _buSmazatTyp(typId, hnCislo, nazev) {
 
 function _buRender() {
   if (!_buData) return;
-  const { typId, data, casData, profilyData, dxfData } = _buData;
+  const { typId, data, casData, profilyData, dxfData, model3dData } = _buData;
   const t = data.typ;
   const bom = data.bom || [];
   const spojeniky = data.spojeniky || [];
@@ -3791,12 +3791,18 @@ const _3D_NAMED_COLORS = {
 let _3dThreeLoaded = false;
 let _3dScene = null, _3dCamera = null, _3dRenderer = null, _3dControls = null;
 let _3dAnimFrameId = null;
+let _3dMeshMap = {};   // filename → mesh (pro toggles)
+
+function _3dToggleLayer(filename, visible) {
+  const mesh = _3dMeshMap[filename];
+  if (mesh) mesh.visible = visible;
+}
 
 function _buTab3D(typId, model3dData) {
   const listHtml = model3dData
     ? (() => {
         const d = model3dData;
-        const rows = d.vrstvy.map(v => {
+        const rows = (d.vrstvy||[]).map(v => {
           const typLabel = v.typ === 'deska' ? '🪵 Deska'
                          : v.typ === 'pena'  ? '🟡 Pěna'
                          : '📦 Jiné';
@@ -3811,13 +3817,14 @@ function _buTab3D(typId, model3dData) {
             <td class="py-1 text-sm text-gray-400">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
           </tr>`;
         }).join('');
+        const pocet = (d.vrstvy||[]).length;
         return `
         <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.83rem;color:#166534">
           ✓ Nahrán model: <strong>${d.nazev_souboru}</strong>
-          &nbsp;·&nbsp; ${d.vrstvy.length} vrstev
+          ${pocet > 0 ? `&nbsp;·&nbsp; ${pocet} vrstev` : ''}
           &nbsp;·&nbsp; <span class="text-gray-400">${(d.nahrano||'').slice(0,16).replace('T',' ')}</span>
         </div>
-        <div style="overflow-x:auto;margin-bottom:14px">
+        ${pocet > 0 ? `<div style="overflow-x:auto;margin-bottom:14px">
           <table class="text-sm" style="border-collapse:collapse;min-width:300px">
             <thead><tr style="border-bottom:1px solid #e5e7eb">
               <th class="py-1 pr-3 text-left text-xs text-gray-500">Vrstva</th>
@@ -3826,7 +3833,7 @@ function _buTab3D(typId, model3dData) {
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
-        </div>`;
+        </div>` : ''}`;
       })()
     : `<p class="text-sm text-gray-400 italic text-center py-4">Zatím nebyl nahrán žádný 3D model.</p>`;
 
@@ -3842,7 +3849,7 @@ function _buTab3D(typId, model3dData) {
                     background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:7px 14px;
                     font-size:.88rem;color:#374151">
         📦 <span>Vybrat ZIP se STL soubory</span>
-        <input type="file" accept=".zip" id="3d-zip-input" style="display:none"
+        <input type="file" accept=".zip" id="3d-stl-input" style="display:none"
                onchange="_bu3dFileChosen(this, ${typId})">
       </label>
       <span id="3d-chosen-name" style="font-size:.82rem;color:#6b7280"></span>
@@ -3853,7 +3860,7 @@ function _buTab3D(typId, model3dData) {
 
     <div id="3d-layer-list">${listHtml}</div>
 
-    ${model3dData && model3dData.vrstvy.length > 0 ? `
+    ${model3dData && (model3dData.vrstvy||[]).length > 0 ? `
     <div style="margin-top:8px">
       <button class="btn btn-secondary text-sm" onclick="_bu3dOpenViewer(${typId})">
         🔲 Zobrazit 3D model
@@ -3872,7 +3879,7 @@ function _bu3dFileChosen(input, typId) {
 }
 
 async function _bu3dUpload(typId) {
-  const input  = document.getElementById('3d-zip-input');
+  const input  = document.getElementById('3d-stl-input');
   const status = document.getElementById('3d-upload-status');
   const btn    = document.getElementById('3d-upload-btn');
   if (!input || !input.files[0]) return;
@@ -3892,7 +3899,6 @@ async function _bu3dUpload(typId) {
     status.style.color = '#16a34a';
     _buData.model3dData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
                             nahrano: new Date().toISOString() };
-    // Překresli záložku
     _buRender();
   } catch(e) {
     status.textContent = '✗ Chyba sítě'; status.style.color = '#dc2626';
@@ -3907,7 +3913,7 @@ function _bu3dOpenViewer(typId) {
   // Otevři fullscreen modal s Three.js viewerem
   openModal(`
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <h3 style="font-weight:600;font-size:1rem">3D model — ${_buData.data.hn_cislo} ${_buData.data.nazev}</h3>
+    <h3 style="font-weight:600;font-size:1rem">3D model — ${_buData.data.typ?.hn_cislo||''} ${_buData.data.typ?.nazev||''}</h3>
     <div style="display:flex;gap:8px;align-items:center">
       <span style="font-size:.78rem;color:#94a3b8">Myš: otáčení &nbsp;|&nbsp; Kolečko: zoom &nbsp;|&nbsp; Pravé tl.: posun</span>
       <button onclick="closeModal();bomDetailUnified(${typId},7)" class="btn btn-secondary py-1 px-2 text-sm">← Zpět</button>
@@ -3959,6 +3965,8 @@ async function _bu3dInitViewer(typId, vrstvy) {
   const legend = document.getElementById('3d-layer-legend');
   if (!wrap || !canvas) return;
 
+  _3dMeshMap = {};   // reset při každém novém otevření
+
   const THREE = window.THREE;
   const W = wrap.clientWidth, H = wrap.clientHeight;
 
@@ -3975,49 +3983,81 @@ async function _bu3dInitViewer(typId, vrstvy) {
   _3dRenderer.setSize(W, H);
   _3dRenderer.setPixelRatio(window.devicePixelRatio);
 
-  // Lights
-  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  // Lights — více světel pro lepší čitelnost hran
+  const ambient = new THREE.AmbientLight(0xffffff, 0.55);
   _3dScene.add(ambient);
-  const dir1 = new THREE.DirectionalLight(0xffffff, 0.8);
+  const dir1 = new THREE.DirectionalLight(0xffffff, 0.75);
   dir1.position.set(1, 2, 3);
   _3dScene.add(dir1);
   const dir2 = new THREE.DirectionalLight(0xffffff, 0.4);
   dir2.position.set(-2, -1, -1);
   _3dScene.add(dir2);
+  const dir3 = new THREE.DirectionalLight(0xffffff, 0.25);
+  dir3.position.set(0, -1, 0);   // světlo zezdola — osvítí spodní plochy
+  _3dScene.add(dir3);
 
   // OrbitControls
   _3dControls = new THREE.OrbitControls(_3dCamera, _3dRenderer.domElement);
   _3dControls.enableDamping = true;
   _3dControls.dampingFactor = 0.07;
 
-  // Pomocná funkce pro barvu vrstvy
+  // Barva vrstvy
   function layerColor(v) {
     if (_3D_NAMED_COLORS[v.nazev] !== undefined) return _3D_NAMED_COLORS[v.nazev];
     return _3D_COLORS[v.typ] || _3D_COLORS.jine;
   }
 
-  // Loader
+  // Načti všechny STL soubory paralelně
   const loader = new THREE.STLLoader();
   const meshes = [];
   const loadPromises = vrstvy.map(v => new Promise(res => {
     loader.load(
       `/api/typy-casu/${typId}/3d/${encodeURIComponent(v.filename)}`,
       geometry => {
+        // AutoCAD exportuje Z-nahoru, Three.js očekává Y-nahoru → rotace -90° kolem X
+        geometry.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
         geometry.computeVertexNormals();
+
+        // Detekuj tenké objekty (logo, gravírka) → polygonOffset + emissive pro viditelnost
+        geometry.computeBoundingBox();
+        const bb = geometry.boundingBox;
+        const dims = [
+          bb.max.x - bb.min.x,
+          bb.max.y - bb.min.y,
+          bb.max.z - bb.min.z
+        ];
+        const minDim = Math.min(...dims);
+        const isThin = minDim < 3;  // tenčí než 3 mm (logo, gravírka, plíšky)
+
+        // Pro tenké objekty: emissive = 40 % vlastní barvy → objekt "svítí" a je vidět
+        // i při pohledu z boku kde by byl jinak sub-pixelový
+        const baseColor = new THREE.Color(layerColor(v));
+        const emissiveColor = isThin ? baseColor.clone().multiplyScalar(0.45) : new THREE.Color(0x000000);
+
         const mat = new THREE.MeshPhongMaterial({
-          color:     layerColor(v),
-          specular:  0x333333,
-          shininess: 30,
-          side:      THREE.DoubleSide,
+          color:              baseColor,
+          emissive:           emissiveColor,
+          specular:           0x444444,
+          shininess:          40,
+          side:               THREE.DoubleSide,
+          polygonOffset:      isThin,
+          polygonOffsetFactor: isThin ? -4 : 0,
+          polygonOffsetUnits:  isThin ? -8 : 0,
         });
         const mesh = new THREE.Mesh(geometry, mat);
         mesh.userData.vrstva = v;
+        mesh.userData.bb = {
+          xMin: bb.min.x.toFixed(1), xMax: bb.max.x.toFixed(1),
+          yMin: bb.min.y.toFixed(1), yMax: bb.max.y.toFixed(1),
+          zMin: bb.min.z.toFixed(1), zMax: bb.max.z.toFixed(1),
+        };
         _3dScene.add(mesh);
         meshes.push(mesh);
+        _3dMeshMap[v.filename] = mesh;
         res();
       },
       undefined,
-      () => res()  // ignoruj chyby při načítání jednotlivých vrstev
+      () => res()
     );
   }));
 
@@ -4045,15 +4085,21 @@ async function _bu3dInitViewer(typId, vrstvy) {
     _3dControls.update();
   }
 
-  // Legenda vrstev
+  // Legenda vrstev — s visibility checkboxy a bbox tooltip
   if (legend) {
-    legend.innerHTML = vrstvy.map(v => {
+    legend.innerHTML = meshes.map(m => {
+      const v   = m.userData.vrstva;
+      const b   = m.userData.bb;
       const col = '#' + layerColor(v).toString(16).padStart(6, '0');
-      return `<span style="display:inline-flex;align-items:center;gap:5px;background:#f8fafc;
-                border:1px solid #e2e8f0;border-radius:5px;padding:3px 8px">
+      const id  = 'chk3d_' + v.filename.replace(/[^a-zA-Z0-9]/g, '_');
+      const tip = b ? `X[${b.xMin}..${b.xMax}] Y[${b.yMin}..${b.yMax}] Z[${b.zMin}..${b.zMax}]` : '';
+      return `<label title="${tip}" style="display:inline-flex;align-items:center;gap:5px;background:#f8fafc;
+                border:1px solid #e2e8f0;border-radius:5px;padding:3px 8px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="${id}" checked style="margin:0;cursor:pointer;accent-color:${col}"
+               onchange="_3dToggleLayer('${v.filename.replace(/'/g,"\\'")}', this.checked)">
         <span style="width:10px;height:10px;border-radius:2px;background:${col};flex-shrink:0"></span>
-        ${v.nazev}
-      </span>`;
+        <span style="font-size:.78rem">${v.nazev}</span>
+      </label>`;
     }).join('');
   }
 
