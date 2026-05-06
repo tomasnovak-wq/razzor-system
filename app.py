@@ -1008,6 +1008,129 @@ def api_dxf_post(typ_id):
     })
 
 
+# ── 3D MODELY (STL po vrstvách) ────────────────────────────────────────────────
+
+STL_3D_DIR = os.path.join('/data', '3d_modely') if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data', '3d_modely')
+
+@app.route('/api/typy-casu/<int:typ_id>/3d', methods=['GET'])
+def api_3d_get(typ_id):
+    import json as _json
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, nazev_souboru, vrstvy_json, nahrano
+        FROM typy_casu_3d WHERE typ_casu_id=?
+        ORDER BY id DESC LIMIT 1
+    """, (typ_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'model3d': None})
+    return jsonify({
+        'model3d': {
+            'id':            row['id'],
+            'nazev_souboru': row['nazev_souboru'],
+            'vrstvy':        _json.loads(row['vrstvy_json'] or '[]'),
+            'nahrano':       row['nahrano'],
+        }
+    })
+
+
+@app.route('/api/typy-casu/<int:typ_id>/3d', methods=['POST'])
+def api_3d_post(typ_id):
+    """Přijme ZIP soubor se STL soubory (jeden per vrstva), rozbalí, uloží."""
+    import zipfile, json as _json, re as _re
+
+    if 'zip' not in request.files:
+        return jsonify({'error': 'Žádný ZIP soubor'}), 400
+
+    zf = request.files['zip']
+    if not zf.filename.lower().endswith('.zip'):
+        return jsonify({'error': 'Soubor musí být ZIP'}), 400
+
+    # Vytvoř adresář pro tento typ casu
+    target_dir = os.path.join(STL_3D_DIR, str(typ_id))
+    os.makedirs(target_dir, exist_ok=True)
+
+    # Smaž staré STL soubory
+    for old_f in os.listdir(target_dir):
+        if old_f.lower().endswith('.stl'):
+            os.remove(os.path.join(target_dir, old_f))
+
+    # Rozbal ZIP
+    vrstvy = []
+    try:
+        with zipfile.ZipFile(zf.stream, 'r') as zzip:
+            names = [n for n in zzip.namelist()
+                     if n.lower().endswith('.stl') and not n.startswith('__MACOSX')]
+            if not names:
+                return jsonify({'error': 'ZIP neobsahuje žádné STL soubory'}), 400
+
+            for name in names:
+                # Bezpečný název souboru (jen poslední část cesty)
+                safe = os.path.basename(name)
+                if not safe:
+                    continue
+                dest = os.path.join(target_dir, safe)
+                with zzip.open(name) as src, open(dest, 'wb') as dst:
+                    dst.write(src.read())
+
+                # Název vrstvy = název souboru bez .stl, podtržítka → mezery
+                layer_name = os.path.splitext(safe)[0]
+                layer_name_display = layer_name.replace('_', ' ')
+
+                # Detekuj typ vrstvy z názvu (stejná logika jako DXF)
+                typ = 'jine'
+                tloustka = None
+                m = _re.match(r'^D[_\s]+(\d+(?:[,\.]\d+)?)mm', layer_name_display, _re.IGNORECASE)
+                if m:
+                    typ = 'deska'
+                    tloustka = float(m.group(1).replace(',', '.'))
+                else:
+                    m = _re.match(r'^P[_\s]+(\d+(?:[,\.]\d+)?)mm', layer_name_display, _re.IGNORECASE)
+                    if m:
+                        typ = 'pena'
+                        tloustka = float(m.group(1).replace(',', '.'))
+
+                vrstvy.append({
+                    'nazev':       layer_name_display,
+                    'filename':    safe,
+                    'typ':         typ,
+                    'tloustka_mm': tloustka,
+                })
+
+    except zipfile.BadZipFile:
+        return jsonify({'error': 'Neplatný ZIP soubor'}), 400
+
+    # Ulož záznam do DB
+    conn = get_db()
+    c = conn.cursor()
+    # Smaž starý záznam
+    c.execute("DELETE FROM typy_casu_3d WHERE typ_casu_id=?", (typ_id,))
+    c.execute("""
+        INSERT INTO typy_casu_3d (typ_casu_id, nazev_souboru, vrstvy_json)
+        VALUES (?, ?, ?)
+    """, (typ_id, zf.filename, _json.dumps(vrstvy, ensure_ascii=False)))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'ok': True, 'vrstvy': vrstvy, 'pocet': len(vrstvy)})
+
+
+@app.route('/api/typy-casu/<int:typ_id>/3d/<path:filename>', methods=['GET'])
+def api_3d_stl(typ_id, filename):
+    """Vrátí STL soubor pro danou vrstvu."""
+    # Bezpečnostní kontrola — jen soubory v adresáři daného typu
+    safe = os.path.basename(filename)
+    if not safe.lower().endswith('.stl'):
+        return jsonify({'error': 'Neplatný soubor'}), 400
+    stl_path = os.path.join(STL_3D_DIR, str(typ_id), safe)
+    if not os.path.exists(stl_path):
+        return jsonify({'error': 'Soubor nenalezen'}), 404
+    return send_file(stl_path, mimetype='application/octet-stream',
+                     as_attachment=False, download_name=safe)
+
+
 @app.route('/api/kusovniky/migrace-spravna-mc', methods=['POST'])
 def api_migrace_spravna_mc():
     """Jednorázová migrace: přečte hodnotu TRUE z kusovníků → uloží jako spravna_mc → smaže TRUE ze všech kusovníků."""

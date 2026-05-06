@@ -1828,16 +1828,18 @@ async function bomDetailUnified(typId, tab) {
   // Reset DXF overrides při otevření jiného typu casu (zachováme jen pokud je stejný typId)
   if (!_buData || _buData.typId !== typId) _dxfOverrides = {};
   openModal('<div class="text-center py-10 text-gray-400">Načítám…</div>', 'xl');
-  const [data, casData, profilyData, typyKorpusu, dxfResp] = await Promise.all([
+  const [data, casData, profilyData, typyKorpusu, dxfResp, model3dResp] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
     api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] })),
     _cache.typy_korpusu ? Promise.resolve(_cache.typy_korpusu) : api('/api/typy-korpusu'),
     api(`/api/typy-casu/${typId}/dxf`).catch(() => null),
+    api(`/api/typy-casu/${typId}/3d`).catch(() => null),
   ]);
   _cache.typy_korpusu = typyKorpusu;
-  const dxfData = dxfResp?.dxf || null;
-  _buData = { typId, data, casData, profilyData, typyKorpusu, dxfData };
+  const dxfData    = dxfResp?.dxf       || null;
+  const model3dData = model3dResp?.model3d || null;
+  _buData = { typId, data, casData, profilyData, typyKorpusu, dxfData, model3dData };
   _buRender();
 }
 
@@ -2024,7 +2026,7 @@ function _buRender() {
   </div>`;
 
   // Tab navigation with left/right arrows
-  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'DXF', 'Soubory', 'Čas výroby'];
+  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'DXF', 'Soubory', 'Čas výroby', '3D'];
   const TAB_MAX   = TAB_NAMES.length;
   const tabNav = `
   <div style="background:#f1f5f9;border-radius:10px;padding:4px;margin-bottom:16px;display:flex;align-items:center;gap:2px">
@@ -2033,10 +2035,11 @@ function _buRender() {
     ${TAB_NAMES.map((name, i) => {
       const idx = i + 1;
       const active = idx === _buTab;
-      // Barevné puntíky: DXF = zelená, Čas výroby = oranžová (pokud má data)
-      const dxfBadge    = (idx === 4 && dxfData)  ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-left:4px;vertical-align:middle"></span>` : '';
-      const casBadge    = (idx === 6 && casData)   ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f97316;margin-left:4px;vertical-align:middle"></span>` : '';
-      const allBadges   = dxfBadge + casBadge;
+      // Barevné puntíky: DXF = zelená, Čas výroby = oranžová, 3D = modrá (pokud má data)
+      const dxfBadge    = (idx === 4 && dxfData)     ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-left:4px;vertical-align:middle"></span>` : '';
+      const casBadge    = (idx === 6 && casData)      ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f97316;margin-left:4px;vertical-align:middle"></span>` : '';
+      const model3dBadge = (idx === 7 && model3dData) ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#3b82f6;margin-left:4px;vertical-align:middle"></span>` : '';
+      const allBadges   = dxfBadge + casBadge + model3dBadge;
       return `<button onclick="_buSwitchTab(${idx})"
         style="border:none;border-radius:7px;cursor:pointer;font-size:.84rem;padding:6px 14px;
                font-weight:${active?'600':'400'};white-space:nowrap;flex:1;
@@ -2056,6 +2059,7 @@ function _buRender() {
   else if (_buTab === 4) tabContent = _buTabDxf(typId, dxfData);
   else if (_buTab === 5) tabContent = _buTabSoubory(typId, links);
   else if (_buTab === 6) tabContent = _buTabCasVyroby(typId, casData);
+  else if (_buTab === 7) tabContent = _buTab3D(typId, model3dData);
 
   openModal(`
   <div class="flex items-start justify-between mb-3">
@@ -3764,6 +3768,313 @@ function novaZakazka() { editZakazka(null); }
 function novaZakazkaZTypu(typId, hn, nazev) {
   closeModal();
   editZakazka(null, { typ_casu_id: typId, hn_cislo: hn, nazev: nazev });
+}
+
+// ─── 3D MODEL záložka ──────────────────────────────────────────────────────────
+
+// Barvy pro Three.js viewer dle typu vrstvy
+const _3D_COLORS = {
+  deska: 0xc8986a,   // hnědá (stejná jako DXF náhled)
+  pena:  0x86efac,   // zelená
+  jine:  0xe2e8f0,   // světle šedá
+};
+// Speciální barvy pro konkrétní názvy vrstev
+const _3D_NAMED_COLORS = {
+  'Cut out':    0x94a3b8,
+  'Nýty':       0x6b7280,
+  'GRAVIRKA':   0xfbbf24,
+  'Logo':       0xa78bfa,
+  'Pomocná 1':  0xfca5a5,
+  'Pomocná 2':  0xfca5a5,
+};
+
+let _3dThreeLoaded = false;
+let _3dScene = null, _3dCamera = null, _3dRenderer = null, _3dControls = null;
+let _3dAnimFrameId = null;
+
+function _buTab3D(typId, model3dData) {
+  const listHtml = model3dData
+    ? (() => {
+        const d = model3dData;
+        const rows = d.vrstvy.map(v => {
+          const typLabel = v.typ === 'deska' ? '🪵 Deska'
+                         : v.typ === 'pena'  ? '🟡 Pěna'
+                         : '📦 Jiné';
+          const typStyle = v.typ === 'deska'
+            ? 'background:#e8c9a0;color:#7c4a1e'
+            : v.typ === 'pena'
+            ? 'background:#d1fae5;color:#065f46'
+            : 'background:#f1f5f9;color:#475569';
+          return `<tr>
+            <td class="py-1 pr-3 text-sm">${v.nazev}</td>
+            <td class="py-1 pr-3"><span class="text-xs px-2 py-0.5 rounded" style="${typStyle}">${typLabel}</span></td>
+            <td class="py-1 text-sm text-gray-400">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
+          </tr>`;
+        }).join('');
+        return `
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.83rem;color:#166534">
+          ✓ Nahrán model: <strong>${d.nazev_souboru}</strong>
+          &nbsp;·&nbsp; ${d.vrstvy.length} vrstev
+          &nbsp;·&nbsp; <span class="text-gray-400">${(d.nahrano||'').slice(0,16).replace('T',' ')}</span>
+        </div>
+        <div style="overflow-x:auto;margin-bottom:14px">
+          <table class="text-sm" style="border-collapse:collapse;min-width:300px">
+            <thead><tr style="border-bottom:1px solid #e5e7eb">
+              <th class="py-1 pr-3 text-left text-xs text-gray-500">Vrstva</th>
+              <th class="py-1 pr-3 text-left text-xs text-gray-500">Typ</th>
+              <th class="py-1 text-left text-xs text-gray-500">Tloušťka</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+      })()
+    : `<p class="text-sm text-gray-400 italic text-center py-4">Zatím nebyl nahrán žádný 3D model.</p>`;
+
+  return `
+  <div>
+    <p class="text-xs text-gray-500 mb-3">
+      Nahraj ZIP soubor se STL soubory vrstev (vytvořeným LISP skriptem <code>export_layers_3d.lsp</code>).
+      Systém rozpozná vrstvy <code>D_XYmm</code> (desky) a <code>P_XYmm</code> (pěny) a zobrazí je barevně.
+    </p>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+      <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+                    background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:7px 14px;
+                    font-size:.88rem;color:#374151">
+        📦 <span>Vybrat ZIP se STL soubory</span>
+        <input type="file" accept=".zip" id="3d-zip-input" style="display:none"
+               onchange="_bu3dFileChosen(this, ${typId})">
+      </label>
+      <span id="3d-chosen-name" style="font-size:.82rem;color:#6b7280"></span>
+      <button id="3d-upload-btn" class="btn btn-primary py-1 px-4 text-sm" style="display:none"
+              onclick="_bu3dUpload(${typId})">⬆ Nahrát</button>
+      <span id="3d-upload-status" style="font-size:.82rem"></span>
+    </div>
+
+    <div id="3d-layer-list">${listHtml}</div>
+
+    ${model3dData && model3dData.vrstvy.length > 0 ? `
+    <div style="margin-top:8px">
+      <button class="btn btn-secondary text-sm" onclick="_bu3dOpenViewer(${typId})">
+        🔲 Zobrazit 3D model
+      </button>
+    </div>` : ''}
+  </div>`;
+}
+
+function _bu3dFileChosen(input, typId) {
+  const file = input.files[0];
+  if (!file) return;
+  document.getElementById('3d-chosen-name').textContent = file.name;
+  const btn = document.getElementById('3d-upload-btn');
+  if (btn) { btn.style.display = ''; btn.dataset.typId = typId; }
+  document.getElementById('3d-upload-status').textContent = '';
+}
+
+async function _bu3dUpload(typId) {
+  const input  = document.getElementById('3d-zip-input');
+  const status = document.getElementById('3d-upload-status');
+  const btn    = document.getElementById('3d-upload-btn');
+  if (!input || !input.files[0]) return;
+  status.textContent = '⏳ Nahrávám…'; status.style.color = '#6b7280';
+  if (btn) btn.disabled = true;
+  const fd = new FormData();
+  fd.append('zip', input.files[0]);
+  try {
+    const resp = await fetch(`/api/typy-casu/${typId}/3d`, { method: 'POST', body: fd });
+    const json = await resp.json();
+    if (!resp.ok || json.error) {
+      status.textContent = '✗ Chyba: ' + (json.error || resp.status);
+      status.style.color = '#dc2626';
+      if (btn) btn.disabled = false; return;
+    }
+    status.textContent = `✓ Hotovo – ${json.pocet} vrstev`;
+    status.style.color = '#16a34a';
+    _buData.model3dData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
+                            nahrano: new Date().toISOString() };
+    // Překresli záložku
+    _buRender();
+  } catch(e) {
+    status.textContent = '✗ Chyba sítě'; status.style.color = '#dc2626';
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _bu3dOpenViewer(typId) {
+  const vrstvy = _buData?.model3dData?.vrstvy || [];
+  if (!vrstvy.length) return;
+
+  // Otevři fullscreen modal s Three.js viewerem
+  openModal(`
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h3 style="font-weight:600;font-size:1rem">3D model — ${_buData.data.hn_cislo} ${_buData.data.nazev}</h3>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span style="font-size:.78rem;color:#94a3b8">Myš: otáčení &nbsp;|&nbsp; Kolečko: zoom &nbsp;|&nbsp; Pravé tl.: posun</span>
+      <button onclick="closeModal();bomDetailUnified(${typId},7)" class="btn btn-secondary py-1 px-2 text-sm">← Zpět</button>
+      <button onclick="closeModal()" class="btn btn-secondary py-1 px-2">✕</button>
+    </div>
+  </div>
+  <div id="3d-viewer-wrap" style="width:100%;height:520px;background:#1e293b;border-radius:10px;overflow:hidden;position:relative">
+    <div id="3d-viewer-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.9rem">
+      ⏳ Načítám 3D model…
+    </div>
+    <canvas id="3d-viewer-canvas" style="width:100%;height:100%;display:block"></canvas>
+  </div>
+  <div id="3d-layer-legend" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:.78rem"></div>
+  `, 'xl');
+
+  // Načti Three.js lazy a pak inicializuj viewer
+  _bu3dLoadThree().then(() => _bu3dInitViewer(typId, vrstvy));
+}
+
+function _bu3dLoadThree() {
+  if (_3dThreeLoaded && window.THREE) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    // Načti Three.js
+    const s1 = document.createElement('script');
+    s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+    s1.onload = () => {
+      // Načti STLLoader
+      const s2 = document.createElement('script');
+      s2.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js';
+      s2.onload = () => {
+        // Načti OrbitControls
+        const s3 = document.createElement('script');
+        s3.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js';
+        s3.onload = () => { _3dThreeLoaded = true; resolve(); };
+        s3.onerror = reject;
+        document.head.appendChild(s3);
+      };
+      s2.onerror = reject;
+      document.head.appendChild(s2);
+    };
+    s1.onerror = reject;
+    document.head.appendChild(s1);
+  });
+}
+
+async function _bu3dInitViewer(typId, vrstvy) {
+  const wrap   = document.getElementById('3d-viewer-wrap');
+  const canvas = document.getElementById('3d-viewer-canvas');
+  const legend = document.getElementById('3d-layer-legend');
+  if (!wrap || !canvas) return;
+
+  const THREE = window.THREE;
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+
+  // Scene
+  _3dScene = new THREE.Scene();
+  _3dScene.background = new THREE.Color(0x1e293b);
+
+  // Camera
+  _3dCamera = new THREE.PerspectiveCamera(45, W / H, 0.1, 100000);
+  _3dCamera.position.set(0, 0, 1000);
+
+  // Renderer
+  _3dRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  _3dRenderer.setSize(W, H);
+  _3dRenderer.setPixelRatio(window.devicePixelRatio);
+
+  // Lights
+  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  _3dScene.add(ambient);
+  const dir1 = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir1.position.set(1, 2, 3);
+  _3dScene.add(dir1);
+  const dir2 = new THREE.DirectionalLight(0xffffff, 0.4);
+  dir2.position.set(-2, -1, -1);
+  _3dScene.add(dir2);
+
+  // OrbitControls
+  _3dControls = new THREE.OrbitControls(_3dCamera, _3dRenderer.domElement);
+  _3dControls.enableDamping = true;
+  _3dControls.dampingFactor = 0.07;
+
+  // Pomocná funkce pro barvu vrstvy
+  function layerColor(v) {
+    if (_3D_NAMED_COLORS[v.nazev] !== undefined) return _3D_NAMED_COLORS[v.nazev];
+    return _3D_COLORS[v.typ] || _3D_COLORS.jine;
+  }
+
+  // Loader
+  const loader = new THREE.STLLoader();
+  const meshes = [];
+  const loadPromises = vrstvy.map(v => new Promise(res => {
+    loader.load(
+      `/api/typy-casu/${typId}/3d/${encodeURIComponent(v.filename)}`,
+      geometry => {
+        geometry.computeVertexNormals();
+        const mat = new THREE.MeshPhongMaterial({
+          color:     layerColor(v),
+          specular:  0x333333,
+          shininess: 30,
+          side:      THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(geometry, mat);
+        mesh.userData.vrstva = v;
+        _3dScene.add(mesh);
+        meshes.push(mesh);
+        res();
+      },
+      undefined,
+      () => res()  // ignoruj chyby při načítání jednotlivých vrstev
+    );
+  }));
+
+  await Promise.all(loadPromises);
+
+  // Skryj loading overlay
+  const loading = document.getElementById('3d-viewer-loading');
+  if (loading) loading.style.display = 'none';
+
+  // Vystřed kameru na bounding box celého modelu
+  if (meshes.length > 0) {
+    const box = new THREE.Box3();
+    meshes.forEach(m => box.expandByObject(m));
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    _3dCamera.position.copy(center);
+    _3dCamera.position.z += maxDim * 1.8;
+    _3dCamera.near = maxDim * 0.001;
+    _3dCamera.far  = maxDim * 100;
+    _3dCamera.updateProjectionMatrix();
+    _3dControls.target.copy(center);
+    _3dControls.update();
+  }
+
+  // Legenda vrstev
+  if (legend) {
+    legend.innerHTML = vrstvy.map(v => {
+      const col = '#' + layerColor(v).toString(16).padStart(6, '0');
+      return `<span style="display:inline-flex;align-items:center;gap:5px;background:#f8fafc;
+                border:1px solid #e2e8f0;border-radius:5px;padding:3px 8px">
+        <span style="width:10px;height:10px;border-radius:2px;background:${col};flex-shrink:0"></span>
+        ${v.nazev}
+      </span>`;
+    }).join('');
+  }
+
+  // Animační smyčka
+  if (_3dAnimFrameId) cancelAnimationFrame(_3dAnimFrameId);
+  function animate() {
+    _3dAnimFrameId = requestAnimationFrame(animate);
+    _3dControls.update();
+    _3dRenderer.render(_3dScene, _3dCamera);
+  }
+  animate();
+
+  // Resize handler
+  const resizeObs = new ResizeObserver(() => {
+    if (!wrap || !_3dRenderer) return;
+    const nw = wrap.clientWidth, nh = wrap.clientHeight;
+    _3dRenderer.setSize(nw, nh);
+    _3dCamera.aspect = nw / nh;
+    _3dCamera.updateProjectionMatrix();
+  });
+  resizeObs.observe(wrap);
 }
 
 async function editZakazka(id, prefill={}) {

@@ -1,8 +1,8 @@
 {
-  "verze": 32,
-  "popis": "Broušení desek před lepením pěn; oprava fmt_hm pro <60s; H profily řezání po párech; vícepráce inline v Čas výroby; Uložit přesunuto do headeru BOM editoru",
+  "verze": 33,
+  "popis": "Přidán 3D viewer: záložka 3D v BOM editoru, STL export po vrstvách, Three.js viewer s barvami dle vrstev, LISP skript pro AutoCAD",
   "autor": "Ludek",
-  "datum": "04.05.2026",
-  "cas": "15:29",
-  "git_commit": "41cd4f3"
+  "datum": "06.05.2026",
+  "cas": "07:32",
+  "git_commit": "3c284eb"
 }

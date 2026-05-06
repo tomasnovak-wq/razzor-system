@@ -1109,6 +1109,19 @@ def auto_migrate():
     add_column('typy_casu_dxf', 'polygony_json',  "TEXT NOT NULL DEFAULT '{}'")
     log.append("  [OK] typy_casu_dxf")
 
+    # 3D modely (STL soubory exportované po vrstvách z AutoCADu)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS typy_casu_3d (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            typ_casu_id    INTEGER NOT NULL REFERENCES typy_casu(id) ON DELETE CASCADE,
+            nazev_souboru  TEXT,
+            vrstvy_json    TEXT NOT NULL DEFAULT '[]',
+            nahrano        TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_typy_casu_3d ON typy_casu_3d(typ_casu_id)")
+    log.append("  [OK] typy_casu_3d")
+
     conn.commit()
     conn.close()
     if log:
