@@ -1209,7 +1209,7 @@ def api_3d_post(typ_id):
 
             # (pokud ref. box není, soubor necháme jak je — fallback níže)
 
-        # ── Fallback: starší LISP (bez ref. boxu) → Y-median ────────────────
+        # ── Fallback: LISP bez ref. boxu → Y-median ─────────────────────────
         if not has_ref_box:
             def _ybbox(path):
                 tris = _stl_read_triangles(path)
@@ -1225,14 +1225,21 @@ def api_3d_post(typ_id):
 
             if bbox_data:
                 case_w = max(b[2] for b in bbox_data.values())
+                # ref_y = medián Y-středů VELKÝCH vrstev (šířka >= 40 % case_w)
+                # Velké vrstvy = hlavní pláty (desky, víka) — jejich střed je referenční
                 big_yc = [(b[0]+b[1])/2 for b in bbox_data.values() if b[2] >= case_w*0.4]
                 if len(big_yc) >= 2:
                     ref_y = _stats.median(big_yc)
+                    # Korekci aplikujeme na VŠECHNY vrstvy (velké i malé hardware),
+                    # pokud je jejich delta v rozsahu 0.5–10 mm.
+                    # Dolní mez 0.5 mm: filtruje numerický šum.
+                    # Horní mez 10 mm: zachová záměrně jinak umístěné vrstvy
+                    # (např. nožičky pod dnem case jsou typicky 15+ mm pod ref_y).
                     for v in vrstvy:
                         bb = bbox_data.get(v['filename'])
-                        if not bb or bb[2] < case_w*0.4: continue
+                        if not bb: continue
                         delta = ref_y - (bb[0]+bb[1])/2
-                        if abs(delta) > 0.5:
+                        if 0.5 < abs(delta) <= 10.0:
                             path = os.path.join(target_dir, v['filename'])
                             tris = _stl_read_triangles(path)
                             with open(path, 'rb') as f: header = f.read(80)

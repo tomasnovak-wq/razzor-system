@@ -1,8 +1,8 @@
 {
-  "verze": 50,
-  "popis": "v50: LISP v17 zakaz UNDO behem exportu + Freeze * misto smycky — fix zasekavani AutoCADu po exportu",
+  "verze": 51,
+  "popis": "v51: Y-median korekce pro vsechny vrstvy 0.5-10mm — oprava hardware vrstev (zamky, nyte) ktere Y-median drive preskakoval",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "12:05",
-  "git_commit": "0968f95"
+  "cas": "12:11",
+  "git_commit": "c345e6b"
 }
