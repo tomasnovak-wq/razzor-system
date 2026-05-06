@@ -1,8 +1,8 @@
 {
-  "verze": 63,
-  "popis": "3D: auto-typ z typ_materialu (HW*→hw, PROFIL AL→profily), kategorie Nýty, rozšíření GROUP_DEF",
+  "verze": 64,
+  "popis": "Aktualizace CLAUDE.md – 3D viewer dokumentace (v21 LISP, typy hw/profily/nyty, material lookup, inline viewer, layerColor fix)",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "16:33",
-  "git_commit": "4704a05"
+  "cas": "16:59",
+  "git_commit": "7970fc5"
 }

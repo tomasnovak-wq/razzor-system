@@ -300,7 +300,7 @@ onchange="_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})"
 
 ### 3D viewer — záložka v BOM editoru
 
-Záložka **3D** (tab 5) v BOM editoru (`bomDetailUnified`) umožňuje nahrát ZIP se STL soubory (jeden STL = jedna vrstva z AutoCADu) a zobrazit 3D náhled case s přepínáním viditelnosti vrstev.
+Záložka **3D** (tab 7) v BOM editoru (`bomDetailUnified`) umožňuje nahrát ZIP se STL soubory (jeden STL = jedna vrstva z AutoCADu) a zobrazit 3D náhled case s přepínáním viditelnosti vrstev.
 
 **Workflow AutoCAD → viewer:**
 1. Michal otevře výkres v AutoCADu, načte LISP: `APPLOAD` → `export_layers_3d.lsp`
@@ -308,47 +308,67 @@ Záložka **3D** (tab 5) v BOM editoru (`bomDetailUnified`) umožňuje nahrát Z
 3. Vybere STL soubory ve Finderu → Pravý klik → Komprimovat → vznikne ZIP
 4. Nahraje ZIP do Razzor → záložka 3D
 
-**LISP skript** (`export_layers_3d.lsp`, aktuálně v16):
+**LISP skript** (`export_layers_3d.lsp`, aktuálně v21):
 - Přeskakuje skryté/zmrazené vrstvy (uživatel je záměrně vypnul = nechce exportovat)
 - Po exportu obnovuje původní stav viditelnosti vrstev
 - `_rz-safename`: převádí názvy vrstev na bezpečné názvy souborů — mezery/lomítka → `_`, tečky → `,`, česká diakritika stripována (`překlizka` → `preklizka`)
 - `(gc)` po každém exportu — předchází pádu AutoCADu při větším počtu vrstev
-- **Nepoužívá referenční box** (starší verze 14/15 ho přidávaly u 0,0,0 pro detekci UCS offsetu — bylo odstraněno ve v16, protože viewer orbit centra se počítá percentilem vrcholů)
+- **Referenční box 1×1×1 mm na WCS (0,0,0)** přidán do každého STL před exportem, smazán přes `entdel` po exportu. Server z jeho polohy zjistí UCS offset a automaticky opraví vrcholy. Syntaxe: `(command "._BOX" "0,0,0" "1,1,1")`.
+- **Bez UNDO control** (v21) — UNDO control způsoboval pád LISPu na Macu kvůli odlišnému promptu mezi verzemi AutoCADu. S `_Freeze *` je undo buffer malý, pád nehrozí.
 
 **Tabulka `typy_casu_3d`** (database.py):
 ```
 id, typ_casu_id, nazev_souboru, vrstvy_json, nahrano
 ```
-`vrstvy_json` = seznam `{nazev, filename, typ}` kde `typ` ∈ `deska|pena|hardware|jine`.
+`vrstvy_json` = seznam `{nazev, filename, typ, tloustka_mm}` kde `typ` ∈ `deska|pena|hw|profily|nyty|jine|ignorovat`.
 
 **Endpointy** (app.py):
-- `POST /api/typy-casu/<id>/3d` — nahraje ZIP, rozbalí STL soubory do `data/3d/<id>/`, spustí auto-korekci Y-offsetu (Y-median alignment), uloží metadata do DB
-- `GET  /api/typy-casu/<id>/3d` — vrátí seznam vrstev (`vrstvy_json`) + timestamp
-- `GET  /api/typy-casu/<id>/3d/<filename>` — vrátí binární STL soubor
+- `POST  /api/typy-casu/<id>/3d` — nahraje ZIP, rozbalí STL soubory do `data/3d/<id>/`, auto-detekuje typy vrstev, spustí auto-korekci Y-offsetu, uloží metadata do DB
+- `GET   /api/typy-casu/<id>/3d` — vrátí seznam vrstev (`vrstvy_json`) + timestamp
+- `PATCH /api/typy-casu/<id>/3d` — uloží manuální přiřazení typů: `{"updates": [{"filename": "...", "typ": "hw"}]}`
+- `GET   /api/typy-casu/<id>/3d/<filename>` — vrátí binární STL soubor
+
+**Auto-detekce typu vrstvy při uploadu** (v `api_3d_post()`, pořadí priorit):
+1. Název vrstvy — regex `^D[_\s]+(\d+)mm` → `deska`, `^P[_\s]+(\d+)mm` → `pena`
+2. Název "Nyty" / "Nýty" (normalizováno) → `nyty`
+3. Kód nalezen v tabulce `materialy` → dle `typ_materialu`: začíná `HW` → `hw`, obsahuje `PROFIL` → `profily`, `PÉNA`/`PENA` → `pena`, `DESKA` → `deska`
+4. Fallback → `jine`
 
 **Auto-korekce Y-offsetu** (v `api_3d_post()` v app.py):
-- Funkce `_stl_read_triangles`, `_tri_verts`, `_stl_write_triangles`, `_stl_shift_xyz`
-- Detekce: pro každý STL spočítá Y-střed (bbox center). Pokud se vrstvy liší v Y-středu > 0.5 mm, posune je na společný medián
-- Fallback přístup bez ref boxu (ref box byl odstraněn z LISP v16)
+- Primární: ref box 1×1×1 mm u (0,0,0) — server najde box, spočítá UCS offset, přesune všechny vrcholy, box odstraní z STL souboru
+- Fallback (LISP bez ref. boxu): Y-median — spočítá Y-střed každé vrstvy, filtruje outliery ±50 mm, opraví vrstvy s delta 0.5–10 mm
+- Funkce: `_stl_read_triangles`, `_tri_verts`, `_stl_write_triangles`, `_stl_shift_xyz`, `_stl_find_ref_box`
 - Korekce se provádí in-place (přepíše STL soubory na disku)
 
-**Frontend** (app.html) — funkce `_bu3dInitViewer(typId, vrstvy)`:
+**Frontend** (app.html):
+
+Layout záložky 3D: dvousloupcový grid — vlevo (280px) upload + seznam vrstev, vpravo (1fr) Three.js canvas vždy viditelný inline. Canvas se **neničí** při přepínání záložek — `_buRender()` po uploadu nevolá (znovu), místo toho `_bu3dUpload()` aktualizuje jen `#3d-model-info` div a volá `_bu3dInitViewer` přímo.
+
+Globální proměnné a konstanty (všechny na module level, ne uvnitř funkcí):
+- `_3dMatMap = {}` — `{kod_lowercase: {kod, nazev, ...}}` — naplní se z `_cache.materialy` při přepnutí na záložku 3D. Materiály se načtou v `bomDetailUnified` vždy (přidáno do Promise.all fetchů).
+- `_3D_COLORS` — barvy fallback dle typu: `deska=0xc8986a`, `pena=0x86efac`, `hw=0x94a3b8`, `profily=0xfbbf24`, `nyty=0xd4d4d8`, `jine=0xe2e8f0`
+- `_3D_DESKA_COLORS` / `_3D_PENA_COLORS` — barvy dle tloušťky (odpovídají AutoCAD paletě)
+- `_3D_NAMED_COLORS` — barvy pro specifické názvy vrstev (Logo, Nyty, Pomocna 1…)
+- `layerColor(v)` — **globální funkce** (pozor: dříve byla lokální uvnitř `_bu3dInitViewer`, což způsobovalo ReferenceError při renderování záložky). Priority: 0=kód materiálu→bílá, 1=přesný název, 2=tloušťka, 3=typ fallback
+- `_3dNormName(s)` — odstraní diakritiku, lowercase
+- `_3dColorByThickness(nazev)` — regex `^([dp])[_\s]+(\d+)mm`, lookup v color mapě
+- `_bu3dModelInfoHtml(typId, model3dData, vrstvy)` — helper sdílený `_buTab3D` i `_bu3dUpload`; renderuje badge + tabulku vrstev s dropdown přiřazení typu
+- `_bu3dTypOpts(cur)` — options pro dropdown: deska/pena/hw/profily/nyty/jiné/ignorovat
+- `_3dSetLayerType(typId, filename, newTyp)` — PATCH na server + okamžitá aktualizace barvy meshe
+- `_3dToggleLayer(filename, visible)` — viditelnost jedné vrstvy
+- `_3dToggleGroup(typ, visible)` — viditelnost celé skupiny + sync individuálních checkboxů
+
+Legenda vrstev (renderována v `_bu3dInitViewer`): skupinové přepínače (tmavé, jen pro typy přítomné v modelu) + individuální checkboxy s tooltip (název materiálu + bbox). Vrstvy jejichž název odpovídá kódu materiálu → bílá barva + zobrazí se `kod · nazev materiálu`.
+
+Funkce `_bu3dInitViewer(typId, vrstvy)`:
 - Three.js r128, STLLoader, OrbitControls (CDN: cdn.jsdelivr.net/npm/three@0.128.0)
 - **Rotace**: `geometry.applyMatrix4(makeRotationX(-Math.PI/2))` — AutoCAD Z-up → Three.js Y-up
-- **Orbit centra** (kamera/target): počítá se z 5–95 percentilu vrcholů vzorkovaných z geometrie (každý 50. vrchol). Tím se ignorují outlier body (malé izolované geometrie daleko od modelu)
-- **Barevné kódování vrstev** (funkce `layerColor`): deska=hnědá, pěna=zelená, hardware=šedá, jiné=světle šedá
-- **Emissive** pro tenké objekty (minDim < 3 mm): 45 % base barvy — logo a tenké pláty jsou viditelné i z kosého pohledu
-- **renderOrder + polygonOffset**: hardware vrstvy (jine=2, pena=1, deska=0) — předchází Z-fightingu u koplanárních ploch
-- **Legenda vrstev**: checkboxy pro zapínání/vypínání viditelnosti per-vrstva; názvy zobrazeny bez diakritiky (`.normalize('NFD').replace(/[̀-ͯ]/g,'')`)
-- `_3dMeshMap` — globální `{filename → mesh}` pro `_3dToggleLayer(filename, visible)`
+- **Orbit centra**: 5–95 percentil vrcholů (každý 50.) — ignoruje outlier body
+- **Emissive** pro tenké objekty (minDim < 3 mm): 45 % base barvy
+- **renderOrder + polygonOffset**: jine=2, pena=1, deska=0 — předchází Z-fightingu
+- `_3dMeshMap` — globální `{filename → mesh}`
 
-**Detekce typu vrstvy** z názvu (funkce `_bu3dLayerType`):
-- `D_` nebo `deska` v názvu → `deska`
-- `P_` nebo `pena` v názvu → `pena`
-- čísla jako `4906`, `6200`, `34082` (hardware/nýty/díly) → `jine`
-
-**Známý problém — nožičky (hardware vrstvy u dna case):**
-Gumové nožičky mohou vizuálně vypadat posunuté dovnitř case. Příčina: vrstva nožiček má jiný Y-střed (jsou fyzicky pod dnem = záměrně jiná Y pozice) ale Y-median korekce je posouvá ke středu ostatních vrstev. Budoucí fix: z Y-korekce vynechat vrstvy jejichž Y-střed je outlier vůči mediánu (více než 2σ mimo).
+**Tip pro re-detekci typů:** Po přidání nových materiálů do katalogu nebo opravě kódů stačí ZIP nahrát znovu — server provede detekci znovu s aktuálními daty z DB.
 
 ### Verze
 
