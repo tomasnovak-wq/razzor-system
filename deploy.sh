@@ -85,6 +85,10 @@ if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
     exit 0
 fi
 
+# Odstranit git lock soubory (zanechává je Cowork sandbox — rm bez sudo funguje,
+# protože soubory jsou vlastněny tímto uživatelem)
+rm -f .git/HEAD.lock .git/index.lock 2>/dev/null || true
+
 # Stáhnout nejnovější verzi (--autostash dočasně odloží tvé změny a zase je vrátí)
 echo ""
 echo "==> git pull --rebase --autostash"
@@ -101,6 +105,7 @@ NEW_VERSION=$(python3 -c "import json; print(json.load(open('version.json'))['ve
 # Commit
 echo ""
 echo "==> git add + git commit (v$NEW_VERSION: $POPIS)"
+rm -f .git/HEAD.lock .git/index.lock 2>/dev/null || true
 git add -A
 git commit -m "v$NEW_VERSION: $POPIS"
 
