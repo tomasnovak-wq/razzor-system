@@ -1,8 +1,8 @@
 {
-  "verze": 81,
-  "popis": "3D legenda — checkbox-styl master, pills v radcich vedle",
+  "verze": 82,
+  "popis": "3D: odstraneni sloupce Tl, tooltip na tlacitku, badge jen nazev souboru",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "21:52",
-  "git_commit": "0918411"
+  "cas": "22:00",
+  "git_commit": "9203680"
 }

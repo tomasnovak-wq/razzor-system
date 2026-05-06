@@ -4179,24 +4179,18 @@ function _bu3dModelInfoHtml(typId, model3dData, vrstvy) {
     return `<tr style="${isMat ? 'background:#fafafa' : ''}">
       <td class="py-1 pr-2" style="font-size:.8rem">${nameCell}</td>
       <td class="py-1 pr-1"><select style="${selStyle}" onchange="${selChange}">${_bu3dTypOpts(v.typ)}</select></td>
-      <td class="py-1 text-xs text-gray-400" style="white-space:nowrap">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
     </tr>`;
   }).join('');
 
   const badge = model3dData
-    ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.8rem;color:#166534">
-        ✓ <strong>${model3dData.nazev_souboru}</strong>
-        &nbsp;·&nbsp; ${vrstvy.length} vrstev
-        &nbsp;·&nbsp; <span style="color:#9ca3af">${(model3dData.nahrano||'').slice(0,16).replace('T',' ')}</span>
-       </div>`
-    : `<p class="text-xs text-gray-400 italic py-2">Zatím nebyl nahrán žádný 3D model.</p>`;
+    ? `<span style="font-size:.78rem;color:#166534;font-weight:600">✓ ${model3dData.nazev_souboru}</span>`
+    : ``;
 
   return badge + (vrstvy.length > 0 ? `
     <table style="border-collapse:collapse;width:100%">
       <thead><tr style="border-bottom:1px solid #e5e7eb">
         <th class="py-1 pr-2 text-left text-xs text-gray-500">Vrstva</th>
         <th class="py-1 pr-1 text-left text-xs text-gray-500">Typ</th>
-        <th class="py-1 text-left text-xs text-gray-500">Tl.</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>` : '');
@@ -4216,20 +4210,17 @@ function _buTab3D(typId, model3dData) {
 
     <!-- Levý sloupec: upload + seznam vrstev -->
     <div>
-      <p class="text-xs text-gray-500 mb-2">
-        Nahraj ZIP se STL soubory vrstev (LISP skript <code>export_layers_3d.lsp</code>).
-      </p>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <label title="Nahraj ZIP se STL soubory vrstev (LISP skript export_layers_3d.lsp)"
+               style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;
                       background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:5px 12px;
-                      font-size:.83rem;color:#374151" id="3d-upload-label">
+                      font-size:.83rem;color:#374151;flex-shrink:0" id="3d-upload-label">
           <span id="3d-upload-label-text">Vybrat ZIP</span>
           <input type="file" accept=".zip" id="3d-stl-input" style="display:none"
                  onchange="_bu3dUpload(${typId}, this)">
         </label>
-        <span id="3d-chosen-name" style="font-size:.78rem;color:#6b7280"></span>
+        <span id="3d-upload-status" style="font-size:.78rem;color:#6b7280"></span>
       </div>
-      <span id="3d-upload-status" style="font-size:.78rem;display:block;margin-bottom:8px"></span>
 
       <div id="3d-model-info">
       ${modelInfoHtml}
@@ -4274,6 +4265,7 @@ async function _bu3dUpload(typId, input) {
     }
     status.textContent = statusMsg;
     status.style.color = '#16a34a';
+    setTimeout(() => { if (status) status.textContent = ''; }, 4000);
 
     const vrstvy = json.vrstvy || [];
     _buData.model3dData = { nazev_souboru: filename, vrstvy,
