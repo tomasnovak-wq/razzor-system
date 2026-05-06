@@ -1,5 +1,5 @@
 ; ============================================================
-; export_layers_3d.lsp  —  Razzor Cases  v16
+; export_layers_3d.lsp  —  Razzor Cases  v17
 ;
 ; Zjednodušená verze — bez automatického EXPLODE.
 ; Před spuštěním ručně exploduj bloky (INSERT entity) které
@@ -13,6 +13,11 @@
 ; _rz-safename odstraňuje českou diakritiku z názvů souborů.
 ; Po exportu se obnovuje původní stav viditelnosti vrstev —
 ; vrstvy, které byly před exportem skryté, zůstanou skryté.
+;
+; v17: Zakázání UNDO záznamu po dobu exportu — předchází zaseknutí
+; AutoCADu po exportu způsobenému obrovským undo bufferem.
+; Freeze ostatních vrstev jedním "_Freeze *" místo smyčky
+; přes každou vrstvu zvlášť — rychlejší, méně paměti.
 ; ============================================================
 
 (defun _rz-replace (old new str / result i olen)
@@ -61,20 +66,28 @@
   )
 )
 
-(defun c:ExportLayers3D ( / outdir orig_clayer orig_tilemode
+(defun c:ExportLayers3D ( / outdir orig_clayer orig_tilemode orig_regenmode
                             layer_data layer_name safe_name stl_path
                             all_layers other_data other_name
                             exported_count skipped_count sel
                             orig_frozen orig_off lflags lcolor)
 
-  (setq orig_clayer    (getvar "CLAYER"))
-  (setq orig_tilemode  (getvar "TILEMODE"))
-  (setq outdir         (getvar "DWGPREFIX"))
-  (setq exported_count 0)
-  (setq skipped_count  0)
+  (setq orig_clayer     (getvar "CLAYER"))
+  (setq orig_tilemode   (getvar "TILEMODE"))
+  (setq orig_regenmode  (getvar "REGENMODE"))
+  (setq outdir          (getvar "DWGPREFIX"))
+  (setq exported_count  0)
+  (setq skipped_count   0)
 
   ; Přepni do model space
   (if (= orig_tilemode 0) (setvar "TILEMODE" 1))
+
+  ; Zakáž UNDO záznam — freeze/thaw operace by jinak nafouknuly undo buffer
+  ; na stovky záznamů a způsobily zaseknutí AutoCADu po exportu
+  (command "UNDO" "_Control" "_None")
+
+  ; Zakáž automatický regen při přepínání vrstev
+  (setvar "REGENMODE" 0)
 
   (princ "\n=== Razzor 3D Export v16 ===")
   (princ (strcat "\nSložka: " outdir "\n"))
@@ -127,16 +140,9 @@
 
         (setvar "CLAYER" layer_name)
 
-        ; Zmraz všechny ostatní vrstvy
-        (setq other_data (tblnext "layer" T))
-        (while other_data
-          (setq other_name (cdr (assoc 2 other_data)))
-          (if (not (= other_name layer_name))
-            (vl-catch-all-apply
-              '(lambda () (command "-LAYER" "_Freeze" other_name "")))
-          )
-          (setq other_data (tblnext "layer"))
-        )
+        ; Zmraz VŠECHNY vrstvy najednou (AutoCAD přeskočí current layer automaticky)
+        ; pak rozmraz a zapni cílovou vrstvu
+        (vl-catch-all-apply '(lambda () (command "-LAYER" "_Freeze" "*" "")))
         (command "-LAYER" "_Thaw" layer_name "")
         (command "-LAYER" "_On"   layer_name "")
         (command "._UCS" "_W")
@@ -179,6 +185,12 @@
   (setvar "CLAYER" orig_clayer)
   (setvar "TILEMODE" orig_tilemode)
   (setvar "FILEDIA" 1)
+  (setvar "REGENMODE" orig_regenmode)
+
+  ; Obnov UNDO záznam a vymaž buffer (bezpečný restart undo)
+  (command "UNDO" "_Control" "_All")
+  (command "UNDO" "_Begin")
+  (command "UNDO" "_End")
 
   ; Finální obnova viditelnosti (pro jistotu)
   (foreach lname orig_frozen
@@ -211,5 +223,5 @@
   (princ)
 )
 
-(princ "\nRazzor 3D Export v16. Příkaz: ExportLayers3D\n")
+(princ "\nRazzor 3D Export v17. Příkaz: ExportLayers3D\n")
 (princ)

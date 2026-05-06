@@ -57,6 +57,14 @@ Workflow:
 
 GitHub token je uložen v `.git/config` (remote URL) — `git push` na Macu proto nevyžaduje heslo.
 
+**Opakující se problém — git HEAD.lock / index.lock:**
+Sandbox (VirtioFS mount) nemůže mazat lock soubory vytvořené předchozím git procesem — `rm` vrací `Operation not permitted`. Před každým `git commit` je třeba zkontrolovat a případně smazat locky z Terminálu na Macu:
+```bash
+sudo rm -f /Users/ludekspilauer/Projekty/razzor-system/.git/HEAD.lock \
+           /Users/ludekspilauer/Projekty/razzor-system/.git/index.lock
+```
+Toto je nutné opakovat před každým commitem z Cowork session — locky vznikají automaticky po každém git operaci v sandboxu.
+
 ### Autentizace na GitHub (Mac)
 
 GitHub od roku 2021 nepřijímá git push s heslem. Nejjednodušší řešení:
@@ -289,6 +297,58 @@ onchange="_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})"
 **Barvy v UI:**
 - Badge v tabulce (`_DXF_TYP_COLOR`): deska = `background:#e8c9a0;color:#7c4a1e`, pěna = `background:#d1fae5;color:#065f46`
 - SVG náhled (`FILL` v `_dxfRenderSvg`): deska = `#c8986a`, pěna = `#86efac`, jiné = `#e5e7eb`
+
+### 3D viewer — záložka v BOM editoru
+
+Záložka **3D** (tab 5) v BOM editoru (`bomDetailUnified`) umožňuje nahrát ZIP se STL soubory (jeden STL = jedna vrstva z AutoCADu) a zobrazit 3D náhled case s přepínáním viditelnosti vrstev.
+
+**Workflow AutoCAD → viewer:**
+1. Michal otevře výkres v AutoCADu, načte LISP: `APPLOAD` → `export_layers_3d.lsp`
+2. Spustí příkaz `ExportLayers3D` — skript projde viditelné vrstvy, zamrazí ostatní, exportuje každou do `.stl`
+3. Vybere STL soubory ve Finderu → Pravý klik → Komprimovat → vznikne ZIP
+4. Nahraje ZIP do Razzor → záložka 3D
+
+**LISP skript** (`export_layers_3d.lsp`, aktuálně v16):
+- Přeskakuje skryté/zmrazené vrstvy (uživatel je záměrně vypnul = nechce exportovat)
+- Po exportu obnovuje původní stav viditelnosti vrstev
+- `_rz-safename`: převádí názvy vrstev na bezpečné názvy souborů — mezery/lomítka → `_`, tečky → `,`, česká diakritika stripována (`překlizka` → `preklizka`)
+- `(gc)` po každém exportu — předchází pádu AutoCADu při větším počtu vrstev
+- **Nepoužívá referenční box** (starší verze 14/15 ho přidávaly u 0,0,0 pro detekci UCS offsetu — bylo odstraněno ve v16, protože viewer orbit centra se počítá percentilem vrcholů)
+
+**Tabulka `typy_casu_3d`** (database.py):
+```
+id, typ_casu_id, nazev_souboru, vrstvy_json, nahrano
+```
+`vrstvy_json` = seznam `{nazev, filename, typ}` kde `typ` ∈ `deska|pena|hardware|jine`.
+
+**Endpointy** (app.py):
+- `POST /api/typy-casu/<id>/3d` — nahraje ZIP, rozbalí STL soubory do `data/3d/<id>/`, spustí auto-korekci Y-offsetu (Y-median alignment), uloží metadata do DB
+- `GET  /api/typy-casu/<id>/3d` — vrátí seznam vrstev (`vrstvy_json`) + timestamp
+- `GET  /api/typy-casu/<id>/3d/<filename>` — vrátí binární STL soubor
+
+**Auto-korekce Y-offsetu** (v `api_3d_post()` v app.py):
+- Funkce `_stl_read_triangles`, `_tri_verts`, `_stl_write_triangles`, `_stl_shift_xyz`
+- Detekce: pro každý STL spočítá Y-střed (bbox center). Pokud se vrstvy liší v Y-středu > 0.5 mm, posune je na společný medián
+- Fallback přístup bez ref boxu (ref box byl odstraněn z LISP v16)
+- Korekce se provádí in-place (přepíše STL soubory na disku)
+
+**Frontend** (app.html) — funkce `_bu3dInitViewer(typId, vrstvy)`:
+- Three.js r128, STLLoader, OrbitControls (CDN: cdn.jsdelivr.net/npm/three@0.128.0)
+- **Rotace**: `geometry.applyMatrix4(makeRotationX(-Math.PI/2))` — AutoCAD Z-up → Three.js Y-up
+- **Orbit centra** (kamera/target): počítá se z 5–95 percentilu vrcholů vzorkovaných z geometrie (každý 50. vrchol). Tím se ignorují outlier body (malé izolované geometrie daleko od modelu)
+- **Barevné kódování vrstev** (funkce `layerColor`): deska=hnědá, pěna=zelená, hardware=šedá, jiné=světle šedá
+- **Emissive** pro tenké objekty (minDim < 3 mm): 45 % base barvy — logo a tenké pláty jsou viditelné i z kosého pohledu
+- **renderOrder + polygonOffset**: hardware vrstvy (jine=2, pena=1, deska=0) — předchází Z-fightingu u koplanárních ploch
+- **Legenda vrstev**: checkboxy pro zapínání/vypínání viditelnosti per-vrstva; názvy zobrazeny bez diakritiky (`.normalize('NFD').replace(/[̀-ͯ]/g,'')`)
+- `_3dMeshMap` — globální `{filename → mesh}` pro `_3dToggleLayer(filename, visible)`
+
+**Detekce typu vrstvy** z názvu (funkce `_bu3dLayerType`):
+- `D_` nebo `deska` v názvu → `deska`
+- `P_` nebo `pena` v názvu → `pena`
+- čísla jako `4906`, `6200`, `34082` (hardware/nýty/díly) → `jine`
+
+**Známý problém — nožičky (hardware vrstvy u dna case):**
+Gumové nožičky mohou vizuálně vypadat posunuté dovnitř case. Příčina: vrstva nožiček má jiný Y-střed (jsou fyzicky pod dnem = záměrně jiná Y pozice) ale Y-median korekce je posouvá ke středu ostatních vrstev. Budoucí fix: z Y-korekce vynechat vrstvy jejichž Y-střed je outlier vůči mediánu (více než 2σ mimo).
 
 ### Verze
 

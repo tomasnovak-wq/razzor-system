@@ -1,8 +1,8 @@
 {
-  "verze": 49,
-  "popis": "v49: LISP v16 bez ref boxu, zachovani viditelnosti vrstev po exportu, diakritika stripovana",
+  "verze": 50,
+  "popis": "v50: LISP v17 zakaz UNDO behem exportu + Freeze * misto smycky — fix zasekavani AutoCADu po exportu",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "11:51",
-  "git_commit": "7624c80"
+  "cas": "12:05",
+  "git_commit": "0968f95"
 }
