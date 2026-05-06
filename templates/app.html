@@ -1828,15 +1828,17 @@ async function bomDetailUnified(typId, tab) {
   // Reset DXF overrides při otevření jiného typu casu (zachováme jen pokud je stejný typId)
   if (!_buData || _buData.typId !== typId) _dxfOverrides = {};
   openModal('<div class="text-center py-10 text-gray-400">Načítám…</div>', 'xl');
-  const [data, casData, profilyData, typyKorpusu, dxfResp, model3dResp] = await Promise.all([
+  const [data, casData, profilyData, typyKorpusu, dxfResp, model3dResp, matResp] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
     api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] })),
     _cache.typy_korpusu ? Promise.resolve(_cache.typy_korpusu) : api('/api/typy-korpusu'),
     api(`/api/typy-casu/${typId}/dxf`).catch(() => null),
     api(`/api/typy-casu/${typId}/3d`).catch(() => null),
+    _cache.materialy ? Promise.resolve(null) : api('/api/materialy?limit=2000').catch(() => null),
   ]);
   _cache.typy_korpusu = typyKorpusu;
+  if (matResp?.items) { _cache.materialy = matResp.items; _cache._matTypy = matResp.typy || []; }
   const dxfData    = dxfResp?.dxf       || null;
   const model3dData = model3dResp?.model3d || null;
   _buData = { typId, data, casData, profilyData, typyKorpusu, dxfData, model3dData };
@@ -3791,9 +3793,11 @@ let _3dMatMap = {};
 
 // Barvy pro Three.js viewer dle typu vrstvy
 const _3D_COLORS = {
-  deska: 0xc8986a,   // hnědá fallback (když tloušťka není v mapě)
-  pena:  0x86efac,   // zelená fallback
-  jine:  0xe2e8f0,   // světle šedá
+  deska:   0xc8986a,   // hnědá fallback (když tloušťka není v mapě)
+  pena:    0x86efac,   // zelená fallback
+  hw:      0x94a3b8,   // šedá — hardware (závěsy, zámky, nožičky…)
+  profily: 0xfbbf24,   // zlatá — hliníkové profily
+  jine:    0xe2e8f0,   // světle šedá — nezařazené
 };
 
 // Barvy desek (D Xmm) dle tloušťky — odpovídají barvám hladin v AutoCADu
@@ -3872,6 +3876,20 @@ function _3dToggleLayer(filename, visible) {
   if (mesh) mesh.visible = visible;
 }
 
+function _3dToggleGroup(typ, visible) {
+  // Přepne viditelnost všech meshů daného typu + synchronizuje individuální checkboxy
+  if (!_3dMeshMap) return;
+  Object.values(_3dMeshMap).forEach(mesh => {
+    if (!mesh.userData?.vrstva) return;
+    if (mesh.userData.vrstva.typ !== typ) return;
+    mesh.visible = visible;
+    // Synchronizuj individuální checkbox
+    const id = 'chk3d_' + mesh.userData.vrstva.filename.replace(/[^a-zA-Z0-9]/g, '_');
+    const chk = document.getElementById(id);
+    if (chk) chk.checked = visible;
+  });
+}
+
 // Barva vrstvy — globální, sdílí _buTab3D (seznam) i _bu3dInitViewer (Three.js mesh)
 function layerColor(v) {
   // 0. Vrstva = kód materiálu → bílá
@@ -3929,7 +3947,7 @@ function _bu3dModelInfoHtml(typId, model3dData, vrstvy) {
 }
 
 function _bu3dTypOpts(cur) {
-  return [['deska','🪵 Deska'],['pena','🟡 Pěna'],['jine','📦 Jiné'],['ignorovat','🚫 Ignorovat']]
+  return [['deska','🪵 Deska'],['pena','🟡 Pěna'],['hw','🔩 HW'],['profily','📐 Profily'],['jine','📦 Jiné'],['ignorovat','🚫 Ignorovat']]
     .map(([v,l]) => `<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('');
 }
 
@@ -4237,22 +4255,51 @@ async function _bu3dInitViewer(typId, vrstvy) {
     _3dControls.update();
   }
 
-  // Legenda vrstev — s visibility checkboxy a bbox tooltip
+  // Legenda vrstev — skupinové přepínače + individuální checkboxy s material lookup
   if (legend) {
-    legend.innerHTML = meshes.map(m => {
+    const GROUP_DEF = [
+      { typ:'deska',   label:'🪵 Deska',   color:'#c8986a' },
+      { typ:'pena',    label:'🟡 Pěna',    color:'#86efac' },
+      { typ:'hw',      label:'🔩 HW',      color:'#94a3b8' },
+      { typ:'profily', label:'📐 Profily', color:'#fbbf24' },
+      { typ:'jine',    label:'📦 Jiné',    color:'#e2e8f0' },
+    ];
+    const presentTypes = new Set(meshes.map(m => m.userData.vrstva.typ));
+    const groupBtns = GROUP_DEF.filter(g => presentTypes.has(g.typ)).map(g =>
+      `<label title="Zobrazit/skrýt ${g.label}"
+          style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none;
+                 background:#1e3a5f;border:1px solid #334155;border-radius:6px;padding:4px 10px;
+                 font-size:.8rem;color:#e2e8f0">
+        <input type="checkbox" checked style="margin:0;cursor:pointer;accent-color:${g.color}"
+               onchange="_3dToggleGroup('${g.typ}', this.checked)">
+        ${g.label}
+      </label>`
+    ).join('');
+
+    const indivChk = meshes.map(m => {
       const v   = m.userData.vrstva;
       const b   = m.userData.bb;
       const col = '#' + layerColor(v).toString(16).padStart(6, '0');
       const id  = 'chk3d_' + v.filename.replace(/[^a-zA-Z0-9]/g, '_');
-      const tip = b ? `X[${b.xMin}..${b.xMax}] Y[${b.yMin}..${b.yMax}] Z[${b.zMin}..${b.zMax}]` : '';
-      return `<label title="${tip}" style="display:inline-flex;align-items:center;gap:5px;background:#f8fafc;
-                border:1px solid #e2e8f0;border-radius:5px;padding:3px 8px;cursor:pointer;user-select:none">
+      const mat = _3dMatMap[(v.nazev || '').toLowerCase().trim()];
+      const bboxTip = b ? `X[${b.xMin}..${b.xMax}] Y[${b.yMin}..${b.yMax}] Z[${b.zMin}..${b.zMax}]` : '';
+      const tip     = mat ? `${mat.nazev}${bboxTip ? ' · ' + bboxTip : ''}` : bboxTip;
+      const normN   = v.nazev.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      const dispName = mat ? `${normN} · ${mat.nazev}` : normN;
+      const border  = (col === '#ffffff') ? 'border:1px solid #d1d5db;' : '';
+      return `<label title="${tip}" data-typ="${v.typ}"
+          style="display:inline-flex;align-items:center;gap:5px;background:#f8fafc;
+                 border:1px solid #e2e8f0;border-radius:5px;padding:3px 8px;cursor:pointer;user-select:none">
         <input type="checkbox" id="${id}" checked style="margin:0;cursor:pointer;accent-color:${col}"
                onchange="_3dToggleLayer('${v.filename.replace(/'/g,"\\'")}', this.checked)">
-        <span style="width:10px;height:10px;border-radius:2px;background:${col};flex-shrink:0"></span>
-        <span style="font-size:.78rem">${v.nazev.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}</span>
+        <span style="width:10px;height:10px;border-radius:2px;background:${col};${border}flex-shrink:0"></span>
+        <span style="font-size:.78rem">${dispName}</span>
       </label>`;
     }).join('');
+
+    legend.innerHTML =
+      `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">${groupBtns}</div>` +
+      `<div style="display:flex;flex-wrap:wrap;gap:4px">${indivChk}</div>`;
   }
 
   // Animační smyčka

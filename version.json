@@ -1,8 +1,8 @@
 {
-  "verze": 61,
-  "popis": "3D záložka: material lookup (bílé vrstvy = kód materiálu + název), dropdown přiřazení typu vrstvy, PATCH endpoint",
+  "verze": 62,
+  "popis": "3D: HW+Profily typy, skupinové přepínače viditelnosti, material lookup v legendě, fix načítání materiálů",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "16:18",
-  "git_commit": "bc4f1ba"
+  "cas": "16:25",
+  "git_commit": "945094a"
 }
