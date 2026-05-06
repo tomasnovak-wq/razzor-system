@@ -14,7 +14,7 @@
 ;
 ; v15: Přeskakuje vrstvy, které jsou v kresbě skryté nebo zmrazené
 ; (uživatel je schválně vypnul → nechce je exportovat).
-; Po každém exportu se volá (vl-gc) pro uvolnění paměti —
+; Po každém exportu se volá (gc) pro uvolnění paměti —
 ; předchází pádu AutoCADu při exportu mnoha vrstev najednou.
 ; ============================================================
 
@@ -145,8 +145,8 @@
         (command "-LAYER" "_Thaw" "*" "")
         (command "-LAYER" "_On"   "*" "")
 
-        ; Uvolni paměť po každém exportu
-        (vl-gc)
+        ; Uvolni paměť po každém exportu (gc = standard AutoLISP, funguje na Mac i Win)
+        (gc)
       )
     )
   )
@@ -177,5 +177,5 @@
   (princ)
 )
 
-(princ "\nRazzor 3D Export v15. Příkaz: ExportLayers3D\n")
+(princ "\nRazzor 3D Export v15b. Příkaz: ExportLayers3D\n")
 (princ)

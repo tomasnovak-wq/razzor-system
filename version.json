@@ -1,8 +1,8 @@
 {
-  "verze": 46,
-  "popis": "v46: LISP v15 export jen viditelnych vrstev + vl-gc; server detekce ref boxu; viewer orbit pivot fix",
+  "verze": 47,
+  "popis": "v46b: LISP v15b oprava gc() misto vl-gc pro Mac AutoCAD",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "11:30",
-  "git_commit": "749ed1c"
+  "cas": "11:33",
+  "git_commit": "c334b75"
 }
