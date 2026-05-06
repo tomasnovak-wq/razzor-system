@@ -1,8 +1,8 @@
 {
-  "verze": 56,
-  "popis": "LISP v20: vrácen ref box 1x1x1 na (0,0,0) — syntaxe z v15, entdel po exportu",
+  "verze": 57,
+  "popis": "LISP v21: odstraneno UNDO control (kolize promptu mezi verzemi AutoCADu), ref box zachovan",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "12:58",
-  "git_commit": "9496dd3"
+  "cas": "13:01",
+  "git_commit": "2cbd0bb"
 }

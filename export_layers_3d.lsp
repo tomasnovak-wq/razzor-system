@@ -1,5 +1,5 @@
 ; ============================================================
-; export_layers_3d.lsp  —  Razzor Cases  v20
+; export_layers_3d.lsp  —  Razzor Cases  v21
 ;
 ; Zjednodušená verze — bez automatického EXPLODE.
 ; Před spuštěním ručně exploduj bloky (INSERT entity) které
@@ -18,6 +18,10 @@
 ; Syntaxe z v15: (command "._BOX" "0,0,0" "1,1,1").
 ; Box se přidá před STLOUT, smaže se přes entdel po exportu.
 ; Server z jeho polohy v STL přesně zjistí UCS offset a opraví ho.
+;
+; v21: Odstraněno UNDO control — prompt se liší dle verze AutoCADu
+; (starší: [Auto/Control/BEgin/End/Mark/Back], novější: [All/None/...])
+; a způsobuje pád LISPu. S _Freeze * je undo buffer malý, pád nehrozí.
 ; ============================================================
 
 (defun _rz-replace (old new str / result i olen)
@@ -80,10 +84,6 @@
 
   ; Přepni do model space
   (if (= orig_tilemode 0) (setvar "TILEMODE" 1))
-
-  ; Zakáž UNDO záznam — freeze/thaw operace by jinak nafouknuly undo buffer.
-  ; AutoCAD 2020+ Mac: prompt je [All/None/One/Combine/Layer], správná volba "_None"
-  (command "UNDO" "_None")
 
   ; Zakáž automatický regen při přepínání vrstev
   (setvar "REGENMODE" 0)
@@ -191,9 +191,6 @@
   (setvar "FILEDIA" 1)
   (setvar "REGENMODE" orig_regenmode)
 
-  ; Obnov UNDO
-  (command "UNDO" "_All")
-
   ; Finální obnova viditelnosti (pro jistotu)
   (foreach lname orig_frozen
     (vl-catch-all-apply
@@ -225,5 +222,5 @@
   (princ)
 )
 
-(princ "\nRazzor 3D Export v20. Příkaz: ExportLayers3D\n")
+(princ "\nRazzor 3D Export v21. Příkaz: ExportLayers3D\n")
 (princ)
