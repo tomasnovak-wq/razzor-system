@@ -1,5 +1,5 @@
 ; ============================================================
-; export_layers_3d.lsp  —  Razzor Cases  v17
+; export_layers_3d.lsp  —  Razzor Cases  v18
 ;
 ; Zjednodušená verze — bez automatického EXPLODE.
 ; Před spuštěním ručně exploduj bloky (INSERT entity) které
@@ -8,16 +8,18 @@
 ;
 ; v15: Přeskakuje skryté/zmrazené vrstvy. Po každém exportu (gc).
 ;
-; v16: Odstraněn referenční box u (0,0,0) — viewer orbit centra
-; se počítá percentilem vrcholů, box není potřeba.
-; _rz-safename odstraňuje českou diakritiku z názvů souborů.
-; Po exportu se obnovuje původní stav viditelnosti vrstev —
-; vrstvy, které byly před exportem skryté, zůstanou skryté.
+; v16: Odstraněn referenční box — CHYBA! Bez boxu server nedokáže
+; spolehlivě zarovnat vrstvy (Y-median fallback nefungoval).
 ;
 ; v17: Zakázání UNDO záznamu po dobu exportu — předchází zaseknutí
 ; AutoCADu po exportu způsobenému obrovským undo bufferem.
 ; Freeze ostatních vrstev jedním "_Freeze *" místo smyčky
 ; přes každou vrstvu zvlášť — rychlejší, méně paměti.
+;
+; v18: OBNOVEN referenční box 1×1×1 mm u WCS (0,0,0).
+; Box se přidá před STLOUT a smaže se přes entdel po exportu
+; (UNDO je záměrně vypnuté, proto entdel místo UNDO).
+; Server z pozice boxu přesně detekuje UCS offset a opraví ho.
 ; ============================================================
 
 (defun _rz-replace (old new str / result i olen)
@@ -147,12 +149,22 @@
         (command "-LAYER" "_On"   layer_name "")
         (command "._UCS" "_W")
 
+        ; Přidej referenční box 1×1×1 mm u WCS (0,0,0) na aktuální vrstvě.
+        ; Server z jeho polohy v exportovaném STL detekuje UCS offset a opraví ho.
+        ; Box se po exportu smaže přes entdel (UNDO je vypnuté).
+        (command "._BOX" "0,0,0" "1,1,0" "1")
+        (setq rz_ref_box (entlast))
+
         ; Export STL
         (setq safe_name (_rz-safename layer_name))
         (setq stl_path  (strcat outdir safe_name ".stl"))
         (setvar "FILEDIA" 0)
         (command "STLOUT" "all" "" "Y" stl_path)
         (setvar "FILEDIA" 1)
+
+        ; Smaž referenční box z výkresu (nesmí zůstat ve výkrese)
+        (if rz_ref_box (entdel rz_ref_box))
+        (setq rz_ref_box nil)
 
         (setq exported_count (1+ exported_count))
         (princ (strcat " → " safe_name ".stl ✓"))
@@ -223,5 +235,5 @@
   (princ)
 )
 
-(princ "\nRazzor 3D Export v17. Příkaz: ExportLayers3D\n")
+(princ "\nRazzor 3D Export v18. Příkaz: ExportLayers3D\n")
 (princ)

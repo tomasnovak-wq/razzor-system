@@ -1,8 +1,8 @@
 {
-  "verze": 52,
-  "popis": "Fix 3D Y-median korekce: odstranil ref-box detection ktera blokovala korekci, pridat logovani chyb",
+  "verze": 53,
+  "popis": "v18 LISP: obnoven ref box 1x1x1 u WCS 0,0,0 pro spolehlivy alignment; server: obnovena ref-box detekce s ochranou proti false-positive, Y-median fallback",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "12:29",
-  "git_commit": "1d257a8"
+  "cas": "12:36",
+  "git_commit": "b930127"
 }
