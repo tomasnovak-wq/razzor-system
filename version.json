@@ -1,8 +1,8 @@
 {
-  "verze": 45,
-  "popis": "3D upload: auto-korekce Y-offsetu STL vrstev (detekce posunu, oprava na serveru)",
+  "verze": 46,
+  "popis": "v46: LISP v15 export jen viditelnych vrstev + vl-gc; server detekce ref boxu; viewer orbit pivot fix",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "10:38",
-  "git_commit": "efd82b9"
+  "cas": "11:30",
+  "git_commit": "749ed1c"
 }

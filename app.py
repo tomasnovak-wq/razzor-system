@@ -1060,36 +1060,70 @@ def api_3d_post(typ_id):
     # ── pomocné funkce pro práci s binárním STL ──────────────────────────────
     import struct as _struct, statistics as _stats
 
-    def _stl_ybbox(path):
-        """Vrátí (y_min, y_max, x_span) pro binary STL."""
+    def _stl_read_triangles(path):
+        """Načte všechny trojúhelníky z binary STL. Vrátí list bytearrays (50 B každý)."""
+        tris = []
         with open(path, 'rb') as f:
             f.read(80)
             n = _struct.unpack('<I', f.read(4))[0]
-            xs, ys = [], []
             for _ in range(n):
                 d = f.read(50)
                 if len(d) < 50: break
-                for vi in range(3):
-                    x, y = _struct.unpack('<ff', d[12+vi*12:20+vi*12])
-                    xs.append(x); ys.append(y)
-        if not ys: return None
-        return min(ys), max(ys), max(xs)-min(xs)
+                tris.append(bytearray(d))
+        return tris
 
-    def _stl_shift_y(path, delta):
-        """Přesune všechny vrcholy STL souboru o delta v ose Y (in-place)."""
-        with open(path, 'r+b') as f:
-            f.read(80)
-            n = _struct.unpack('<I', f.read(4))[0]
-            for _ in range(n):
-                base = f.tell()
-                d = bytearray(f.read(50))
-                if len(d) < 50: break
-                # V každém trojúhelníku Y souřadnice: v1@16, v2@28, v3@40
-                for off in (16, 28, 40):
-                    y_old = _struct.unpack_from('<f', d, off)[0]
-                    _struct.pack_into('<f', d, off, y_old + delta)
-                f.seek(base)
-                f.write(bytes(d))
+    def _tri_verts(tri):
+        """Vrátí souřadnice tří vrcholů trojúhelníku jako list of (x,y,z)."""
+        verts = []
+        for vi in range(3):
+            x, y, z = _struct.unpack('<fff', tri[12+vi*12:24+vi*12])
+            verts.append((x, y, z))
+        return verts
+
+    def _stl_write_triangles(path, header, tris):
+        """Zapíše binary STL soubor."""
+        with open(path, 'wb') as f:
+            f.write(header.ljust(80, b'\x00')[:80])
+            f.write(_struct.pack('<I', len(tris)))
+            for t in tris:
+                f.write(bytes(t))
+
+    def _stl_shift_xyz(tris, dx, dy, dz):
+        """Posune X/Y/Z souřadnice všech vrcholů v listu trojúhelníků (in-place)."""
+        for tri in tris:
+            for vi in range(3):
+                base = 12 + vi * 12
+                x, y, z = _struct.unpack('<fff', tri[base:base+12])
+                _struct.pack_into('<fff', tri, base, x+dx, y+dy, z+dz)
+
+    def _stl_find_ref_box(tris, threshold=20.0):
+        """Najde trojúhelníky referenčního boxu (1×1×1 mm u souřadnic ~0,0,0).
+        Vrátí (offset_x, offset_y, offset_z, ref_tris, rest_tris).
+        Ref. box rozpozná jako skupinu trojúhelníků kde VŠECHNY vrcholy mají
+        |x|, |y|, |z| < threshold (daleko od geometrie casu na souřadnicích ~1500,900,200).
+        Offset = minimum souřadnic vrcholů ref. boxu (= pozice rohu boxu v exportovaném prostoru).
+        """
+        ref_tris, rest_tris = [], []
+        for tri in tris:
+            verts = _tri_verts(tri)
+            if all(abs(v[0]) < threshold and abs(v[1]) < threshold and abs(v[2]) < threshold
+                   for v in verts):
+                ref_tris.append(tri)
+            else:
+                rest_tris.append(tri)
+        if not ref_tris:
+            return None, None, None, [], tris
+        # Střed ref. boxu = průměr všech vrcholů
+        all_verts = [v for tri in ref_tris for v in _tri_verts(tri)]
+        cx = sum(v[0] for v in all_verts) / len(all_verts)
+        cy = sum(v[1] for v in all_verts) / len(all_verts)
+        cz = sum(v[2] for v in all_verts) / len(all_verts)
+        # Střed 1×1×1 boxu na (0,0,0) by měl být (0.5, 0.5, 0.5)
+        # Odchylka = střed minus očekávaný střed
+        offset_x = cx - 0.5
+        offset_y = cy - 0.5
+        offset_z = cz - 0.5
+        return offset_x, offset_y, offset_z, ref_tris, rest_tris
 
     # Rozbal ZIP
     vrstvy = []
@@ -1135,48 +1169,77 @@ def api_3d_post(typ_id):
     except zipfile.BadZipFile:
         return jsonify({'error': 'Neplatný ZIP soubor'}), 400
 
-    # ── AUTO-KOREKCE Y-offsetu ───────────────────────────────────────────────
-    # Některé vrstvy (typicky HW bloky importované z jiného výkresu) mohou mít
-    # Y-střed posunutý o několik mm oproti zbytku modelu. Detekujeme to a opravíme.
+    # ── AUTO-KOREKCE pomocí referenčního boxu (v14+) ────────────────────────
+    # LISP v14 přidá do každého STL referenční box 1×1×1 mm na souřadnicích (0,0,0).
+    # Server z jeho polohy v exportovaném souboru přesně zjistí UCS offset,
+    # opraví všechny vrcholy a referenční box odstraní.
     #
-    # Algoritmus:
-    #  1. Pro každou "velkou" vrstvu (X-span > 40 % case_width) spočítej Y-střed
-    #  2. Referenční Y-střed = medián všech velkých vrstev
-    #  3. Vrstvy s odchylkou > 0.5 mm posuň o příslušný delta
+    # Fallback (starší LISP bez ref. boxu): Y-median přístup.
     #
     korektovano = []
     try:
-        # Sesbírej bbox pro velké vrstvy
-        bbox_data = {}
+        has_ref_box = False  # zjistíme za chvíli
+
         for v in vrstvy:
-            p = os.path.join(target_dir, v['filename'])
-            bb = _stl_ybbox(p)
-            if bb:
-                bbox_data[v['filename']] = bb   # (y_min, y_max, x_span)
+            path = os.path.join(target_dir, v['filename'])
+            tris = _stl_read_triangles(path)
+            if not tris:
+                continue
 
-        # Referenční case_width = max X-span ze všech vrstev
-        if bbox_data:
-            case_width = max(b[2] for b in bbox_data.values())
-            min_xspan  = case_width * 0.40   # "velká" vrstva = min 40 % šířky casu
+            # Přečti hlavičku (80 bytů) pro zápis zpět
+            with open(path, 'rb') as f:
+                header = f.read(80)
 
-            big_ycenters = [
-                (b[0]+b[1])/2
-                for b in bbox_data.values()
-                if b[2] >= min_xspan
-            ]
-            if len(big_ycenters) >= 2:
-                ref_y = _stats.median(big_ycenters)
+            ox, oy, oz, ref_tris, rest_tris = _stl_find_ref_box(tris)
 
-                for v in vrstvy:
-                    bb = bbox_data.get(v['filename'])
-                    if not bb: continue
-                    if bb[2] < min_xspan: continue   # malá vrstva – neopravovat
-                    yc = (bb[0]+bb[1])/2
-                    delta = ref_y - yc
-                    if abs(delta) > 0.5:   # odchylka větší než 0.5 mm → oprav
-                        p = os.path.join(target_dir, v['filename'])
-                        _stl_shift_y(p, delta)
-                        korektovano.append({'vrstva': v['nazev'], 'delta_mm': round(delta, 3)})
+            if ref_tris:
+                # ── Ref. box nalezen — přesná korekce ──
+                has_ref_box = True
+                dx, dy, dz = -ox, -oy, -oz
+                needs_fix = (abs(dx) > 0.1 or abs(dy) > 0.1 or abs(dz) > 0.1)
+                if needs_fix:
+                    _stl_shift_xyz(rest_tris, dx, dy, dz)
+                    korektovano.append({
+                        'vrstva':   v['nazev'],
+                        'delta_mm': round(dy, 3),   # hlavní osa Y
+                        'dx': round(dx,3), 'dy': round(dy,3), 'dz': round(dz,3),
+                    })
+                # Vždy odstraň ref. box z výstupního souboru
+                _stl_write_triangles(path, header, rest_tris)
+
+            # (pokud ref. box není, soubor necháme jak je — fallback níže)
+
+        # ── Fallback: starší LISP (bez ref. boxu) → Y-median ────────────────
+        if not has_ref_box:
+            def _ybbox(path):
+                tris = _stl_read_triangles(path)
+                if not tris: return None
+                ys = [v[1] for t in tris for v in _tri_verts(t)]
+                xs = [v[0] for t in tris for v in _tri_verts(t)]
+                return min(ys), max(ys), max(xs)-min(xs)
+
+            bbox_data = {}
+            for v in vrstvy:
+                bb = _ybbox(os.path.join(target_dir, v['filename']))
+                if bb: bbox_data[v['filename']] = bb
+
+            if bbox_data:
+                case_w = max(b[2] for b in bbox_data.values())
+                big_yc = [(b[0]+b[1])/2 for b in bbox_data.values() if b[2] >= case_w*0.4]
+                if len(big_yc) >= 2:
+                    ref_y = _stats.median(big_yc)
+                    for v in vrstvy:
+                        bb = bbox_data.get(v['filename'])
+                        if not bb or bb[2] < case_w*0.4: continue
+                        delta = ref_y - (bb[0]+bb[1])/2
+                        if abs(delta) > 0.5:
+                            path = os.path.join(target_dir, v['filename'])
+                            tris = _stl_read_triangles(path)
+                            with open(path, 'rb') as f: header = f.read(80)
+                            _stl_shift_xyz(tris, 0, delta, 0)
+                            _stl_write_triangles(path, header, tris)
+                            korektovano.append({'vrstva': v['nazev'], 'delta_mm': round(delta,3)})
+
     except Exception as _e:
         pass   # korekce selhala – pokračujeme se soubory jak jsou
 

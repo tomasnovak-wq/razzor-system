@@ -4086,9 +4086,35 @@ async function _bu3dInitViewer(typId, vrstvy) {
   if (loading) loading.style.display = 'none';
 
   // Vystřed kameru na bounding box celého modelu
+  // Filtrujeme „outlier" meshe — referenční boxy (1×1×1 mm u 0,0,0) by jinak stáhly center daleko od modelu
   if (meshes.length > 0) {
+    // 1. pass: hrubý box ze všech meshů
+    const roughBox = new THREE.Box3();
+    meshes.forEach(m => roughBox.expandByObject(m));
+    const roughSize = new THREE.Vector3();
+    roughBox.getSize(roughSize);
+    const roughMaxDim = Math.max(roughSize.x, roughSize.y, roughSize.z);
+
+    // 2. pass: ignoruj mesh jehož bbox je < 1% největší dimenze A střed je dál než 10% od hrubého středu
+    const roughCenter = new THREE.Vector3();
+    roughBox.getCenter(roughCenter);
+    const significantMeshes = meshes.filter(m => {
+      const mb = new THREE.Box3().setFromObject(m);
+      const ms = new THREE.Vector3();
+      mb.getSize(ms);
+      const meshMax = Math.max(ms.x, ms.y, ms.z);
+      if (meshMax < roughMaxDim * 0.01) {
+        // Malý mesh — zkontroluj jestli je daleko od středu
+        const mc = new THREE.Vector3();
+        mb.getCenter(mc);
+        const dist = mc.distanceTo(roughCenter);
+        if (dist > roughMaxDim * 0.1) return false; // outlier, ignoruj
+      }
+      return true;
+    });
+
     const box = new THREE.Box3();
-    meshes.forEach(m => box.expandByObject(m));
+    (significantMeshes.length > 0 ? significantMeshes : meshes).forEach(m => box.expandByObject(m));
     const center = new THREE.Vector3();
     box.getCenter(center);
     const size = new THREE.Vector3();
