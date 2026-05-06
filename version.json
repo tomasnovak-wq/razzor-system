@@ -1,8 +1,8 @@
 {
-  "verze": 43,
-  "popis": "3D viewer: per-layer visibility checkboxy s bbox tooltipem pro diagnostiku posunu",
+  "verze": 45,
+  "popis": "3D upload: auto-korekce Y-offsetu STL vrstev (detekce posunu, oprava na serveru)",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "10:16",
-  "git_commit": "59c3cc4"
+  "cas": "10:38",
+  "git_commit": "efd82b9"
 }

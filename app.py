@@ -1057,6 +1057,40 @@ def api_3d_post(typ_id):
         if old_f.lower().endswith('.stl'):
             os.remove(os.path.join(target_dir, old_f))
 
+    # ── pomocné funkce pro práci s binárním STL ──────────────────────────────
+    import struct as _struct, statistics as _stats
+
+    def _stl_ybbox(path):
+        """Vrátí (y_min, y_max, x_span) pro binary STL."""
+        with open(path, 'rb') as f:
+            f.read(80)
+            n = _struct.unpack('<I', f.read(4))[0]
+            xs, ys = [], []
+            for _ in range(n):
+                d = f.read(50)
+                if len(d) < 50: break
+                for vi in range(3):
+                    x, y = _struct.unpack('<ff', d[12+vi*12:20+vi*12])
+                    xs.append(x); ys.append(y)
+        if not ys: return None
+        return min(ys), max(ys), max(xs)-min(xs)
+
+    def _stl_shift_y(path, delta):
+        """Přesune všechny vrcholy STL souboru o delta v ose Y (in-place)."""
+        with open(path, 'r+b') as f:
+            f.read(80)
+            n = _struct.unpack('<I', f.read(4))[0]
+            for _ in range(n):
+                base = f.tell()
+                d = bytearray(f.read(50))
+                if len(d) < 50: break
+                # V každém trojúhelníku Y souřadnice: v1@16, v2@28, v3@40
+                for off in (16, 28, 40):
+                    y_old = _struct.unpack_from('<f', d, off)[0]
+                    _struct.pack_into('<f', d, off, y_old + delta)
+                f.seek(base)
+                f.write(bytes(d))
+
     # Rozbal ZIP
     vrstvy = []
     try:
@@ -1067,7 +1101,6 @@ def api_3d_post(typ_id):
                 return jsonify({'error': 'ZIP neobsahuje žádné STL soubory'}), 400
 
             for name in names:
-                # Bezpečný název souboru (jen poslední část cesty)
                 safe = os.path.basename(name)
                 if not safe:
                     continue
@@ -1102,10 +1135,54 @@ def api_3d_post(typ_id):
     except zipfile.BadZipFile:
         return jsonify({'error': 'Neplatný ZIP soubor'}), 400
 
+    # ── AUTO-KOREKCE Y-offsetu ───────────────────────────────────────────────
+    # Některé vrstvy (typicky HW bloky importované z jiného výkresu) mohou mít
+    # Y-střed posunutý o několik mm oproti zbytku modelu. Detekujeme to a opravíme.
+    #
+    # Algoritmus:
+    #  1. Pro každou "velkou" vrstvu (X-span > 40 % case_width) spočítej Y-střed
+    #  2. Referenční Y-střed = medián všech velkých vrstev
+    #  3. Vrstvy s odchylkou > 0.5 mm posuň o příslušný delta
+    #
+    korektovano = []
+    try:
+        # Sesbírej bbox pro velké vrstvy
+        bbox_data = {}
+        for v in vrstvy:
+            p = os.path.join(target_dir, v['filename'])
+            bb = _stl_ybbox(p)
+            if bb:
+                bbox_data[v['filename']] = bb   # (y_min, y_max, x_span)
+
+        # Referenční case_width = max X-span ze všech vrstev
+        if bbox_data:
+            case_width = max(b[2] for b in bbox_data.values())
+            min_xspan  = case_width * 0.40   # "velká" vrstva = min 40 % šířky casu
+
+            big_ycenters = [
+                (b[0]+b[1])/2
+                for b in bbox_data.values()
+                if b[2] >= min_xspan
+            ]
+            if len(big_ycenters) >= 2:
+                ref_y = _stats.median(big_ycenters)
+
+                for v in vrstvy:
+                    bb = bbox_data.get(v['filename'])
+                    if not bb: continue
+                    if bb[2] < min_xspan: continue   # malá vrstva – neopravovat
+                    yc = (bb[0]+bb[1])/2
+                    delta = ref_y - yc
+                    if abs(delta) > 0.5:   # odchylka větší než 0.5 mm → oprav
+                        p = os.path.join(target_dir, v['filename'])
+                        _stl_shift_y(p, delta)
+                        korektovano.append({'vrstva': v['nazev'], 'delta_mm': round(delta, 3)})
+    except Exception as _e:
+        pass   # korekce selhala – pokračujeme se soubory jak jsou
+
     # Ulož záznam do DB
     conn = get_db()
     c = conn.cursor()
-    # Smaž starý záznam
     c.execute("DELETE FROM typy_casu_3d WHERE typ_casu_id=?", (typ_id,))
     c.execute("""
         INSERT INTO typy_casu_3d (typ_casu_id, nazev_souboru, vrstvy_json)
@@ -1114,7 +1191,10 @@ def api_3d_post(typ_id):
     conn.commit()
     conn.close()
 
-    return jsonify({'ok': True, 'vrstvy': vrstvy, 'pocet': len(vrstvy)})
+    resp = {'ok': True, 'vrstvy': vrstvy, 'pocet': len(vrstvy)}
+    if korektovano:
+        resp['korekce'] = korektovano
+    return jsonify(resp)
 
 
 @app.route('/api/typy-casu/<int:typ_id>/3d/<path:filename>', methods=['GET'])

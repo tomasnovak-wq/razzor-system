@@ -3895,7 +3895,12 @@ async function _bu3dUpload(typId) {
       status.style.color = '#dc2626';
       if (btn) btn.disabled = false; return;
     }
-    status.textContent = `✓ Hotovo – ${json.pocet} vrstev`;
+    let statusMsg = `✓ Hotovo – ${json.pocet} vrstev`;
+    if (json.korekce && json.korekce.length > 0) {
+      statusMsg += ` · Opraveno ${json.korekce.length} vrstev: `
+        + json.korekce.map(k => `${k.vrstva} (${k.delta_mm > 0 ? '+' : ''}${k.delta_mm} mm Y)`).join(', ');
+    }
+    status.textContent = statusMsg;
     status.style.color = '#16a34a';
     _buData.model3dData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
                             nahrano: new Date().toISOString() };
@@ -4018,7 +4023,7 @@ async function _bu3dInitViewer(typId, vrstvy) {
         geometry.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
         geometry.computeVertexNormals();
 
-        // Detekuj tenké objekty (logo, gravírka) → polygonOffset + emissive pro viditelnost
+        // Detekuj tenké a povrchové objekty → polygonOffset + emissive pro viditelnost
         geometry.computeBoundingBox();
         const bb = geometry.boundingBox;
         const dims = [
@@ -4028,6 +4033,18 @@ async function _bu3dInitViewer(typId, vrstvy) {
         ];
         const minDim = Math.min(...dims);
         const isThin = minDim < 3;  // tenčí než 3 mm (logo, gravírka, plíšky)
+
+        // Detekuj vrstvu která leží NA SPODNÍ PLOŠE casu (Y≈0 po rotaci = Z≈0 v AutoCADu)
+        // → tyto vrstvy se srážejí s konstrukcí casu (Z-fighting) → posuň je dopředu
+        const isOnCaseBottom = bb.min.y < 2.0;   // spodní plocha do 2mm od Z=0
+
+        // Priorita renderování: hardware a nožičky nad deskami
+        const renderPriority = (v.typ === 'jine') ? 2 : (v.typ === 'pena') ? 1 : 0;
+
+        // Síla polygonOffset: tenké > spodní vrstva > nic
+        const pOffset = isThin ? -4 : isOnCaseBottom ? -2 : 0;
+        const pUnits  = isThin ? -8 : isOnCaseBottom ? -4 : 0;
+        const useOffset = isThin || isOnCaseBottom;
 
         // Pro tenké objekty: emissive = 40 % vlastní barvy → objekt "svítí" a je vidět
         // i při pohledu z boku kde by byl jinak sub-pixelový
@@ -4040,11 +4057,12 @@ async function _bu3dInitViewer(typId, vrstvy) {
           specular:           0x444444,
           shininess:          40,
           side:               THREE.DoubleSide,
-          polygonOffset:      isThin,
-          polygonOffsetFactor: isThin ? -4 : 0,
-          polygonOffsetUnits:  isThin ? -8 : 0,
+          polygonOffset:      useOffset,
+          polygonOffsetFactor: pOffset,
+          polygonOffsetUnits:  pUnits,
         });
         const mesh = new THREE.Mesh(geometry, mat);
+        mesh.renderOrder = renderPriority;
         mesh.userData.vrstva = v;
         mesh.userData.bb = {
           xMin: bb.min.x.toFixed(1), xMax: bb.max.x.toFixed(1),
