@@ -1,5 +1,5 @@
 ; ============================================================
-; export_layers_3d.lsp  —  Razzor Cases  v15
+; export_layers_3d.lsp  —  Razzor Cases  v16
 ;
 ; Zjednodušená verze — bez automatického EXPLODE.
 ; Před spuštěním ručně exploduj bloky (INSERT entity) které
@@ -16,6 +16,10 @@
 ; (uživatel je schválně vypnul → nechce je exportovat).
 ; Po každém exportu se volá (gc) pro uvolnění paměti —
 ; předchází pádu AutoCADu při exportu mnoha vrstev najednou.
+;
+; v16: _rz-safename odstraňuje českou diakritiku z názvů souborů
+; (á→a, č→c, ě→e, í→i, ř→r, š→s, ž→z atd.) — předchází problémům
+; s kódováním na různých systémech.
 ; ============================================================
 
 (defun _rz-replace (old new str / result i olen)
@@ -32,9 +36,20 @@
 (defun _rz-safename (name / s)
   (setq s name)
   (foreach pair (list
+    ; Speciální znaky → podtržítko / čárka
     (list " " "_") (list "/" "_") (list "\\" "_") (list ":" "_")
     (list "*" "_") (list "?" "_") (list "<" "_") (list ">" "_")
-    (list "|" "_") (list "." ","))
+    (list "|" "_") (list "." ",")
+    ; Česká diakritika malá → ASCII
+    (list "á" "a") (list "č" "c") (list "ď" "d") (list "é" "e")
+    (list "ě" "e") (list "í" "i") (list "ň" "n") (list "ó" "o")
+    (list "ř" "r") (list "š" "s") (list "ť" "t") (list "ú" "u")
+    (list "ů" "u") (list "ý" "y") (list "ž" "z")
+    ; Česká diakritika velká → ASCII
+    (list "Á" "A") (list "Č" "C") (list "Ď" "D") (list "É" "E")
+    (list "Ě" "E") (list "Í" "I") (list "Ň" "N") (list "Ó" "O")
+    (list "Ř" "R") (list "Š" "S") (list "Ť" "T") (list "Ú" "U")
+    (list "Ů" "U") (list "Ý" "Y") (list "Ž" "Z"))
     (setq s (_rz-replace (car pair) (cadr pair) s))
   )
   s
@@ -177,5 +192,5 @@
   (princ)
 )
 
-(princ "\nRazzor 3D Export v15b. Příkaz: ExportLayers3D\n")
+(princ "\nRazzor 3D Export v16. Příkaz: ExportLayers3D\n")
 (princ)

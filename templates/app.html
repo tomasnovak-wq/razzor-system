@@ -4085,41 +4085,26 @@ async function _bu3dInitViewer(typId, vrstvy) {
   const loading = document.getElementById('3d-viewer-loading');
   if (loading) loading.style.display = 'none';
 
-  // Vystřed kameru na bounding box celého modelu
-  // Filtrujeme „outlier" meshe — referenční boxy (1×1×1 mm u 0,0,0) by jinak stáhly center daleko od modelu
+  // Vystřed kameru — percentilový přístup na úrovni vrcholů.
+  // Ref box (1×1×1 mm u 0,0,0) je baked do geometrie každého meshe, proto mesh-level filtr nestačí.
+  // Vzorkujeme každý N-tý vrchol, seřadíme, vezmeme 5–95 percentil → outlier body jsou ignorovány.
   if (meshes.length > 0) {
-    // 1. pass: hrubý box ze všech meshů
-    const roughBox = new THREE.Box3();
-    meshes.forEach(m => roughBox.expandByObject(m));
-    const roughSize = new THREE.Vector3();
-    roughBox.getSize(roughSize);
-    const roughMaxDim = Math.max(roughSize.x, roughSize.y, roughSize.z);
-
-    // 2. pass: ignoruj mesh jehož bbox je < 1% největší dimenze A střed je dál než 10% od hrubého středu
-    const roughCenter = new THREE.Vector3();
-    roughBox.getCenter(roughCenter);
-    const significantMeshes = meshes.filter(m => {
-      const mb = new THREE.Box3().setFromObject(m);
-      const ms = new THREE.Vector3();
-      mb.getSize(ms);
-      const meshMax = Math.max(ms.x, ms.y, ms.z);
-      if (meshMax < roughMaxDim * 0.01) {
-        // Malý mesh — zkontroluj jestli je daleko od středu
-        const mc = new THREE.Vector3();
-        mb.getCenter(mc);
-        const dist = mc.distanceTo(roughCenter);
-        if (dist > roughMaxDim * 0.1) return false; // outlier, ignoruj
+    const xs = [], ys = [], zs = [];
+    const STEP = 50; // vzorkuj každý 50. vrchol — rychlé, přesné dost
+    meshes.forEach(m => {
+      const pos = m.geometry && m.geometry.attributes && m.geometry.attributes.position;
+      if (!pos) return;
+      for (let i = 0; i < pos.count; i += STEP) {
+        xs.push(pos.getX(i)); ys.push(pos.getY(i)); zs.push(pos.getZ(i));
       }
-      return true;
     });
-
-    const box = new THREE.Box3();
-    (significantMeshes.length > 0 ? significantMeshes : meshes).forEach(m => box.expandByObject(m));
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z);
+    xs.sort((a,b)=>a-b); ys.sort((a,b)=>a-b); zs.sort((a,b)=>a-b);
+    const pct = (arr, p) => arr[Math.max(0, Math.min(arr.length-1, Math.floor(arr.length * p)))];
+    const xLo=pct(xs,.05), xHi=pct(xs,.95);
+    const yLo=pct(ys,.05), yHi=pct(ys,.95);
+    const zLo=pct(zs,.05), zHi=pct(zs,.95);
+    const center = new THREE.Vector3((xLo+xHi)/2, (yLo+yHi)/2, (zLo+zHi)/2);
+    const maxDim = Math.max(xHi-xLo, yHi-yLo, zHi-zLo, 1);
     _3dCamera.position.copy(center);
     _3dCamera.position.z += maxDim * 1.8;
     _3dCamera.near = maxDim * 0.001;
@@ -4142,7 +4127,7 @@ async function _bu3dInitViewer(typId, vrstvy) {
         <input type="checkbox" id="${id}" checked style="margin:0;cursor:pointer;accent-color:${col}"
                onchange="_3dToggleLayer('${v.filename.replace(/'/g,"\\'")}', this.checked)">
         <span style="width:10px;height:10px;border-radius:2px;background:${col};flex-shrink:0"></span>
-        <span style="font-size:.78rem">${v.nazev}</span>
+        <span style="font-size:.78rem">${v.nazev.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}</span>
       </label>`;
     }).join('');
   }

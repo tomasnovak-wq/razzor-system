@@ -1,8 +1,8 @@
 {
-  "verze": 47,
-  "popis": "v46b: LISP v15b oprava gc() misto vl-gc pro Mac AutoCAD",
+  "verze": 48,
+  "popis": "v48: LISP v16 diakritika stripovana v nazvu souboru; viewer orbit fix percentil vrcholu; legenda bez diakritiky",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "11:33",
-  "git_commit": "c334b75"
+  "cas": "11:42",
+  "git_commit": "7b0c081"
 }
