@@ -2059,7 +2059,14 @@ function _buRender() {
   else if (_buTab === 4) tabContent = _buTabDxf(typId, dxfData);
   else if (_buTab === 5) tabContent = _buTabSoubory(typId, links);
   else if (_buTab === 6) tabContent = _buTabCasVyroby(typId, casData);
-  else if (_buTab === 7) tabContent = _buTab3D(typId, model3dData);
+  else if (_buTab === 7) {
+    // Naplň mapu materiálů dle kódu (pro barevné zvýraznění a popis vrstev)
+    _3dMatMap = {};
+    (_cache.materialy || []).forEach(m => {
+      if (m.kod) _3dMatMap[m.kod.toLowerCase().trim()] = m;
+    });
+    tabContent = _buTab3D(typId, model3dData);
+  }
 
   openModal(`
   <div class="flex items-start justify-between mb-3">
@@ -3778,6 +3785,10 @@ function novaZakazkaZTypu(typId, hn, nazev) {
 
 // ─── 3D MODEL záložka ──────────────────────────────────────────────────────────
 
+// Mapa materiálů dle kódu — naplní se z _cache.materialy při otevření záložky 3D
+// {kod_lowercase: {kod, nazev}} — vrstvy jejichž název = kód materiálu jsou bílé
+let _3dMatMap = {};
+
 // Barvy pro Three.js viewer dle typu vrstvy
 const _3D_COLORS = {
   deska: 0xc8986a,   // hnědá fallback (když tloušťka není v mapě)
@@ -3863,6 +3874,8 @@ function _3dToggleLayer(filename, visible) {
 
 // Barva vrstvy — globální, sdílí _buTab3D (seznam) i _bu3dInitViewer (Three.js mesh)
 function layerColor(v) {
+  // 0. Vrstva = kód materiálu → bílá
+  if (_3dMatMap[(v.nazev || '').toLowerCase().trim()]) return 0xFFFFFF;
   // 1. Přesná shoda názvu (s nebo bez diakritiky)
   if (_3D_NAMED_COLORS[v.nazev] !== undefined) return _3D_NAMED_COLORS[v.nazev];
   const normNazev = _3dNormName(v.nazev);
@@ -3876,34 +3889,53 @@ function layerColor(v) {
   return _3D_COLORS[v.typ] || _3D_COLORS.jine;
 }
 
-function _buTab3D(typId, model3dData) {
-  const vrstvy = model3dData?.vrstvy || [];
+// Sestaví HTML pro sekci model-info (badge + tabulka vrstev) — sdílí _buTab3D i _bu3dUpload
+function _bu3dModelInfoHtml(typId, model3dData, vrstvy) {
   const rows = vrstvy.map(v => {
-    const col = '#' + (layerColor(v) || 0xe2e8f0).toString(16).padStart(6, '0');
-    const typLabel = v.typ === 'deska' ? '🪵 Deska'
-                   : v.typ === 'pena'  ? '🟡 Pěna'
-                   : '📦 Jiné';
-    const typStyle = v.typ === 'deska'
-      ? 'background:#e8c9a0;color:#7c4a1e'
-      : v.typ === 'pena'
-      ? 'background:#d1fae5;color:#065f46'
-      : 'background:#f1f5f9;color:#475569';
-    return `<tr>
-      <td class="py-1 pr-2" style="font-size:.8rem">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:5px;vertical-align:middle;flex-shrink:0"></span>${v.nazev}
-      </td>
-      <td class="py-1 pr-2"><span class="text-xs px-2 py-0.5 rounded" style="${typStyle}">${typLabel}</span></td>
-      <td class="py-1 text-xs text-gray-400">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
+    const mat   = _3dMatMap[(v.nazev || '').toLowerCase().trim()];
+    const col   = '#' + (layerColor(v) || 0xe2e8f0).toString(16).padStart(6, '0');
+    const isMat = !!mat;
+    const nameCell = isMat
+      ? `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};border:1px solid #d1d5db;margin-right:5px;vertical-align:middle;flex-shrink:0"></span>
+         <strong>${v.nazev}</strong>
+         <span style="color:#6b7280;font-size:.75rem;margin-left:4px">${mat.nazev}</span>`
+      : `<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:5px;vertical-align:middle;flex-shrink:0"></span>${v.nazev}`;
+    const selStyle = `font-size:.75rem;border:1px solid #e2e8f0;border-radius:4px;padding:1px 4px;background:#f8fafc;cursor:pointer;color:#374151`;
+    const selChange = `_3dSetLayerType(${typId}, '${v.filename.replace(/'/g,"\\'")}', this.value)`;
+    return `<tr style="${isMat ? 'background:#fafafa' : ''}">
+      <td class="py-1 pr-2" style="font-size:.8rem">${nameCell}</td>
+      <td class="py-1 pr-1"><select style="${selStyle}" onchange="${selChange}">${_bu3dTypOpts(v.typ)}</select></td>
+      <td class="py-1 text-xs text-gray-400" style="white-space:nowrap">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
     </tr>`;
   }).join('');
 
-  const modelBadge = model3dData
+  const badge = model3dData
     ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.8rem;color:#166534">
         ✓ <strong>${model3dData.nazev_souboru}</strong>
         &nbsp;·&nbsp; ${vrstvy.length} vrstev
         &nbsp;·&nbsp; <span style="color:#9ca3af">${(model3dData.nahrano||'').slice(0,16).replace('T',' ')}</span>
-      </div>`
+       </div>`
     : `<p class="text-xs text-gray-400 italic py-2">Zatím nebyl nahrán žádný 3D model.</p>`;
+
+  return badge + (vrstvy.length > 0 ? `
+    <table style="border-collapse:collapse;width:100%">
+      <thead><tr style="border-bottom:1px solid #e5e7eb">
+        <th class="py-1 pr-2 text-left text-xs text-gray-500">Vrstva</th>
+        <th class="py-1 pr-1 text-left text-xs text-gray-500">Typ</th>
+        <th class="py-1 text-left text-xs text-gray-500">Tl.</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>` : '');
+}
+
+function _bu3dTypOpts(cur) {
+  return [['deska','🪵 Deska'],['pena','🟡 Pěna'],['jine','📦 Jiné'],['ignorovat','🚫 Ignorovat']]
+    .map(([v,l]) => `<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('');
+}
+
+function _buTab3D(typId, model3dData) {
+  const vrstvy = model3dData?.vrstvy || [];
+  const modelInfoHtml = _bu3dModelInfoHtml(typId, model3dData, vrstvy);
 
   return `
   <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start">
@@ -3928,17 +3960,7 @@ function _buTab3D(typId, model3dData) {
       <span id="3d-upload-status" style="font-size:.78rem;display:block;margin-bottom:8px"></span>
 
       <div id="3d-model-info">
-      ${modelBadge}
-
-      ${vrstvy.length > 0 ? `
-      <table style="border-collapse:collapse;width:100%">
-        <thead><tr style="border-bottom:1px solid #e5e7eb">
-          <th class="py-1 pr-2 text-left text-xs text-gray-500">Vrstva</th>
-          <th class="py-1 pr-2 text-left text-xs text-gray-500">Typ</th>
-          <th class="py-1 text-left text-xs text-gray-500">Tl.</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>` : ''}
+      ${modelInfoHtml}
       </div>
     </div>
 
@@ -3994,36 +4016,13 @@ async function _bu3dUpload(typId) {
                             nahrano: new Date().toISOString() };
 
     // Aktualizuj model-info sekci bez přerenderování celé záložky (canvas by zanikl)
+    // Naplň matmap po uploadu
+    _3dMatMap = {};
+    (_cache.materialy || []).forEach(m => { if (m.kod) _3dMatMap[m.kod.toLowerCase().trim()] = m; });
+
     const infoEl = document.getElementById('3d-model-info');
     if (infoEl) {
-      const rows = vrstvy.map(v => {
-        const col = '#' + (layerColor(v) || 0xe2e8f0).toString(16).padStart(6, '0');
-        const typLabel = v.typ === 'deska' ? '🪵 Deska' : v.typ === 'pena' ? '🟡 Pěna' : '📦 Jiné';
-        const typStyle = v.typ === 'deska'
-          ? 'background:#e8c9a0;color:#7c4a1e'
-          : v.typ === 'pena' ? 'background:#d1fae5;color:#065f46' : 'background:#f1f5f9;color:#475569';
-        return `<tr>
-          <td class="py-1 pr-2" style="font-size:.8rem">
-            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:5px;vertical-align:middle;flex-shrink:0"></span>${v.nazev}
-          </td>
-          <td class="py-1 pr-2"><span class="text-xs px-2 py-0.5 rounded" style="${typStyle}">${typLabel}</span></td>
-          <td class="py-1 text-xs text-gray-400">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
-        </tr>`;
-      }).join('');
-      infoEl.innerHTML = `
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.8rem;color:#166534">
-          ✓ <strong>${_buData.model3dData.nazev_souboru}</strong>
-          &nbsp;·&nbsp; ${vrstvy.length} vrstev
-          &nbsp;·&nbsp; <span style="color:#9ca3af">${_buData.model3dData.nahrano.slice(0,16).replace('T',' ')}</span>
-        </div>
-        ${vrstvy.length > 0 ? `<table style="border-collapse:collapse;width:100%">
-          <thead><tr style="border-bottom:1px solid #e5e7eb">
-            <th class="py-1 pr-2 text-left text-xs text-gray-500">Vrstva</th>
-            <th class="py-1 pr-2 text-left text-xs text-gray-500">Typ</th>
-            <th class="py-1 text-left text-xs text-gray-500">Tl.</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>` : ''}`;
+      infoEl.innerHTML = _bu3dModelInfoHtml(typId, _buData.model3dData, vrstvy);
     }
 
     // Aktualizuj loading placeholder a spusť viewer
@@ -4033,6 +4032,31 @@ async function _bu3dUpload(typId) {
   } catch(e) {
     status.textContent = '✗ Chyba sítě'; status.style.color = '#dc2626';
     if (btn) btn.disabled = false;
+  }
+}
+
+async function _3dSetLayerType(typId, filename, newTyp) {
+  try {
+    const resp = await fetch(`/api/typy-casu/${typId}/3d`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ updates: [{ filename, typ: newTyp }] })
+    });
+    const json = await resp.json();
+    if (!resp.ok || json.error) { alert('Chyba: ' + (json.error||resp.status)); return; }
+    // Aktualizuj lokální data
+    if (_buData?.model3dData?.vrstvy) {
+      _buData.model3dData.vrstvy = json.vrstvy;
+    }
+    // Aktualizuj barvu v Three.js pokud viewer běží
+    const v = (json.vrstvy || []).find(x => x.filename === filename);
+    if (v && _3dMeshMap && _3dMeshMap[filename]) {
+      const mesh = _3dMeshMap[filename];
+      const newCol = new (window.THREE?.Color || class { constructor(c){this._c=c;} })(layerColor(v));
+      if (mesh.material) mesh.material.color.setHex(layerColor(v));
+    }
+  } catch(e) {
+    alert('Chyba sítě');
   }
 }
 

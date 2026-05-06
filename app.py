@@ -1036,6 +1036,39 @@ def api_3d_get(typ_id):
     })
 
 
+@app.route('/api/typy-casu/<int:typ_id>/3d', methods=['PATCH'])
+def api_3d_patch(typ_id):
+    """Uloží manuální přiřazení typů vrstev (typ_overrides_json)."""
+    import json as _json
+    data = request.get_json(force=True) or {}
+    updates = data.get('updates', [])  # [{"filename": "...", "typ": "deska|pena|jine|ignorovat"}]
+    if not isinstance(updates, list):
+        return jsonify({'error': 'updates musí být seznam'}), 400
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, vrstvy_json FROM typy_casu_3d WHERE typ_casu_id=?
+        ORDER BY id DESC LIMIT 1
+    """, (typ_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Žádný 3D model'}), 404
+
+    vrstvy = _json.loads(row['vrstvy_json'] or '[]')
+    upd_map = {u['filename']: u['typ'] for u in updates if 'filename' in u and 'typ' in u}
+    for v in vrstvy:
+        if v.get('filename') in upd_map:
+            v['typ'] = upd_map[v['filename']]
+
+    c.execute("UPDATE typy_casu_3d SET vrstvy_json=? WHERE id=?",
+              (_json.dumps(vrstvy, ensure_ascii=False), row['id']))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'vrstvy': vrstvy})
+
+
 @app.route('/api/typy-casu/<int:typ_id>/3d', methods=['POST'])
 def api_3d_post(typ_id):
     """Přijme ZIP soubor se STL soubory (jeden per vrstva), rozbalí, uloží."""

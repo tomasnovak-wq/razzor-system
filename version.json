@@ -1,8 +1,8 @@
 {
-  "verze": 60,
-  "popis": "Oprava: layerColor přesunuta na globální úroveň – záložka 3D přestala být klikatelná (ReferenceError)",
+  "verze": 61,
+  "popis": "3D záložka: material lookup (bílé vrstvy = kód materiálu + název), dropdown přiřazení typu vrstvy, PATCH endpoint",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "16:11",
-  "git_commit": "dc44ced"
+  "cas": "16:18",
+  "git_commit": "bc4f1ba"
 }
