@@ -1,5 +1,5 @@
 ; ============================================================
-; export_layers_3d.lsp  —  Razzor Cases  v18
+; export_layers_3d.lsp  —  Razzor Cases  v19
 ;
 ; Zjednodušená verze — bez automatického EXPLODE.
 ; Před spuštěním ručně exploduj bloky (INSERT entity) které
@@ -8,18 +8,13 @@
 ;
 ; v15: Přeskakuje skryté/zmrazené vrstvy. Po každém exportu (gc).
 ;
-; v16: Odstraněn referenční box — CHYBA! Bez boxu server nedokáže
-; spolehlivě zarovnat vrstvy (Y-median fallback nefungoval).
+; v17: Zakázání UNDO záznamu po dobu exportu (prevence pádu AutoCADu).
+; Freeze ostatních vrstev jedním "_Freeze *" — rychlejší.
 ;
-; v17: Zakázání UNDO záznamu po dobu exportu — předchází zaseknutí
-; AutoCADu po exportu způsobenému obrovským undo bufferem.
-; Freeze ostatních vrstev jedním "_Freeze *" místo smyčky
-; přes každou vrstvu zvlášť — rychlejší, méně paměti.
-;
-; v18: OBNOVEN referenční box 1×1×1 mm u WCS (0,0,0).
-; Box se přidá před STLOUT a smaže se přes entdel po exportu
-; (UNDO je záměrně vypnuté, proto entdel místo UNDO).
-; Server z pozice boxu přesně detekuje UCS offset a opraví ho.
+; v19: Opravena syntaxe UNDO pro AutoCAD 2020+ na Macu.
+; Prompt [All/None/One/Combine/Layer] — správně: "_None" / "_All"
+; (dříve chybně "_Control" "_None" → "Invalid option keyword").
+; Odstraněn referenční box — zarovnání vrstev řeší server Y-median.
 ; ============================================================
 
 (defun _rz-replace (old new str / result i olen)
@@ -70,8 +65,7 @@
 
 (defun c:ExportLayers3D ( / outdir orig_clayer orig_tilemode orig_regenmode
                             layer_data layer_name safe_name stl_path
-                            all_layers other_data other_name
-                            exported_count skipped_count sel
+                            all_layers exported_count skipped_count sel
                             orig_frozen orig_off lflags lcolor)
 
   (setq orig_clayer     (getvar "CLAYER"))
@@ -84,19 +78,17 @@
   ; Přepni do model space
   (if (= orig_tilemode 0) (setvar "TILEMODE" 1))
 
-  ; Zakáž UNDO záznam — freeze/thaw operace by jinak nafouknuly undo buffer
-  ; na stovky záznamů a způsobily zaseknutí AutoCADu po exportu
-  (command "UNDO" "_Control" "_None")
+  ; Zakáž UNDO záznam — freeze/thaw operace by jinak nafouknuly undo buffer.
+  ; AutoCAD 2020+ Mac: prompt je [All/None/One/Combine/Layer], správná volba "_None"
+  (command "UNDO" "_None")
 
   ; Zakáž automatický regen při přepínání vrstev
   (setvar "REGENMODE" 0)
 
-  (princ "\n=== Razzor 3D Export v16 ===")
+  (princ "\n=== Razzor 3D Export v19 ===")
   (princ (strcat "\nSložka: " outdir "\n"))
 
   ; ── Ulož původní stav viditelnosti všech vrstev ───────────────────────────
-  ; orig_frozen = seznam vrstev, které jsou nyní zmrazené
-  ; orig_off    = seznam vrstev, které jsou nyní vypnuté (ale ne zmrazené)
   (setq orig_frozen '()  orig_off '())
   (setq layer_data (tblnext "layer" T))
   (while layer_data
@@ -104,9 +96,9 @@
     (setq lflags     (cdr (assoc 70 layer_data)))
     (setq lcolor     (cdr (assoc 62 layer_data)))
     (cond
-      ((= 1 (logand lflags 1))   ; zmrazená
+      ((= 1 (logand lflags 1))
        (setq orig_frozen (cons layer_name orig_frozen)))
-      ((< lcolor 0)              ; vypnutá (Off)
+      ((< lcolor 0)
        (setq orig_off (cons layer_name orig_off)))
     )
     (setq layer_data (tblnext "layer"))
@@ -143,17 +135,10 @@
         (setvar "CLAYER" layer_name)
 
         ; Zmraz VŠECHNY vrstvy najednou (AutoCAD přeskočí current layer automaticky)
-        ; pak rozmraz a zapni cílovou vrstvu
         (vl-catch-all-apply '(lambda () (command "-LAYER" "_Freeze" "*" "")))
         (command "-LAYER" "_Thaw" layer_name "")
         (command "-LAYER" "_On"   layer_name "")
         (command "._UCS" "_W")
-
-        ; Přidej referenční box 1×1×1 mm u WCS (0,0,0) na aktuální vrstvě.
-        ; Server z jeho polohy v exportovaném STL detekuje UCS offset a opraví ho.
-        ; Box se po exportu smaže přes entdel (UNDO je vypnuté).
-        (command "._BOX" "0,0,0" "1,1,0" "1")
-        (setq rz_ref_box (entlast))
 
         ; Export STL
         (setq safe_name (_rz-safename layer_name))
@@ -161,10 +146,6 @@
         (setvar "FILEDIA" 0)
         (command "STLOUT" "all" "" "Y" stl_path)
         (setvar "FILEDIA" 1)
-
-        ; Smaž referenční box z výkresu (nesmí zůstat ve výkrese)
-        (if rz_ref_box (entdel rz_ref_box))
-        (setq rz_ref_box nil)
 
         (setq exported_count (1+ exported_count))
         (princ (strcat " → " safe_name ".stl ✓"))
@@ -174,14 +155,12 @@
         (command "-LAYER" "_On"   "*" "")
 
         ; ── Obnov původní stav viditelnosti ──────────────────────────────
-        ; Vrstvy, které byly před exportem zmrazené → znovu zmraz
         (foreach lname orig_frozen
           (if (not (= lname layer_name))
             (vl-catch-all-apply
               '(lambda () (command "-LAYER" "_Freeze" lname "")))
           )
         )
-        ; Vrstvy, které byly vypnuté → znovu vypni
         (foreach lname orig_off
           (vl-catch-all-apply
             '(lambda () (command "-LAYER" "_Off" lname "")))
@@ -199,10 +178,8 @@
   (setvar "FILEDIA" 1)
   (setvar "REGENMODE" orig_regenmode)
 
-  ; Obnov UNDO záznam a vymaž buffer (bezpečný restart undo)
-  (command "UNDO" "_Control" "_All")
-  (command "UNDO" "_Begin")
-  (command "UNDO" "_End")
+  ; Obnov UNDO
+  (command "UNDO" "_All")
 
   ; Finální obnova viditelnosti (pro jistotu)
   (foreach lname orig_frozen
@@ -235,5 +212,5 @@
   (princ)
 )
 
-(princ "\nRazzor 3D Export v18. Příkaz: ExportLayers3D\n")
+(princ "\nRazzor 3D Export v19. Příkaz: ExportLayers3D\n")
 (princ)

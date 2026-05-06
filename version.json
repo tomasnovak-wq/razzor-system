@@ -1,8 +1,8 @@
 {
-  "verze": 53,
-  "popis": "v18 LISP: obnoven ref box 1x1x1 u WCS 0,0,0 pro spolehlivy alignment; server: obnovena ref-box detekce s ochranou proti false-positive, Y-median fallback",
+  "verze": 54,
+  "popis": "LISP v19: opravena UNDO syntaxe pro AutoCAD 2020+ Mac (_None/_All misto _Control _None), odstranen ref box",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "12:36",
-  "git_commit": "b930127"
+  "cas": "12:45",
+  "git_commit": "cba8a3f"
 }
