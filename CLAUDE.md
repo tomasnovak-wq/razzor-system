@@ -298,23 +298,54 @@ onchange="_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})"
 - Badge v tabulce (`_DXF_TYP_COLOR`): deska = `background:#e8c9a0;color:#7c4a1e`, pěna = `background:#d1fae5;color:#065f46`
 - SVG náhled (`FILL` v `_dxfRenderSvg`): deska = `#c8986a`, pěna = `#86efac`, jiné = `#e5e7eb`
 
+### Soubory — záložka v BOM editoru
+
+Záložka **Soubory** (tab 6) v BOM editoru (`bomDetailUnified`) umožňuje připojit k typu casu soubory (PDF, DXF, obrázky…) a URL odkazy.
+
+**Tabulky (database.py):**
+- `typy_casu_prilohy` — nahrané soubory: `id, typ_casu_id, filename, filepath, mime_type, velikost, created_at, typ_json`
+- `typy_casu_links` — URL odkazy (existující tabulka) + přidán sloupec `typ_json TEXT NOT NULL DEFAULT '["ostatni"]'`
+
+**Endpointy (app.py):**
+- `GET/POST /api/typy-casu/<id>/prilohy` — seznam / nahrání souboru
+- `PATCH /api/typy-casu/<id>/prilohy/<fid>` — uloží `typ_json`
+- `GET /api/typy-casu/<id>/prilohy/<fid>/view` — inline zobrazení (`as_attachment=False`)
+- `GET /api/typy-casu/<id>/prilohy/<fid>/download` — stažení
+- `DELETE /api/typy-casu/<id>/prilohy/<fid>` — smazání
+
+**Kategorie souborů (chips)** — multi-select, vždy viditelné toggle pilulky:
+- Klíče: `obrazek`, `vykres_sestavy`, `vykres_polstrovani`, `ostatni`
+- Aktivní = modrá (`#dbeafe`/`#1d4ed8`), neaktivní = šedá
+- Stejný systém pro nahrané soubory i URL odkazy
+- Funkce: `_tcChipsHtml(selected, onclickFn)`, `_tcTypToggle(chip)`, `_buLinkTypToggle(chip)`
+
+**Inline prohlížeč** — `_tcPrilohaView(typId, fid, filename)`:
+- Obrázky (`png/jpg/jpeg/gif/svg/webp`) → `<img>`
+- Ostatní → `<iframe>` (PDF, DXF…)
+- Overlay přes celou stránku, zavře se kliknutím mimo nebo ✕
+
 ### 3D viewer — záložka v BOM editoru
 
-Záložka **3D** (tab 7) v BOM editoru (`bomDetailUnified`) umožňuje nahrát ZIP se STL soubory (jeden STL = jedna vrstva z AutoCADu) a zobrazit 3D náhled case s přepínáním viditelnosti vrstev.
+Záložka **3D** (tab 5) v BOM editoru (`bomDetailUnified`) umožňuje nahrát ZIP se STL soubory (jeden STL = jedna vrstva z AutoCADu) a zobrazit 3D náhled case s přepínáním viditelnosti vrstev.
+
+**Pořadí záložek v BOM editoru:**
+`TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'DXF', '3D', 'Soubory', 'Čas výroby']`
+(tab 1–7; save button: `[1,7].includes(_buTab)`; auto-init 3D: `_buTab===5`)
 
 **Workflow AutoCAD → viewer:**
 1. Michal otevře výkres v AutoCADu, načte LISP: `APPLOAD` → `export_layers_3d.lsp`
 2. Spustí příkaz `ExportLayers3D` — skript projde viditelné vrstvy, zamrazí ostatní, exportuje každou do `.stl`
 3. Vybere STL soubory ve Finderu → Pravý klik → Komprimovat → vznikne ZIP
-4. Nahraje ZIP do Razzor → záložka 3D
+4. Nahraje ZIP do Razzor → záložka 3D → klikne „Vybrat ZIP" (upload spustí se výběrem souboru, bez extra tlačítka)
 
-**LISP skript** (`export_layers_3d.lsp`, aktuálně v21):
+**LISP skript** (`export_layers_3d.lsp`, aktuálně v22):
 - Přeskakuje skryté/zmrazené vrstvy (uživatel je záměrně vypnul = nechce exportovat)
 - Po exportu obnovuje původní stav viditelnosti vrstev
 - `_rz-safename`: převádí názvy vrstev na bezpečné názvy souborů — mezery/lomítka → `_`, tečky → `,`, česká diakritika stripována (`překlizka` → `preklizka`)
 - `(gc)` po každém exportu — předchází pádu AutoCADu při větším počtu vrstev
 - **Referenční box 1×1×1 mm na WCS (0,0,0)** přidán do každého STL před exportem, smazán přes `entdel` po exportu. Server z jeho polohy zjistí UCS offset a automaticky opraví vrcholy. Syntaxe: `(command "._BOX" "0,0,0" "1,1,1")`.
-- **Bez UNDO control** (v21) — UNDO control způsoboval pád LISPu na Macu kvůli odlišnému promptu mezi verzemi AutoCADu. S `_Freeze *` je undo buffer malý, pád nehrozí.
+- **Bez UNDO control** (v21+) — UNDO control způsoboval pád LISPu na Macu kvůli odlišnému promptu mezi verzemi AutoCADu. S `_Freeze *` je undo buffer malý, pád nehrozí.
+- **v22 — oprava záporných souřadnic**: Před exportem se model posune do kladného WCS prostoru (rezerva +10 mm od originu). Po exportu se vrátí. Důvod: AutoCAD STLOUT ořezává/normalizuje záporné souřadnice. Funkce: `(setq rz-extmin (getvar "EXTMIN"))`, shift přes `._MOVE` na celý `(ssget "_X")`.
 
 **Tabulka `typy_casu_3d`** (database.py):
 ```
@@ -354,11 +385,19 @@ Globální proměnné a konstanty (všechny na module level, ne uvnitř funkcí)
 - `_3dColorByThickness(nazev)` — regex `^([dp])[_\s]+(\d+)mm`, lookup v color mapě
 - `_bu3dModelInfoHtml(typId, model3dData, vrstvy)` — helper sdílený `_buTab3D` i `_bu3dUpload`; renderuje badge + tabulku vrstev s dropdown přiřazení typu
 - `_bu3dTypOpts(cur)` — options pro dropdown: deska/pena/hw/profily/nyty/jiné/ignorovat
-- `_3dSetLayerType(typId, filename, newTyp)` — PATCH na server + okamžitá aktualizace barvy meshe
-- `_3dToggleLayer(filename, visible)` — viditelnost jedné vrstvy
-- `_3dToggleGroup(typ, visible)` — viditelnost celé skupiny + sync individuálních checkboxů
+- `_3dSetLayerType(typId, filename, newTyp)` — PATCH na server + aktualizace barvy meshe + přestavění legendy (`_bu3dRebuildLegend`)
+- `_3dToggleLayer(filename)` — přepne viditelnost jedné vrstvy (toggle, bez `visible` parametru)
+- `_3dToggleGroup(typ)` — přepne viditelnost celé skupiny (toggle: pokud vše zapnuto → vypne, jinak zapne)
+- `_3dPillSetActive(pill, active)` — vizuální stav individuálního pillu (průhlednost, barva rámečku)
+- `_3dMasterSetActive(typ, active)` — vizuální stav master checkbox-tlačítka skupiny
+- `_bu3dRebuildLegend(typId, vrstvy)` — přestaví celou legendu bez dotyku Three.js canvasu; volá se po změně typu vrstvy přes dropdown
 
-Legenda vrstev (renderována v `_bu3dInitViewer`): skupinové přepínače (tmavé, jen pro typy přítomné v modelu) + individuální checkboxy s tooltip (název materiálu + bbox). Vrstvy jejichž název odpovídá kódu materiálu → bílá barva + zobrazí se `kod · nazev materiálu`.
+**Legenda vrstev** (renderována v `_bu3dInitViewer`, přestavována v `_bu3dRebuildLegend`):
+- Jeden řádek na skupinu: `[master checkbox-btn] [pill1] [pill2] …`
+- Master btn: bílé pozadí, barevný rámeček, zaškrtnutý čtvereček v barvě skupiny; kliknutím přepne celou skupinu
+- Individuální piluly: barevné pozadí (barva+`22` alpha), kliknutím přepne jednu vrstvu; zblednou při skrytí
+- `GROUP_DEF`: deska=`#c8986a`, pěna=`#86efac`, hw=`#94a3b8`, profily=`#fbbf24`, nýty=`#d4d4d8`, jiné=`#e2e8f0`
+- Zobrazují se jen skupiny přítomné v modelu (`presentTypes`)
 
 Funkce `_bu3dInitViewer(typId, vrstvy)`:
 - Three.js r128, STLLoader, OrbitControls (CDN: cdn.jsdelivr.net/npm/three@0.128.0)

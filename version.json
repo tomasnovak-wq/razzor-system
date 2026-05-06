@@ -1,8 +1,8 @@
 {
-  "verze": 83,
-  "popis": "3D legenda: prestaveni po zmene typu vrstvy",
+  "verze": 84,
+  "popis": "Aktualizace CLAUDE.md — Soubory tab, 3D legenda, LISP v22",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "22:05",
-  "git_commit": "10d9790"
+  "cas": "22:12",
+  "git_commit": "6faf438"
 }
