@@ -6,20 +6,13 @@
 ; chceš exportovat. Skript pak projde každou vrstvu (včetně "0"),
 ; zmrazí ostatní a vyexportuje viditelné 3D objekty do STL.
 ;
-; v14: Před každým STLOUT se vytvoří referenční box 1×1×1 mm
-; na souřadnicích (0,0,0) světového souřadnicového systému.
-; Server z polohy tohoto boxu v STL souboru přesně změří
-; případný UCS offset a automaticky ho opraví.
-; Box se ihned po exportu smaže (entdel), výkres zůstane čistý.
+; v15: Přeskakuje skryté/zmrazené vrstvy. Po každém exportu (gc).
 ;
-; v15: Přeskakuje vrstvy, které jsou v kresbě skryté nebo zmrazené
-; (uživatel je schválně vypnul → nechce je exportovat).
-; Po každém exportu se volá (gc) pro uvolnění paměti —
-; předchází pádu AutoCADu při exportu mnoha vrstev najednou.
-;
-; v16: _rz-safename odstraňuje českou diakritiku z názvů souborů
-; (á→a, č→c, ě→e, í→i, ř→r, š→s, ž→z atd.) — předchází problémům
-; s kódováním na různých systémech.
+; v16: Odstraněn referenční box u (0,0,0) — viewer orbit centra
+; se počítá percentilem vrcholů, box není potřeba.
+; _rz-safename odstraňuje českou diakritiku z názvů souborů.
+; Po exportu se obnovuje původní stav viditelnosti vrstev —
+; vrstvy, které byly před exportem skryté, zůstanou skryté.
 ; ============================================================
 
 (defun _rz-replace (old new str / result i olen)
@@ -60,12 +53,9 @@
   (setq ldata (tblsearch "layer" lname))
   (if ldata
     (progn
-      (setq flags (cdr (assoc 70 ldata)))   ; bit 1 = zmrazená, bit 4 = nová VP frozen
-      (setq color (cdr (assoc 62 ldata)))   ; záporná = vypnutá
-      (and
-        (= 0 (logand flags 1))              ; není zmrazená
-        (> color 0)                         ; není vypnutá
-      )
+      (setq flags (cdr (assoc 70 ldata)))
+      (setq color (cdr (assoc 62 ldata)))
+      (and (= 0 (logand flags 1)) (> color 0))
     )
     nil
   )
@@ -74,7 +64,8 @@
 (defun c:ExportLayers3D ( / outdir orig_clayer orig_tilemode
                             layer_data layer_name safe_name stl_path
                             all_layers other_data other_name
-                            exported_count skipped_count sel ref_ent)
+                            exported_count skipped_count sel
+                            orig_frozen orig_off lflags lcolor)
 
   (setq orig_clayer    (getvar "CLAYER"))
   (setq orig_tilemode  (getvar "TILEMODE"))
@@ -85,32 +76,47 @@
   ; Přepni do model space
   (if (= orig_tilemode 0) (setvar "TILEMODE" 1))
 
-  (princ "\n=== Razzor 3D Export v15 ===")
+  (princ "\n=== Razzor 3D Export v16 ===")
   (princ (strcat "\nSložka: " outdir "\n"))
 
-  ; Ulož seznam vrstev (bez "Defpoints"), pouze viditelné
+  ; ── Ulož původní stav viditelnosti všech vrstev ───────────────────────────
+  ; orig_frozen = seznam vrstev, které jsou nyní zmrazené
+  ; orig_off    = seznam vrstev, které jsou nyní vypnuté (ale ne zmrazené)
+  (setq orig_frozen '()  orig_off '())
+  (setq layer_data (tblnext "layer" T))
+  (while layer_data
+    (setq layer_name (cdr (assoc 2 layer_data)))
+    (setq lflags     (cdr (assoc 70 layer_data)))
+    (setq lcolor     (cdr (assoc 62 layer_data)))
+    (cond
+      ((= 1 (logand lflags 1))   ; zmrazená
+       (setq orig_frozen (cons layer_name orig_frozen)))
+      ((< lcolor 0)              ; vypnutá (Off)
+       (setq orig_off (cons layer_name orig_off)))
+    )
+    (setq layer_data (tblnext "layer"))
+  )
+
+  ; ── Sestav seznam vrstev k exportu (pouze viditelné, bez Defpoints) ──────
   (setq all_layers '())
   (setq layer_data (tblnext "layer" T))
   (while layer_data
     (setq layer_name (cdr (assoc 2 layer_data)))
     (cond
-      ; Přeskoč Defpoints vždy
       ((member layer_name (list "Defpoints"))
        nil)
-      ; Přeskoč skryté/zmrazené vrstvy
       ((not (_rz-layer-visible-p layer_name))
        (princ (strcat "\n  [přeskočeno — skryté] " layer_name))
        (setq skipped_count (1+ skipped_count)))
-      ; Viditelná vrstva — přidej do seznamu
       (T
        (setq all_layers (cons layer_name all_layers)))
     )
     (setq layer_data (tblnext "layer"))
   )
 
+  ; ── Export každé vrstvy ───────────────────────────────────────────────────
   (foreach layer_name all_layers
 
-    ; Má vrstva vůbec nějaké 3D objekty?
     (setq sel (ssget "_X" (list
       (cons 0 "3DSOLID,MESH,SURFACE,REGION,BODY")
       (cons 8 layer_name))))
@@ -119,7 +125,6 @@
       (progn
         (princ (strcat "\nVrstva: " layer_name " ..."))
 
-        ; Přepni CLAYER
         (setvar "CLAYER" layer_name)
 
         ; Zmraz všechny ostatní vrstvy
@@ -136,22 +141,12 @@
         (command "-LAYER" "_On"   layer_name "")
         (command "._UCS" "_W")
 
-        ; ── Referenční box 1×1×1 mm na souřadnicích (0,0,0) ──────────────
-        ; Server z jeho polohy v STL zjistí přesný UCS offset a opraví ho.
-        (setvar "CLAYER" layer_name)
-        (command "._BOX" "0,0,0" "1,1,1")
-        (setq ref_ent (entlast))
-
-        ; Export STL (obsahuje geometrii vrstvy + referenční box)
+        ; Export STL
         (setq safe_name (_rz-safename layer_name))
         (setq stl_path  (strcat outdir safe_name ".stl"))
         (setvar "FILEDIA" 0)
         (command "STLOUT" "all" "" "Y" stl_path)
         (setvar "FILEDIA" 1)
-
-        ; Smaž referenční box — výkres zůstane čistý
-        (if ref_ent (entdel ref_ent))
-        (setq ref_ent nil)
 
         (setq exported_count (1+ exported_count))
         (princ (strcat " → " safe_name ".stl ✓"))
@@ -160,16 +155,40 @@
         (command "-LAYER" "_Thaw" "*" "")
         (command "-LAYER" "_On"   "*" "")
 
-        ; Uvolni paměť po každém exportu (gc = standard AutoLISP, funguje na Mac i Win)
+        ; ── Obnov původní stav viditelnosti ──────────────────────────────
+        ; Vrstvy, které byly před exportem zmrazené → znovu zmraz
+        (foreach lname orig_frozen
+          (if (not (= lname layer_name))
+            (vl-catch-all-apply
+              '(lambda () (command "-LAYER" "_Freeze" lname "")))
+          )
+        )
+        ; Vrstvy, které byly vypnuté → znovu vypni
+        (foreach lname orig_off
+          (vl-catch-all-apply
+            '(lambda () (command "-LAYER" "_Off" lname "")))
+        )
+
+        ; Uvolni paměť
         (gc)
       )
     )
   )
 
-  ; Obnov původní stav
+  ; ── Obnov původní stav ────────────────────────────────────────────────────
   (setvar "CLAYER" orig_clayer)
   (setvar "TILEMODE" orig_tilemode)
   (setvar "FILEDIA" 1)
+
+  ; Finální obnova viditelnosti (pro jistotu)
+  (foreach lname orig_frozen
+    (vl-catch-all-apply
+      '(lambda () (command "-LAYER" "_Freeze" lname "")))
+  )
+  (foreach lname orig_off
+    (vl-catch-all-apply
+      '(lambda () (command "-LAYER" "_Off" lname "")))
+  )
 
   (princ (strcat "\n\n=== Hotovo! Exportováno " (itoa exported_count) " vrstev"
     (if (> skipped_count 0)

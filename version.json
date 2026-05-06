@@ -1,8 +1,8 @@
 {
-  "verze": 48,
-  "popis": "v48: LISP v16 diakritika stripovana v nazvu souboru; viewer orbit fix percentil vrcholu; legenda bez diakritiky",
+  "verze": 49,
+  "popis": "v49: LISP v16 bez ref boxu, zachovani viditelnosti vrstev po exportu, diakritika stripovana",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "11:42",
-  "git_commit": "7b0c081"
+  "cas": "11:51",
+  "git_commit": "7624c80"
 }
