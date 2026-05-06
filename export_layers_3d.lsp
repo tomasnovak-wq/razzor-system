@@ -1,27 +1,18 @@
 ; ============================================================
-; export_layers_3d.lsp  —  Razzor Cases  v21
+; export_layers_3d.lsp  —  Razzor Cases  v22
 ;
-; Zjednodušená verze — bez automatického EXPLODE.
-; Před spuštěním ručně exploduj bloky (INSERT entity) které
-; chceš exportovat. Skript pak projde každou vrstvu (včetně "0"),
-; zmrazí ostatní a vyexportuje viditelné 3D objekty do STL.
+; v22: Oprava záporných souřadnic.
+; Před exportem se celý model posune do kladného WCS prostoru
+; (rezerva 10 mm od originu kde leží ref. box). Po exportu se vrátí.
+; Tím se zabrání tomu, aby AutoCAD STLOUT ořezal nebo posunul
+; geometrii která leží na záporné ose.
 ;
-; v15: Přeskakuje skryté/zmrazené vrstvy. Po každém exportu (gc).
-;
-; v17: Zakázání UNDO záznamu po dobu exportu (prevence pádu AutoCADu).
-; Freeze ostatních vrstev jedním "_Freeze *" — rychlejší.
-;
+; v21: Odstraněno UNDO control — různý prompt dle verze AutoCADu.
+; v20: Referenční box 1×1×1 mm na WCS (0,0,0) — server z jeho polohy
+;      zjistí UCS offset a automaticky opraví vrcholy.
 ; v19: Opravena syntaxe UNDO pro AutoCAD 2020+ na Macu.
-; Prompt [All/None/One/Combine/Layer] — správně: "_None" / "_All".
-;
-; v20: Vrácen referenční box 1×1×1 mm na souřadnicích (0,0,0).
-; Syntaxe z v15: (command "._BOX" "0,0,0" "1,1,1").
-; Box se přidá před STLOUT, smaže se přes entdel po exportu.
-; Server z jeho polohy v STL přesně zjistí UCS offset a opraví ho.
-;
-; v21: Odstraněno UNDO control — prompt se liší dle verze AutoCADu
-; (starší: [Auto/Control/BEgin/End/Mark/Back], novější: [All/None/...])
-; a způsobuje pád LISPu. S _Freeze * je undo buffer malý, pád nehrozí.
+; v17: Zmrazení _Freeze * — rychlejší.
+; v15: Přeskakuje skryté/zmrazené vrstvy. (gc) po exportu.
 ; ============================================================
 
 (defun _rz-replace (old new str / result i olen)
@@ -38,16 +29,13 @@
 (defun _rz-safename (name / s)
   (setq s name)
   (foreach pair (list
-    ; Speciální znaky → podtržítko / čárka
     (list " " "_") (list "/" "_") (list "\\" "_") (list ":" "_")
     (list "*" "_") (list "?" "_") (list "<" "_") (list ">" "_")
     (list "|" "_") (list "." ",")
-    ; Česká diakritika malá → ASCII
     (list "á" "a") (list "č" "c") (list "ď" "d") (list "é" "e")
     (list "ě" "e") (list "í" "i") (list "ň" "n") (list "ó" "o")
     (list "ř" "r") (list "š" "s") (list "ť" "t") (list "ú" "u")
     (list "ů" "u") (list "ý" "y") (list "ž" "z")
-    ; Česká diakritika velká → ASCII
     (list "Á" "A") (list "Č" "C") (list "Ď" "D") (list "É" "E")
     (list "Ě" "E") (list "Í" "I") (list "Ň" "N") (list "Ó" "O")
     (list "Ř" "R") (list "Š" "S") (list "Ť" "T") (list "Ú" "U")
@@ -57,7 +45,6 @@
   s
 )
 
-; Vrátí T pokud je vrstva viditelná (není zmrazená ani vypnutá)
 (defun _rz-layer-visible-p (lname / ldata flags color)
   (setq ldata (tblsearch "layer" lname))
   (if ldata
@@ -73,7 +60,8 @@
 (defun c:ExportLayers3D ( / outdir orig_clayer orig_tilemode orig_regenmode
                             layer_data layer_name safe_name stl_path
                             all_layers exported_count skipped_count sel
-                            orig_frozen orig_off lflags lcolor rz_ref_box)
+                            orig_frozen orig_off lflags lcolor rz_ref_box
+                            rz-extmin rz-sx rz-sy rz-sz rz-shift rz-allsel)
 
   (setq orig_clayer     (getvar "CLAYER"))
   (setq orig_tilemode   (getvar "TILEMODE"))
@@ -81,6 +69,7 @@
   (setq outdir          (getvar "DWGPREFIX"))
   (setq exported_count  0)
   (setq skipped_count   0)
+  (setq rz-shift        nil)
 
   ; Přepni do model space
   (if (= orig_tilemode 0) (setvar "TILEMODE" 1))
@@ -88,7 +77,7 @@
   ; Zakáž automatický regen při přepínání vrstev
   (setvar "REGENMODE" 0)
 
-  (princ "\n=== Razzor 3D Export v19 ===")
+  (princ "\n=== Razzor 3D Export v22 ===")
   (princ (strcat "\nSložka: " outdir "\n"))
 
   ; ── Ulož původní stav viditelnosti všech vrstev ───────────────────────────
@@ -107,7 +96,7 @@
     (setq layer_data (tblnext "layer"))
   )
 
-  ; ── Sestav seznam vrstev k exportu (pouze viditelné, bez Defpoints) ──────
+  ; ── Sestav seznam vrstev k exportu ───────────────────────────────────────
   (setq all_layers '())
   (setq layer_data (tblnext "layer" T))
   (while layer_data
@@ -124,6 +113,30 @@
     (setq layer_data (tblnext "layer"))
   )
 
+  ; ── Posun do kladných souřadnic (pokud model zasahuje do záporného WCS) ──
+  ; Všechny vrstvy jsou v tuto chvíli rozmrazené — MOVE funguje na vše.
+  ; Rezerva 10 mm zajišťuje, že model nezasahuje do oblasti ref. boxu (0–1 mm).
+  (command "._REGEN")
+  (setq rz-extmin (getvar "EXTMIN"))
+  (setq rz-sx 0.0)
+  (setq rz-sy 0.0)
+  (setq rz-sz 0.0)
+  (if (< (car   rz-extmin) 0.0) (setq rz-sx (+ (- (car   rz-extmin)) 10.0)))
+  (if (< (cadr  rz-extmin) 0.0) (setq rz-sy (+ (- (cadr  rz-extmin)) 10.0)))
+  (if (< (caddr rz-extmin) 0.0) (setq rz-sz (+ (- (caddr rz-extmin)) 10.0)))
+
+  (if (or (> rz-sx 0.0) (> rz-sy 0.0) (> rz-sz 0.0))
+    (progn
+      (setq rz-shift (list rz-sx rz-sy rz-sz))
+      (princ (strcat "\n  [posun do kladných souřadnic: +"
+                     (rtos rz-sx 2 1) " +" (rtos rz-sy 2 1) " +" (rtos rz-sz 2 1) " mm]"))
+      (setq rz-allsel (ssget "_X"))
+      (if rz-allsel
+        (command "._MOVE" rz-allsel "" (list 0.0 0.0 0.0) (list rz-sx rz-sy rz-sz))
+      )
+    )
+  )
+
   ; ── Export každé vrstvy ───────────────────────────────────────────────────
   (foreach layer_name all_layers
 
@@ -137,15 +150,12 @@
 
         (setvar "CLAYER" layer_name)
 
-        ; Zmraz VŠECHNY vrstvy najednou (AutoCAD přeskočí current layer automaticky)
         (vl-catch-all-apply '(lambda () (command "-LAYER" "_Freeze" "*" "")))
         (command "-LAYER" "_Thaw" layer_name "")
         (command "-LAYER" "_On"   layer_name "")
         (command "._UCS" "_W")
 
-        ; Referenční box 1×1×1 mm na WCS (0,0,0) — server z jeho polohy
-        ; v STL zjistí přesný UCS offset a automaticky ho opraví.
-        ; Syntaxe ověřená v15: druhý argument "1,1,1" = protilehlý roh boxu.
+        ; Referenční box 1×1×1 mm na WCS (0,0,0)
         (command "._BOX" "0,0,0" "1,1,1")
         (setq rz_ref_box (entlast))
 
@@ -156,18 +166,18 @@
         (command "STLOUT" "all" "" "Y" stl_path)
         (setvar "FILEDIA" 1)
 
-        ; Smaž referenční box z výkresu (entdel místo UNDO — UNDO je vypnuté)
+        ; Smaž referenční box
         (if rz_ref_box (entdel rz_ref_box))
         (setq rz_ref_box nil)
 
         (setq exported_count (1+ exported_count))
         (princ (strcat " → " safe_name ".stl ✓"))
 
-        ; Rozmraz všechny vrstvy
+        ; Rozmraz vrstvy
         (command "-LAYER" "_Thaw" "*" "")
         (command "-LAYER" "_On"   "*" "")
 
-        ; ── Obnov původní stav viditelnosti ──────────────────────────────
+        ; Obnov původní stav viditelnosti
         (foreach lname orig_frozen
           (if (not (= lname layer_name))
             (vl-catch-all-apply
@@ -179,8 +189,20 @@
             '(lambda () (command "-LAYER" "_Off" lname "")))
         )
 
-        ; Uvolni paměť
         (gc)
+      )
+    )
+  )
+
+  ; ── Vrať model zpět na původní pozici ────────────────────────────────────
+  (if rz-shift
+    (progn
+      (princ "\n  [obnova původní pozice]")
+      (setq rz-allsel (ssget "_X"))
+      (if rz-allsel
+        (command "._MOVE" rz-allsel ""
+                 (list (car rz-shift) (cadr rz-shift) (caddr rz-shift))
+                 (list 0.0 0.0 0.0))
       )
     )
   )
@@ -191,7 +213,6 @@
   (setvar "FILEDIA" 1)
   (setvar "REGENMODE" orig_regenmode)
 
-  ; Finální obnova viditelnosti (pro jistotu)
   (foreach lname orig_frozen
     (vl-catch-all-apply
       '(lambda () (command "-LAYER" "_Freeze" lname "")))
@@ -222,5 +243,5 @@
   (princ)
 )
 
-(princ "\nRazzor 3D Export v21. Příkaz: ExportLayers3D\n")
+(princ "\nRazzor 3D Export v22. Příkaz: ExportLayers3D\n")
 (princ)

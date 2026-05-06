@@ -1819,6 +1819,7 @@ let _buData   = null;   // cached data for unified BOM detail popup
 let _buTab    = 2;      // 1=Specifikace, 2=Materiály, 3=Profily
 let _buActive = false;  // true while unified popup is open
 let _buDraft  = {};     // unsaved form values per tab (spec, profily)
+let _buDirty  = false;  // true = jsou neuložené změny (tab 1/7 nebo URL odkazy)
 let _dxfOverrides = {}; // {layerName: 'deska:9' | 'pena:50' | 'ignore' | 'auto'} – přiřazení vrstev
 
 async function bomDetailUnified(typId, tab) {
@@ -1828,7 +1829,7 @@ async function bomDetailUnified(typId, tab) {
   // Reset DXF overrides při otevření jiného typu casu (zachováme jen pokud je stejný typId)
   if (!_buData || _buData.typId !== typId) _dxfOverrides = {};
   openModal('<div class="text-center py-10 text-gray-400">Načítám…</div>', 'xl');
-  const [data, casData, profilyData, typyKorpusu, dxfResp, model3dResp, matResp] = await Promise.all([
+  const [data, casData, profilyData, typyKorpusu, dxfResp, model3dResp, matResp, prilohyResp] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
     api(`/api/typy-casu/${typId}/profily-plan`).catch(() => ({ profily: [] })),
@@ -1836,12 +1837,14 @@ async function bomDetailUnified(typId, tab) {
     api(`/api/typy-casu/${typId}/dxf`).catch(() => null),
     api(`/api/typy-casu/${typId}/3d`).catch(() => null),
     _cache.materialy ? Promise.resolve(null) : api('/api/materialy?limit=2000').catch(() => null),
+    api(`/api/typy-casu/${typId}/prilohy`).catch(() => null),
   ]);
   _cache.typy_korpusu = typyKorpusu;
   if (matResp?.items) { _cache.materialy = matResp.items; _cache._matTypy = matResp.typy || []; }
-  const dxfData    = dxfResp?.dxf       || null;
+  const dxfData     = dxfResp?.dxf        || null;
   const model3dData = model3dResp?.model3d || null;
-  _buData = { typId, data, casData, profilyData, typyKorpusu, dxfData, model3dData };
+  const prilohy     = prilohyResp?.prilohy || [];
+  _buData = { typId, data, casData, profilyData, typyKorpusu, dxfData, model3dData, prilohy };
   _buRender();
 }
 
@@ -1917,6 +1920,7 @@ function _buSwitchTab(tab) {
 function _buClose() {
   const snap = _buData ? { ..._buData } : null;
   _buDraft  = {};
+  _buDirty  = false;
   _buActive = false;
   closeModal();
   if (currentPage !== 'typy-casu') return;
@@ -1949,13 +1953,13 @@ function _buClose() {
 }
 
 function _buCloseConfirm() {
-  if (!confirm('Odejít bez uložení?\nNeuložené změny budou ztraceny.')) return;
+  if (_buDirty && !confirm('Odejít bez uložení?\nNeuložené změny budou ztraceny.')) return;
   _buClose();
 }
 
 async function _buSaveActive(typId) {
   if (_buTab === 1) await _buSaveSpec(typId);
-  else if (_buTab === 6) await _cvUlozitVse(typId);
+  else if (_buTab === 7) await _cvUlozitVse(typId);
   // Tabs 2–5 ukládají inline, centrální uložení není potřeba
 }
 
@@ -1976,7 +1980,8 @@ async function _buSmazatTyp(typId, hnCislo, nazev) {
 
 function _buRender() {
   if (!_buData) return;
-  const { typId, data, casData, profilyData, dxfData, model3dData } = _buData;
+  _buDirty = false;
+  const { typId, data, casData, profilyData, dxfData, model3dData, prilohy } = _buData;
   const t = data.typ;
   const bom = data.bom || [];
   const spojeniky = data.spojeniky || [];
@@ -2028,7 +2033,7 @@ function _buRender() {
   </div>`;
 
   // Tab navigation with left/right arrows
-  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'DXF', 'Soubory', 'Čas výroby', '3D'];
+  const TAB_NAMES = ['Specifikace', 'Materiály', 'Profily', 'DXF', '3D', 'Soubory', 'Čas výroby'];
   const TAB_MAX   = TAB_NAMES.length;
   const tabNav = `
   <div style="background:#f1f5f9;border-radius:10px;padding:4px;margin-bottom:16px;display:flex;align-items:center;gap:2px">
@@ -2039,8 +2044,8 @@ function _buRender() {
       const active = idx === _buTab;
       // Barevné puntíky: DXF = zelená, Čas výroby = oranžová, 3D = modrá (pokud má data)
       const dxfBadge    = (idx === 4 && dxfData)     ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-left:4px;vertical-align:middle"></span>` : '';
-      const casBadge    = (idx === 6 && casData)      ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f97316;margin-left:4px;vertical-align:middle"></span>` : '';
-      const model3dBadge = (idx === 7 && model3dData) ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#3b82f6;margin-left:4px;vertical-align:middle"></span>` : '';
+      const casBadge    = (idx === 7 && casData)      ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f97316;margin-left:4px;vertical-align:middle"></span>` : '';
+      const model3dBadge = (idx === 5 && model3dData) ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#3b82f6;margin-left:4px;vertical-align:middle"></span>` : '';
       const allBadges   = dxfBadge + casBadge + model3dBadge;
       return `<button onclick="_buSwitchTab(${idx})"
         style="border:none;border-radius:7px;cursor:pointer;font-size:.84rem;padding:6px 14px;
@@ -2059,9 +2064,7 @@ function _buRender() {
   else if (_buTab === 2) tabContent = _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData);
   else if (_buTab === 3) tabContent = _buTabProfily(typId, profilyData);
   else if (_buTab === 4) tabContent = _buTabDxf(typId, dxfData);
-  else if (_buTab === 5) tabContent = _buTabSoubory(typId, links);
-  else if (_buTab === 6) tabContent = _buTabCasVyroby(typId, casData);
-  else if (_buTab === 7) {
+  else if (_buTab === 5) {
     // Naplň mapu materiálů dle kódu (pro barevné zvýraznění a popis vrstev)
     _3dMatMap = {};
     (_cache.materialy || []).forEach(m => {
@@ -2069,6 +2072,8 @@ function _buRender() {
     });
     tabContent = _buTab3D(typId, model3dData);
   }
+  else if (_buTab === 6) tabContent = _buTabSoubory(typId, links, prilohy || []);
+  else if (_buTab === 7) tabContent = _buTabCasVyroby(typId, casData);
 
   openModal(`
   <div class="flex items-start justify-between mb-3">
@@ -2078,7 +2083,7 @@ function _buRender() {
       <p class="text-sm text-gray-500">${t.typ_korpusu||''} · ${t.vnitrni_sirka||'?'}×${t.vnitrni_vyska||'?'}×${t.vnitrni_hloubka||'?'} mm</p>
     </div>
     <div class="flex gap-2 items-center">
-      ${[1,6].includes(_buTab) ? `<button id="bu-save-btn" onclick="_buSaveActive(${typId})" class="btn btn-primary py-1 px-3 text-sm">💾 Uložit</button>` : ''}
+      ${[1,7].includes(_buTab) ? `<button id="bu-save-btn" onclick="_buSaveActive(${typId})" class="btn btn-primary py-1 px-3 text-sm">💾 Uložit</button>` : ''}
       <button onclick="_buClose();novaZakazkaZTypu(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}');" class="btn btn-success py-1 px-3 text-sm">+ Nová zakázka</button>
       <button onclick="_buSmazatTyp(${typId},'${t.hn_cislo}','${t.nazev.replace(/'/g,"\\'")}');" class="btn btn-danger py-1 px-2 text-sm" title="Smazat tento typ casu">🗑</button>
       <button onclick="_buCloseConfirm()" class="btn btn-secondary py-1 px-2">✕</button>
@@ -2091,7 +2096,7 @@ function _buRender() {
   // Obnov neuložené změny pro záložku Profily
   if (_buTab === 3) _buRestoreProfilyDraft();
   // Auto-init 3D vieweru — viewer je inline v záložce, inicializuj po renderu
-  if (_buTab === 7 && _buData?.model3dData?.vrstvy?.length) {
+  if (_buTab === 5 && _buData?.model3dData?.vrstvy?.length) {
     const _3dTypId  = _buData.typId;
     const _3dVrstvy = _buData.model3dData.vrstvy;
     _bu3dLoadThree().then(() => _bu3dInitViewer(_3dTypId, _3dVrstvy));
@@ -2109,20 +2114,20 @@ function _buTabSpec(t, typId) {
         <label class="text-xs text-gray-500">HN číslo</label>
         <input class="input" value="${t.hn_cislo}" disabled style="background:#f8fafc;color:#64748b">
       </div>
-      <div><label class="text-xs text-gray-500">Název *</label><input class="input" id="bu-nazev" value="${val('nazev', t.nazev)}"></div>
+      <div><label class="text-xs text-gray-500">Název *</label><input class="input" id="bu-nazev" oninput="_buDirty=true" value="${val('nazev', t.nazev)}"></div>
     </div>
     <div><label class="text-xs text-gray-500">Typ korpusu</label>
-      <select class="select" id="bu-typ">
+      <select class="select" id="bu-typ" onchange="_buDirty=true">
         <option value="">– Nevybráno –</option>
         ${typy.map(tp=>`<option value="${tp}" ${(d.typ_korpusu??t.typ_korpusu)===tp?'selected':''}>${tp}</option>`).join('')}
       </select>
     </div>
     <div class="grid grid-cols-3 gap-3">
-      <div><label class="text-xs text-gray-500">Šířka (mm)</label><input class="input" id="bu-s" type="number" value="${val('vnitrni_sirka', t.vnitrni_sirka||0)}"></div>
-      <div><label class="text-xs text-gray-500">Výška (mm)</label><input class="input" id="bu-v" type="number" value="${val('vnitrni_vyska', t.vnitrni_vyska||0)}"></div>
-      <div><label class="text-xs text-gray-500">Hloubka (mm)</label><input class="input" id="bu-h" type="number" value="${val('vnitrni_hloubka', t.vnitrni_hloubka||0)}"></div>
+      <div><label class="text-xs text-gray-500">Šířka (mm)</label><input class="input" id="bu-s" type="number" oninput="_buDirty=true" value="${val('vnitrni_sirka', t.vnitrni_sirka||0)}"></div>
+      <div><label class="text-xs text-gray-500">Výška (mm)</label><input class="input" id="bu-v" type="number" oninput="_buDirty=true" value="${val('vnitrni_vyska', t.vnitrni_vyska||0)}"></div>
+      <div><label class="text-xs text-gray-500">Hloubka (mm)</label><input class="input" id="bu-h" type="number" oninput="_buDirty=true" value="${val('vnitrni_hloubka', t.vnitrni_hloubka||0)}"></div>
     </div>
-    <div><label class="text-xs text-gray-500">Poznámka</label><textarea class="input" id="bu-poz" rows="2">${d.poznamka ?? t.poznamka ?? ''}</textarea></div>
+    <div><label class="text-xs text-gray-500">Poznámka</label><textarea class="input" id="bu-poz" rows="2" oninput="_buDirty=true">${d.poznamka ?? t.poznamka ?? ''}</textarea></div>
   </div>`;
 }
 
@@ -2297,21 +2302,57 @@ function _buTabProfily(typId, profilyData) {
   </div>`;
 }
 
-const _BU_LINK_TYPY = ['Obrázek', 'Výkres sestavy', 'Výkres polstrování', 'Ostatní'];
+// Společné kategorie pro soubory i URL odkazy
+const TC_TYPY_KEYS = ['obrazek','vykres_sestavy','vykres_polstrovani','ostatni'];
+const TC_TYPY_LABELS = { obrazek:'Obrázek', vykres_sestavy:'Výkres sestavy', vykres_polstrovani:'Výkres polstrování', ostatni:'Ostatní' };
 
-function _buLinkRowHtml(nazev, url) {
-  const sel = _BU_LINK_TYPY.map(t =>
-    `<option value="${t}" ${t===nazev?'selected':''}>${t}</option>`
-  ).join('');
-  return `<div class="bu-link-row flex gap-2 items-center mb-2">
-    <select class="bu-lnk-nazev select" style="flex:0 0 180px">${sel}</select>
-    <input class="bu-lnk-url input" style="flex:1" type="url" placeholder="https://…"
-           value="${url.replace(/"/g,'&quot;')}">
-    <a class="btn btn-secondary py-1 px-2 text-xs" href="${url.replace(/"/g,'&quot;')}" target="_blank"
-       title="Otevřít odkaz" onclick="this.href=this.closest('.bu-link-row').querySelector('.bu-lnk-url').value">↗</a>
-    <button class="text-red-400 hover:text-red-600 px-1 text-lg leading-none"
-            onclick="this.closest('.bu-link-row').remove()" title="Odebrat">✕</button>
+// onclickFn = název funkce (string), vždy volaný jako onclickFn(this)
+function _tcChipsHtml(selected, onclickFn) {
+  return TC_TYPY_KEYS.map(k => {
+    const active = selected.includes(k);
+    const style = active
+      ? 'background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd;font-weight:600'
+      : 'background:#f8fafc;color:#94a3b8;border:1px solid #e2e8f0';
+    return `<button type="button" data-typ="${k}" data-active="${active?'1':'0'}"
+      onclick="${onclickFn}(this)"
+      style="${style};border-radius:20px;font-size:.72rem;padding:2px 9px;cursor:pointer;white-space:nowrap;transition:all .1s">${TC_TYPY_LABELS[k]}</button>`;
+  }).join('');
+}
+
+function _buLinkRowHtml(nazev, url, typy) {
+  // nazev = kategorie (legacy string) nebo se ignoruje pokud typy[] předáno
+  let sel = typy && typy.length ? typy : [];
+  if (!sel.length) {
+    // Převed starý string nazev na nový klíč
+    const legacy = { 'Obrázek':'obrazek','Výkres sestavy':'vykres_sestavy','Výkres polstrování':'vykres_polstrovani','Ostatní':'ostatni' };
+    sel = [legacy[nazev] || 'ostatni'];
+  }
+  const chipsHtml = _tcChipsHtml(sel, '_buLinkTypToggle');
+  const safeUrl = (url||'').replace(/"/g,'&quot;');
+  return `<div class="bu-link-row mb-3">
+    <div class="flex gap-2 items-center mb-1">
+      <input class="bu-lnk-url input" style="flex:1" type="url" placeholder="https://…" oninput="_buDirty=true" value="${safeUrl}">
+      <a class="btn btn-secondary py-1 px-2 text-xs" href="${safeUrl}" target="_blank"
+         title="Otevřít odkaz" onclick="this.href=this.closest('.bu-link-row').querySelector('.bu-lnk-url').value">↗</a>
+      <button class="text-red-400 hover:text-red-600 px-1 text-lg leading-none"
+              onclick="this.closest('.bu-link-row').remove()" title="Odebrat">✕</button>
+    </div>
+    <div class="flex gap-1 flex-wrap" data-typy='${JSON.stringify(sel)}'>${chipsHtml}</div>
   </div>`;
+}
+
+function _buLinkTypToggle(chip) {
+  const wrap = chip.closest('[data-typy]');
+  const row  = chip.closest('.bu-link-row');
+  if (!wrap || !row) return;
+  const key  = chip.dataset.typ;
+  let sel;
+  try { sel = JSON.parse(wrap.dataset.typy || '["ostatni"]'); } catch { sel = ['ostatni']; }
+  if (sel.includes(key)) { sel = sel.filter(k => k !== key); if (!sel.length) sel = ['ostatni']; }
+  else { sel = [...sel.filter(k => k !== 'ostatni'), key]; }
+  wrap.dataset.typy = JSON.stringify(sel);
+  row.dataset.typy  = JSON.stringify(sel);
+  wrap.innerHTML = _tcChipsHtml(sel, '_buLinkTypToggle');
 }
 
 // ─── Konstanty pro DXF záložku ────────────────────────────────────────────────
@@ -2677,20 +2718,186 @@ async function _buDxfUpload(typId) {
   }
 }
 
-function _buTabSoubory(typId, links) {
-  const rows = links.map(lnk => _buLinkRowHtml(lnk.nazev, lnk.url)).join('');
+function _tcFileExt(filename) { return (filename || '').split('.').pop().toLowerCase(); }
+function _tcFileIcon(filename) {
+  const ext = _tcFileExt(filename);
+  if (ext === 'pdf') return '📄';
+  if (['dxf', 'dwg'].includes(ext)) return '📐';
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return '🖼';
+  if (['zip', 'rar', '7z'].includes(ext)) return '📦';
+  return '📎';
+}
+function _tcIsViewable(filename) {
+  const ext = _tcFileExt(filename);
+  return ext === 'pdf' || ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext);
+}
+function _tcFmtSize(b) {
+  if (!b) return '';
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(0) + ' kB';
+  return (b / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function _tcParseTyj(p) {
+  try { return JSON.parse(p.typ_json || '["ostatni"]'); } catch { return ['ostatni']; }
+}
+
+function _tcPrilohaRowHtml(typId, p) {
+  const typy    = _tcParseTyj(p);
+  const viewable = _tcIsViewable(p.filename);
+  const viewBtn = viewable
+    ? `<button onclick="_tcPrilohaView(${typId}, ${p.id}, '${p.filename.replace(/'/g, "\\'")}')"
+              class="btn btn-secondary text-xs py-0.5 px-2 flex-shrink-0">Zobrazit</button>`
+    : '';
+  const chipsHtml = _tcChipsHtml(typy, '_tcTypToggle');
   return `
-  <p class="text-xs text-gray-500 mb-4">
-    Zadej URL odkaz na soubor v Google Drive, SharePointu, Dropboxu apod.<br>
-    Prázdné řádky se při uložení přeskočí.
-  </p>
-  <div id="bu-links-list">
-    ${rows || '<p class="text-sm text-gray-400 italic mb-3">Zatím žádné soubory ani odkazy.</p>'}
-  </div>
-  <button class="btn btn-secondary text-xs mt-1" onclick="_buLinkAdd()">+ Přidat řádek</button>
-  <div class="pt-4 mt-4 border-t border-gray-100">
-    <button class="btn btn-primary w-full" onclick="_buSaveSoubory(${typId})">💾 Uložit</button>
+    <div class="py-2 border-b border-gray-100 last:border-0" id="tc-priloha-${p.id}"
+         data-typ-id="${typId}" data-fid="${p.id}">
+      <div class="flex items-center gap-2">
+        <span class="text-lg flex-shrink-0">${_tcFileIcon(p.filename)}</span>
+        <span class="flex-1 text-sm text-gray-800 truncate" title="${p.filename}">${p.filename}</span>
+        <span class="text-xs text-gray-400 flex-shrink-0">${_tcFmtSize(p.velikost)}</span>
+        ${viewBtn}
+        <a href="/api/typy-casu/${typId}/prilohy/${p.id}/download"
+           class="btn btn-secondary text-xs py-0.5 px-2 flex-shrink-0">Stáhnout</a>
+        <button onclick="_tcPrilohaDelete(${typId}, ${p.id})"
+                class="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0 text-lg leading-none" title="Smazat">×</button>
+      </div>
+      <div class="flex gap-1 flex-wrap mt-1.5 ml-7" id="tc-chips-${p.id}"
+           data-typy='${JSON.stringify(typy)}'>${chipsHtml}</div>
+    </div>`;
+}
+
+async function _tcTypToggle(chip) {
+  const wrap  = chip.closest('[data-typy]');
+  const row   = chip.closest('[data-fid]');
+  if (!wrap || !row) return;
+  const fid   = parseInt(row.dataset.fid);
+  const typId = parseInt(row.dataset.typId);
+  const key   = chip.dataset.typ;
+  let sel;
+  try { sel = JSON.parse(wrap.dataset.typy || '["ostatni"]'); } catch { sel = ['ostatni']; }
+  if (sel.includes(key)) { sel = sel.filter(k => k !== key); if (!sel.length) sel = ['ostatni']; }
+  else { sel = [...sel.filter(k => k !== 'ostatni'), key]; }
+  // Aktualizuj data-typy a překresli chipy
+  wrap.dataset.typy = JSON.stringify(sel);
+  wrap.innerHTML = _tcChipsHtml(sel, '_tcTypToggle');
+  // Synchronizuj _buData
+  if (_buData?.prilohy) { const p = _buData.prilohy.find(x => x.id === fid); if (p) p.typ_json = JSON.stringify(sel); }
+  // Ulož
+  await api(`/api/typy-casu/${typId}/prilohy/${fid}`, 'PATCH', { typy: sel });
+}
+
+function _buTabSoubory(typId, links, prilohy) {
+  const rows = links.map(lnk => {
+    let typy; try { typy = JSON.parse(lnk.typ_json || '["ostatni"]'); } catch { typy = [lnk.nazev||'ostatni']; }
+    return _buLinkRowHtml(lnk.nazev, lnk.url, typy);
+  }).join('');
+  const prilohyHtml = (prilohy || []).map(p => _tcPrilohaRowHtml(typId, p)).join('');
+
+  return `
+  <div class="space-y-6">
+
+    <!-- Nahrané soubory -->
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Nahrané soubory</p>
+      <div id="tc-prilohy-list" class="mb-3">
+        ${prilohyHtml || '<p class="text-sm text-gray-400 italic">Zatím žádné nahrané soubory.</p>'}
+      </div>
+      <label class="btn btn-secondary text-xs cursor-pointer inline-block">
+        + Nahrát soubor
+        <input type="file" class="hidden" onchange="_tcPrilohaUpload(${typId}, this)" accept=".pdf,.dxf,.dwg,.png,.jpg,.zip,.xlsx,.docx">
+      </label>
+    </div>
+
+    <!-- URL odkazy -->
+    <div>
+      <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">URL odkazy</p>
+      <p class="text-xs text-gray-400 mb-3">Google Drive, SharePoint, Dropbox apod. Prázdné řádky se přeskočí.</p>
+      <div id="bu-links-list">
+        ${rows || '<p class="text-sm text-gray-400 italic mb-3">Zatím žádné URL odkazy.</p>'}
+      </div>
+      <button class="btn btn-secondary text-xs mt-1" onclick="_buLinkAdd()">+ Přidat řádek</button>
+      <div class="pt-4 mt-4 border-t border-gray-100">
+        <button class="btn btn-primary w-full" onclick="_buSaveSoubory(${typId})">Uložit odkazy</button>
+      </div>
+    </div>
+
   </div>`;
+}
+
+async function _tcPrilohaUpload(typId, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const label = input.closest('label');
+  label.textContent = 'Nahrávám…';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const r = await fetch(`/api/typy-casu/${typId}/prilohy`, { method: 'POST', body: fd });
+    const json = await r.json();
+    if (!r.ok) throw new Error(json.error || 'Chyba uploadu');
+    const p = json.priloha;
+    // Synchronizuj _buData aby _buRender() zobrazil správný seznam
+    if (_buData) {
+      if (!_buData.prilohy) _buData.prilohy = [];
+      _buData.prilohy.push(p);
+    }
+    // Přidej řádek do DOM (bez re-renderu)
+    const list = document.getElementById('tc-prilohy-list');
+    const empty = list?.querySelector('p.italic');
+    if (empty) empty.remove();
+    const wrap = document.createElement('div');
+    wrap.innerHTML = _tcPrilohaRowHtml(typId, p);
+    list?.appendChild(wrap.firstElementChild);
+  } catch (e) {
+    alert('Chyba: ' + e.message);
+  } finally {
+    label.textContent = '+ Nahrát soubor';
+    label.innerHTML += '<input type="file" class="hidden" onchange="_tcPrilohaUpload(' + typId + ', this)" accept=".pdf,.dxf,.dwg,.png,.jpg,.zip,.xlsx,.docx">';
+    input.value = '';
+  }
+}
+
+async function _tcPrilohaDelete(typId, fid) {
+  if (!confirm('Smazat soubor?')) return;
+  const r = await api(`/api/typy-casu/${typId}/prilohy/${fid}`, 'DELETE');
+  if (r.ok) {
+    // Synchronizuj _buData
+    if (_buData?.prilohy) _buData.prilohy = _buData.prilohy.filter(p => p.id !== fid);
+    document.getElementById(`tc-priloha-${fid}`)?.remove();
+    const list = document.getElementById('tc-prilohy-list');
+    if (list && !list.querySelector('[id^=tc-priloha-]')) {
+      list.innerHTML = '<p class="text-sm text-gray-400 italic">Zatím žádné nahrané soubory.</p>';
+    }
+  }
+}
+
+function _tcPrilohaView(typId, fid, filename) {
+  const url = `/api/typy-casu/${typId}/prilohy/${fid}/view`;
+  const ext = _tcFileExt(filename);
+  const isImg = ['png','jpg','jpeg','gif','svg','webp'].includes(ext);
+  const inner = isImg
+    ? `<img src="${url}" style="max-width:100%;max-height:80vh;display:block;margin:auto;border-radius:6px">`
+    : `<iframe src="${url}" style="width:100%;height:80vh;border:none;border-radius:6px"></iframe>`;
+  const overlay = document.createElement('div');
+  overlay.id = 'tc-view-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:10px;width:100%;max-width:900px;overflow:hidden;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #e5e7eb">
+        <span style="font-size:.9rem;font-weight:600;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${filename}</span>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <a href="/api/typy-casu/${typId}/prilohy/${fid}/download"
+             style="padding:4px 12px;font-size:.8rem;border-radius:6px;border:1px solid #d1d5db;text-decoration:none;color:#374151">Stáhnout</a>
+          <button onclick="document.getElementById('tc-view-overlay').remove()"
+                  style="padding:4px 10px;font-size:.9rem;border-radius:6px;border:1px solid #d1d5db;cursor:pointer;background:#fff;color:#374151">✕</button>
+        </div>
+      </div>
+      <div style="padding:${isImg?'16px':'0'};overflow:auto">${inner}</div>
+    </div>`;
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
 }
 
 function _buTabCasVyroby(typId, casData) {
@@ -2949,7 +3156,7 @@ function _buLinkAdd() {
   const empty = container.querySelector('p.italic');
   if (empty) empty.remove();
   const div = document.createElement('div');
-  div.innerHTML = _buLinkRowHtml('Ostatní', '');
+  div.innerHTML = _buLinkRowHtml('ostatni', '', ['ostatni']);
   container.appendChild(div.firstElementChild);
   container.lastElementChild.querySelector('.bu-lnk-url').focus();
 }
@@ -2957,12 +3164,14 @@ function _buLinkAdd() {
 async function _buSaveSoubory(typId) {
   const links = [];
   document.querySelectorAll('.bu-link-row').forEach(row => {
-    const nazev = (row.querySelector('.bu-lnk-nazev')?.value || '').trim();
-    const url   = (row.querySelector('.bu-lnk-url')?.value   || '').trim();
-    if (url) links.push({ nazev: nazev || url, url });
+    const url  = (row.querySelector('.bu-lnk-url')?.value || '').trim();
+    const chipsWrap = row.querySelector('[data-typy]');
+    let typy; try { typy = JSON.parse(chipsWrap?.dataset.typy || '["ostatni"]'); } catch { typy = ['ostatni']; }
+    if (url) links.push({ nazev: typy[0] || 'ostatni', url, typy });
   });
   const r = await api(`/api/typy-casu/${typId}/links`, 'POST', { links });
   if (r.error) { alert('Chyba: ' + r.error); return; }
+  _buDirty = false;
   const [newData, casData, profilyData] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
@@ -2986,6 +3195,7 @@ async function _buSaveSpec(typId) {
   if (r.error) return alert('Chyba: ' + r.error);
   _cache.typy = null;
   _buDraft.spec = null;
+  _buDirty = false;
   const [newData, casData, profilyData] = await Promise.all([
     api(`/api/typy-casu/${typId}`),
     api(`/api/typy-casu/${typId}/cas-vypocet`).catch(() => null),
@@ -3948,7 +4158,7 @@ function _bu3dModelInfoHtml(typId, model3dData, vrstvy) {
 }
 
 function _bu3dTypOpts(cur) {
-  return [['deska','🪵 Deska'],['pena','🟡 Pěna'],['hw','🔩 HW'],['profily','📐 Profily'],['nyty','🔗 Nýty'],['jine','📦 Jiné'],['ignorovat','🚫 Ignorovat']]
+  return [['deska','Deska'],['pena','Pěna'],['hw','HW'],['profily','Profily'],['nyty','Nýty'],['jine','Jiné'],['ignorovat','Ignorovat']]
     .map(([v,l]) => `<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('');
 }
 
@@ -3967,14 +4177,12 @@ function _buTab3D(typId, model3dData) {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;
                       background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:5px 12px;
-                      font-size:.83rem;color:#374151">
-          📦 <span>Vybrat ZIP</span>
+                      font-size:.83rem;color:#374151" id="3d-upload-label">
+          <span id="3d-upload-label-text">Vybrat ZIP</span>
           <input type="file" accept=".zip" id="3d-stl-input" style="display:none"
-                 onchange="_bu3dFileChosen(this, ${typId})">
+                 onchange="_bu3dUpload(${typId}, this)">
         </label>
         <span id="3d-chosen-name" style="font-size:.78rem;color:#6b7280"></span>
-        <button id="3d-upload-btn" class="btn btn-primary py-1 px-3 text-xs" style="display:none"
-                onclick="_bu3dUpload(${typId})">⬆ Nahrát</button>
       </div>
       <span id="3d-upload-status" style="font-size:.78rem;display:block;margin-bottom:8px"></span>
 
@@ -3987,7 +4195,7 @@ function _buTab3D(typId, model3dData) {
     <div>
       <div id="3d-viewer-wrap" style="width:100%;height:480px;background:#1e293b;border-radius:10px;overflow:hidden;position:relative">
         <div id="3d-viewer-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.9rem">
-          ${vrstvy.length > 0 ? '⏳ Načítám 3D model…' : '<span style="color:#475569;font-size:.85rem">Nahraj ZIP se STL soubory →</span>'}
+          ${vrstvy.length > 0 ? 'Načítám 3D model…' : '<span style="color:#475569;font-size:.85rem">Nahraj ZIP se STL soubory</span>'}
         </div>
         <canvas id="3d-viewer-canvas" style="width:100%;height:100%;display:block"></canvas>
       </div>
@@ -3996,22 +4204,14 @@ function _buTab3D(typId, model3dData) {
   </div>`;
 }
 
-function _bu3dFileChosen(input, typId) {
-  const file = input.files[0];
-  if (!file) return;
-  document.getElementById('3d-chosen-name').textContent = file.name;
-  const btn = document.getElementById('3d-upload-btn');
-  if (btn) { btn.style.display = ''; btn.dataset.typId = typId; }
-  document.getElementById('3d-upload-status').textContent = '';
-}
-
-async function _bu3dUpload(typId) {
-  const input  = document.getElementById('3d-stl-input');
+async function _bu3dUpload(typId, input) {
   const status = document.getElementById('3d-upload-status');
-  const btn    = document.getElementById('3d-upload-btn');
+  const labelText = document.getElementById('3d-upload-label-text');
   if (!input || !input.files[0]) return;
-  status.textContent = '⏳ Nahrávám…'; status.style.color = '#6b7280';
-  if (btn) btn.disabled = true;
+  const filename = input.files[0].name;
+  status.textContent = 'Nahrávám…'; status.style.color = '#6b7280';
+  if (labelText) labelText.textContent = 'Nahrávám…';
+  input.disabled = true;
   const fd = new FormData();
   fd.append('zip', input.files[0]);
   try {
@@ -4020,7 +4220,7 @@ async function _bu3dUpload(typId) {
     if (!resp.ok || json.error) {
       status.textContent = '✗ Chyba: ' + (json.error || resp.status);
       status.style.color = '#dc2626';
-      if (btn) btn.disabled = false; return;
+      return;
     }
     let statusMsg = `✓ Hotovo – ${json.pocet} vrstev`;
     if (json.korekce && json.korekce.length > 0) {
@@ -4031,7 +4231,7 @@ async function _bu3dUpload(typId) {
     status.style.color = '#16a34a';
 
     const vrstvy = json.vrstvy || [];
-    _buData.model3dData = { nazev_souboru: input.files[0].name, vrstvy,
+    _buData.model3dData = { nazev_souboru: filename, vrstvy,
                             nahrano: new Date().toISOString() };
 
     // Aktualizuj model-info sekci bez přerenderování celé záložky (canvas by zanikl)
@@ -4046,11 +4246,15 @@ async function _bu3dUpload(typId) {
 
     // Aktualizuj loading placeholder a spusť viewer
     const loadingEl = document.getElementById('3d-viewer-loading');
-    if (loadingEl) loadingEl.textContent = '⏳ Načítám 3D model…';
+    if (loadingEl) loadingEl.textContent = 'Načítám 3D model…';
     _bu3dLoadThree().then(() => _bu3dInitViewer(typId, vrstvy));
   } catch(e) {
     status.textContent = '✗ Chyba sítě'; status.style.color = '#dc2626';
-    if (btn) btn.disabled = false;
+  } finally {
+    // Vždy obnov stav — umožní opakovaný upload
+    input.disabled = false;
+    input.value = '';  // onchange se spustí i pro stejný soubor
+    if (labelText) labelText.textContent = 'Vybrat ZIP';
   }
 }
 
@@ -4259,12 +4463,12 @@ async function _bu3dInitViewer(typId, vrstvy) {
   // Legenda vrstev — skupinové přepínače + individuální checkboxy s material lookup
   if (legend) {
     const GROUP_DEF = [
-      { typ:'deska',   label:'🪵 Deska',   color:'#c8986a' },
-      { typ:'pena',    label:'🟡 Pěna',    color:'#86efac' },
-      { typ:'hw',      label:'🔩 HW',      color:'#94a3b8' },
-      { typ:'profily', label:'📐 Profily', color:'#fbbf24' },
-      { typ:'nyty',    label:'🔗 Nýty',    color:'#d4d4d8' },
-      { typ:'jine',    label:'📦 Jiné',    color:'#e2e8f0' },
+      { typ:'deska',   label:'Deska',   color:'#c8986a' },
+      { typ:'pena',    label:'Pěna',    color:'#86efac' },
+      { typ:'hw',      label:'HW',      color:'#94a3b8' },
+      { typ:'profily', label:'Profily', color:'#fbbf24' },
+      { typ:'nyty',    label:'Nýty',    color:'#d4d4d8' },
+      { typ:'jine',    label:'Jiné',    color:'#e2e8f0' },
     ];
     const presentTypes = new Set(meshes.map(m => m.userData.vrstva.typ));
     const groupBtns = GROUP_DEF.filter(g => presentTypes.has(g.typ)).map(g =>

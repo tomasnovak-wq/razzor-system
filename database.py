@@ -257,6 +257,9 @@ def init_db():
     )
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_links_typ ON typy_casu_links(typ_casu_id)")
+    _cols_links = [r[1] for r in c.execute("PRAGMA table_info(typy_casu_links)").fetchall()]
+    if 'typ_json' not in _cols_links:
+        c.execute("ALTER TABLE typy_casu_links ADD COLUMN typ_json TEXT NOT NULL DEFAULT '[\"ostatni\"]'")
 
     # ── FAKTURY ───────────────────────────────────────────────────────────────
     c.execute("""
@@ -1121,6 +1124,27 @@ def auto_migrate():
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_typy_casu_3d ON typy_casu_3d(typ_casu_id)")
     log.append("  [OK] typy_casu_3d")
+
+    # Přílohy typů casů (uploadované soubory — PDF, DXF, …)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS typy_casu_prilohy (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            typ_casu_id    INTEGER NOT NULL REFERENCES typy_casu(id) ON DELETE CASCADE,
+            filename       TEXT NOT NULL,
+            filepath       TEXT NOT NULL,
+            mime_type      TEXT NOT NULL DEFAULT 'application/octet-stream',
+            velikost       INTEGER NOT NULL DEFAULT 0,
+            created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_typy_casu_prilohy ON typy_casu_prilohy(typ_casu_id)")
+    # Přidat sloupec typ_json pokud ještě neexistuje
+    _cols_prilohy = [r[1] for r in c.execute("PRAGMA table_info(typy_casu_prilohy)").fetchall()]
+    if 'typ_json' not in _cols_prilohy:
+        c.execute("ALTER TABLE typy_casu_prilohy ADD COLUMN typ_json TEXT NOT NULL DEFAULT '[\"ostatni\"]'")
+        log.append("  [OK] typy_casu_prilohy +typ_json")
+    else:
+        log.append("  [OK] typy_casu_prilohy")
 
     conn.commit()
     conn.close()

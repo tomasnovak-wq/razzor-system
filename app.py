@@ -578,7 +578,7 @@ def api_typy_casu_links(typ_id):
         conn.close()
         return jsonify({'links': []})
     if request.method == 'GET':
-        c.execute("SELECT id, nazev, url, poradi FROM typy_casu_links WHERE typ_casu_id=? ORDER BY poradi, id", (typ_id,))
+        c.execute("SELECT id, nazev, url, typ_json, poradi FROM typy_casu_links WHERE typ_casu_id=? ORDER BY poradi, id", (typ_id,))
         rows = [dict(r) for r in c.fetchall()]
         conn.close()
         return jsonify({'links': rows})
@@ -587,13 +587,113 @@ def api_typy_casu_links(typ_id):
     links = data.get('links', [])
     c.execute("DELETE FROM typy_casu_links WHERE typ_casu_id=?", (typ_id,))
     for i, lnk in enumerate(links):
-        nazev = (lnk.get('nazev') or '').strip()
-        url   = (lnk.get('url')   or '').strip()
-        if not nazev or not url:
+        nazev    = (lnk.get('nazev') or '').strip()
+        url      = (lnk.get('url')   or '').strip()
+        typy     = lnk.get('typy', ['ostatni'])
+        if not isinstance(typy, list): typy = ['ostatni']
+        typ_json = json.dumps(typy, ensure_ascii=False)
+        if not url:
             continue
-        c.execute("INSERT INTO typy_casu_links (typ_casu_id, nazev, url, poradi) VALUES (?, ?, ?, ?)",
-                  (typ_id, nazev, url, i))
+        c.execute("INSERT INTO typy_casu_links (typ_casu_id, nazev, url, typ_json, poradi) VALUES (?, ?, ?, ?, ?)",
+                  (typ_id, nazev or 'ostatni', url, typ_json, i))
     conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+## ── Přílohy typů casů (uploadované soubory) ────────────────────────────────
+
+TC_PRILOHY_DIR = os.path.join('/data', 'tc_prilohy') if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data', 'tc_prilohy')
+
+@app.route('/api/typy-casu/<int:typ_id>/prilohy', methods=['GET'])
+def api_tc_prilohy_list(typ_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, filename, mime_type, velikost, typ_json, created_at FROM typy_casu_prilohy WHERE typ_casu_id=? ORDER BY created_at, id", (typ_id,))
+    items = db_rows_to_list(c.fetchall())
+    conn.close()
+    return jsonify({'prilohy': items})
+
+@app.route('/api/typy-casu/<int:typ_id>/prilohy', methods=['POST'])
+def api_tc_priloha_upload(typ_id):
+    if 'file' not in request.files:
+        return jsonify({'error': 'Žádný soubor'}), 400
+    f = request.files['file']
+    folder = os.path.join(TC_PRILOHY_DIR, str(typ_id))
+    os.makedirs(folder, exist_ok=True)
+    safe_name = f.filename.replace('/', '_').replace('\\', '_')
+    filepath = os.path.join(folder, safe_name)
+    base, ext = os.path.splitext(safe_name)
+    counter = 1
+    while os.path.exists(filepath):
+        safe_name = f"{base}_{counter}{ext}"
+        filepath = os.path.join(folder, safe_name)
+        counter += 1
+    f.save(filepath)
+    velikost = os.path.getsize(filepath)
+    mime = f.content_type or 'application/octet-stream'
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO typy_casu_prilohy (typ_casu_id, filename, filepath, mime_type, velikost)
+        VALUES (?,?,?,?,?)
+    """, (typ_id, safe_name, filepath, mime, velikost))
+    fid = c.lastrowid
+    conn.commit()
+    c.execute("SELECT id, filename, mime_type, velikost, typ_json, created_at FROM typy_casu_prilohy WHERE id=?", (fid,))
+    row = dict(c.fetchone())
+    conn.close()
+    return jsonify({'ok': True, 'priloha': row})
+
+@app.route('/api/typy-casu/<int:typ_id>/prilohy/<int:fid>', methods=['PATCH'])
+def api_tc_priloha_patch(typ_id, fid):
+    data = request.get_json(force=True) or {}
+    typy = data.get('typy', ['ostatni'])
+    if not isinstance(typy, list):
+        typy = ['ostatni']
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE typy_casu_prilohy SET typ_json=? WHERE id=? AND typ_casu_id=?",
+              (json.dumps(typy, ensure_ascii=False), fid, typ_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/typy-casu/<int:typ_id>/prilohy/<int:fid>/download')
+def api_tc_priloha_download(typ_id, fid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM typy_casu_prilohy WHERE id=? AND typ_casu_id=?", (fid, typ_id))
+    row = c.fetchone()
+    conn.close()
+    if not row or not os.path.exists(row['filepath']):
+        return jsonify({'error': 'Soubor nenalezen'}), 404
+    return send_file(row['filepath'], as_attachment=True, download_name=row['filename'])
+
+@app.route('/api/typy-casu/<int:typ_id>/prilohy/<int:fid>/view')
+def api_tc_priloha_view(typ_id, fid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM typy_casu_prilohy WHERE id=? AND typ_casu_id=?", (fid, typ_id))
+    row = c.fetchone()
+    conn.close()
+    if not row or not os.path.exists(row['filepath']):
+        return jsonify({'error': 'Soubor nenalezen'}), 404
+    return send_file(row['filepath'], as_attachment=False, download_name=row['filename'])
+
+@app.route('/api/typy-casu/<int:typ_id>/prilohy/<int:fid>', methods=['DELETE'])
+def api_tc_priloha_delete(typ_id, fid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT filepath FROM typy_casu_prilohy WHERE id=? AND typ_casu_id=?", (fid, typ_id))
+    row = c.fetchone()
+    if row:
+        try:
+            if os.path.exists(row['filepath']):
+                os.remove(row['filepath'])
+        except Exception:
+            pass
+        c.execute("DELETE FROM typy_casu_prilohy WHERE id=?", (fid,))
+        conn.commit()
     conn.close()
     return jsonify({'ok': True})
 

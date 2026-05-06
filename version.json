@@ -1,8 +1,8 @@
 {
-  "verze": 64,
-  "popis": "Aktualizace CLAUDE.md – 3D viewer dokumentace (v21 LISP, typy hw/profily/nyty, material lookup, inline viewer, layerColor fix)",
+  "verze": 76,
+  "popis": "Upload 3D ZIP primy vyberem souboru, bez extra tlacitka Nahrat",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "16:59",
-  "git_commit": "7970fc5"
+  "cas": "21:34",
+  "git_commit": "eeed3b9"
 }
