@@ -3861,6 +3861,21 @@ function _3dToggleLayer(filename, visible) {
   if (mesh) mesh.visible = visible;
 }
 
+// Barva vrstvy — globální, sdílí _buTab3D (seznam) i _bu3dInitViewer (Three.js mesh)
+function layerColor(v) {
+  // 1. Přesná shoda názvu (s nebo bez diakritiky)
+  if (_3D_NAMED_COLORS[v.nazev] !== undefined) return _3D_NAMED_COLORS[v.nazev];
+  const normNazev = _3dNormName(v.nazev);
+  for (const [k, col] of Object.entries(_3D_NAMED_COLORS)) {
+    if (_3dNormName(k) === normNazev) return col;
+  }
+  // 2. Barva dle tloušťky (D Xmm / P Xmm)
+  const byThick = _3dColorByThickness(v.nazev);
+  if (byThick !== undefined) return byThick;
+  // 3. Fallback na typ vrstvy
+  return _3D_COLORS[v.typ] || _3D_COLORS.jine;
+}
+
 function _buTab3D(typId, model3dData) {
   const vrstvy = model3dData?.vrstvy || [];
   const rows = vrstvy.map(v => {
@@ -4095,21 +4110,6 @@ async function _bu3dInitViewer(typId, vrstvy) {
   _3dControls = new THREE.OrbitControls(_3dCamera, _3dRenderer.domElement);
   _3dControls.enableDamping = true;
   _3dControls.dampingFactor = 0.07;
-
-  // Barva vrstvy
-  function layerColor(v) {
-    // 1. Přesná shoda názvu (s nebo bez diakritiky)
-    if (_3D_NAMED_COLORS[v.nazev] !== undefined) return _3D_NAMED_COLORS[v.nazev];
-    const normNazev = _3dNormName(v.nazev);
-    for (const [k, col] of Object.entries(_3D_NAMED_COLORS)) {
-      if (_3dNormName(k) === normNazev) return col;
-    }
-    // 2. Barva dle tloušťky (D Xmm / P Xmm)
-    const byThick = _3dColorByThickness(v.nazev);
-    if (byThick !== undefined) return byThick;
-    // 3. Fallback na typ vrstvy
-    return _3D_COLORS[v.typ] || _3D_COLORS.jine;
-  }
 
   // Načti všechny STL soubory paralelně
   const loader = new THREE.STLLoader();
