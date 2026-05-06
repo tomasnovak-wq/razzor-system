@@ -3774,19 +3774,76 @@ function novaZakazkaZTypu(typId, hn, nazev) {
 
 // Barvy pro Three.js viewer dle typu vrstvy
 const _3D_COLORS = {
-  deska: 0xc8986a,   // hnědá (stejná jako DXF náhled)
-  pena:  0x86efac,   // zelená
+  deska: 0xc8986a,   // hnědá fallback (když tloušťka není v mapě)
+  pena:  0x86efac,   // zelená fallback
   jine:  0xe2e8f0,   // světle šedá
 };
-// Speciální barvy pro konkrétní názvy vrstev
+
+// Barvy desek (D Xmm) dle tloušťky — odpovídají barvám hladin v AutoCADu
+const _3D_DESKA_COLORS = {
+   4:   0xCC2222,  // tmavě červená
+   4.5: 0xCC2222,
+   6:   0xCC3300,
+   6.5: 0xCC2222,  // tmavě červená
+   6.8: 0xFF6622,  // oranžová
+   6.9: 0xAADD00,  // žlutozelená / limetková
+   9:   0x33BB33,  // zelená
+  12:   0x22BBCC,  // tyrkysová / azurová
+  15:   0x8877FF,  // modrofialová
+  18:   0xFF88CC,  // růžová
+  21:   0xFF44AA,
+  25:   0xAA44FF,
+};
+
+// Barvy pěn (P Xmm) dle tloušťky
+const _3D_PENA_COLORS = {
+   5:   0xFFAAAA,  // světle růžová
+  10:   0xFF8833,  // oranžová
+  15:   0xFFEE00,  // žlutá
+  20:   0x44BB44,  // zelená
+  30:   0x88AAFF,  // světle modrá
+  40:   0x4466FF,  // modrá
+  50:   0xFF66BB,  // magentu / růžová
+  60:   0xCC44EE,
+  80:   0x8844CC,
+ 100:   0x5522AA,
+};
+
+// Speciální barvy pro konkrétní názvy vrstev (bez diakritiky i s ní)
 const _3D_NAMED_COLORS = {
   'Cut out':    0x94a3b8,
   'Nýty':       0x6b7280,
+  'Nyty':       0x6b7280,
   'GRAVIRKA':   0xfbbf24,
   'Logo':       0xa78bfa,
   'Pomocná 1':  0xfca5a5,
   'Pomocná 2':  0xfca5a5,
+  'Pomocna 1':  0xfca5a5,
+  'Pomocna 2':  0xfca5a5,
 };
+
+// Normalizace názvu pro matchování: strip diakritika, lowercase
+function _3dNormName(s) {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+// Vrátí barvu dle tloušťky z mapy, nebo undefined
+function _3dColorByThickness(nazev) {
+  const n = _3dNormName(nazev);
+  // Regex: začíná "d" nebo "p", pak whitespace/podtržítko, číslo (tloušťka), "mm"
+  const m = n.match(/^([dp])[_\s]+(\d+(?:[,.]\d+)?)mm/);
+  if (!m) return undefined;
+  const typ = m[1];   // 'd' nebo 'p'
+  const mm  = parseFloat(m[2].replace(',', '.'));
+  const map = typ === 'd' ? _3D_DESKA_COLORS : _3D_PENA_COLORS;
+  // Přesná shoda
+  if (map[mm] !== undefined) return map[mm];
+  // Nejbližší hodnota v mapě (tolerance ±0.5 mm)
+  const keys = Object.keys(map).map(Number);
+  const closest = keys.reduce((a, b) => Math.abs(b - mm) < Math.abs(a - mm) ? b : a);
+  if (Math.abs(closest - mm) <= 0.5) return map[closest];
+  return undefined;
+}
 
 let _3dThreeLoaded = false;
 let _3dScene = null, _3dCamera = null, _3dRenderer = null, _3dControls = null;
@@ -4008,7 +4065,16 @@ async function _bu3dInitViewer(typId, vrstvy) {
 
   // Barva vrstvy
   function layerColor(v) {
+    // 1. Přesná shoda názvu (s nebo bez diakritiky)
     if (_3D_NAMED_COLORS[v.nazev] !== undefined) return _3D_NAMED_COLORS[v.nazev];
+    const normNazev = _3dNormName(v.nazev);
+    for (const [k, col] of Object.entries(_3D_NAMED_COLORS)) {
+      if (_3dNormName(k) === normNazev) return col;
+    }
+    // 2. Barva dle tloušťky (D Xmm / P Xmm)
+    const byThick = _3dColorByThickness(v.nazev);
+    if (byThick !== undefined) return byThick;
+    // 3. Fallback na typ vrstvy
     return _3D_COLORS[v.typ] || _3D_COLORS.jine;
   }
 

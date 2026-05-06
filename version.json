@@ -1,8 +1,8 @@
 {
-  "verze": 57,
-  "popis": "LISP v21: odstraneno UNDO control (kolize promptu mezi verzemi AutoCADu), ref box zachovan",
+  "verze": 58,
+  "popis": "3D viewer: barvy vrstev dle tloustky (D Xmm / P Xmm), match bez diakritiky, fallback na typ",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "13:01",
-  "git_commit": "2cbd0bb"
+  "cas": "15:53",
+  "git_commit": "76b4af3"
 }
