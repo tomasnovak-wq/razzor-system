@@ -1,8 +1,8 @@
 {
-  "verze": 55,
-  "popis": "Fix Y-median: odstranil podminku X-sirky (velke vrstvy), pouziva vsechny vrstvy s outlier filtrem +-50mm — funguje i kdyz je jen 1 deska",
+  "verze": 56,
+  "popis": "LISP v20: vrácen ref box 1x1x1 na (0,0,0) — syntaxe z v15, entdel po exportu",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "12:51",
-  "git_commit": "6d9ec6c"
+  "cas": "12:58",
+  "git_commit": "9496dd3"
 }

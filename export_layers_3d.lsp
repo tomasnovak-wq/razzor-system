@@ -1,5 +1,5 @@
 ; ============================================================
-; export_layers_3d.lsp  —  Razzor Cases  v19
+; export_layers_3d.lsp  —  Razzor Cases  v20
 ;
 ; Zjednodušená verze — bez automatického EXPLODE.
 ; Před spuštěním ručně exploduj bloky (INSERT entity) které
@@ -12,9 +12,12 @@
 ; Freeze ostatních vrstev jedním "_Freeze *" — rychlejší.
 ;
 ; v19: Opravena syntaxe UNDO pro AutoCAD 2020+ na Macu.
-; Prompt [All/None/One/Combine/Layer] — správně: "_None" / "_All"
-; (dříve chybně "_Control" "_None" → "Invalid option keyword").
-; Odstraněn referenční box — zarovnání vrstev řeší server Y-median.
+; Prompt [All/None/One/Combine/Layer] — správně: "_None" / "_All".
+;
+; v20: Vrácen referenční box 1×1×1 mm na souřadnicích (0,0,0).
+; Syntaxe z v15: (command "._BOX" "0,0,0" "1,1,1").
+; Box se přidá před STLOUT, smaže se přes entdel po exportu.
+; Server z jeho polohy v STL přesně zjistí UCS offset a opraví ho.
 ; ============================================================
 
 (defun _rz-replace (old new str / result i olen)
@@ -66,7 +69,7 @@
 (defun c:ExportLayers3D ( / outdir orig_clayer orig_tilemode orig_regenmode
                             layer_data layer_name safe_name stl_path
                             all_layers exported_count skipped_count sel
-                            orig_frozen orig_off lflags lcolor)
+                            orig_frozen orig_off lflags lcolor rz_ref_box)
 
   (setq orig_clayer     (getvar "CLAYER"))
   (setq orig_tilemode   (getvar "TILEMODE"))
@@ -140,12 +143,22 @@
         (command "-LAYER" "_On"   layer_name "")
         (command "._UCS" "_W")
 
+        ; Referenční box 1×1×1 mm na WCS (0,0,0) — server z jeho polohy
+        ; v STL zjistí přesný UCS offset a automaticky ho opraví.
+        ; Syntaxe ověřená v15: druhý argument "1,1,1" = protilehlý roh boxu.
+        (command "._BOX" "0,0,0" "1,1,1")
+        (setq rz_ref_box (entlast))
+
         ; Export STL
         (setq safe_name (_rz-safename layer_name))
         (setq stl_path  (strcat outdir safe_name ".stl"))
         (setvar "FILEDIA" 0)
         (command "STLOUT" "all" "" "Y" stl_path)
         (setvar "FILEDIA" 1)
+
+        ; Smaž referenční box z výkresu (entdel místo UNDO — UNDO je vypnuté)
+        (if rz_ref_box (entdel rz_ref_box))
+        (setq rz_ref_box nil)
 
         (setq exported_count (1+ exported_count))
         (princ (strcat " → " safe_name ".stl ✓"))
@@ -212,5 +225,5 @@
   (princ)
 )
 
-(princ "\nRazzor 3D Export v19. Příkaz: ExportLayers3D\n")
+(princ "\nRazzor 3D Export v20. Příkaz: ExportLayers3D\n")
 (princ)
