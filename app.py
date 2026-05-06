@@ -1215,28 +1215,35 @@ def api_3d_post(typ_id):
                 _stl_write_triangles(path, header, rest_tris)
 
         # ── Fallback: LISP bez ref. boxu → Y-median ─────────────────────────
+        # Algoritmus:
+        # 1. Spočítej Y-střed každé vrstvy (bbox center)
+        # 2. Hrubý medián VŠECH vrstev → odfiltruj zjevné odlehlé hodnoty (>50 mm)
+        # 3. ref_y = medián zbývajících vrstev
+        # 4. Vrstvy s |delta| v rozsahu 0.5–10 mm posuň na ref_y
+        #    (0.5 mm filtruje šum; 10 mm zachová záměrně jinak umístěné části)
         if not has_ref_box:
             def _ybbox(path):
                 tris = _stl_read_triangles(path)
                 if not tris: return None
                 ys = [v[1] for t in tris for v in _tri_verts(t)]
-                xs = [v[0] for t in tris for v in _tri_verts(t)]
-                return min(ys), max(ys), max(xs)-min(xs)
+                return min(ys), max(ys)
 
-            bbox_data = {}
+            yc_data = {}   # filename → Y-střed
             for v in vrstvy:
                 bb = _ybbox(os.path.join(target_dir, v['filename']))
-                if bb: bbox_data[v['filename']] = bb
+                if bb: yc_data[v['filename']] = (bb[0]+bb[1])/2
 
-            if bbox_data:
-                case_w = max(b[2] for b in bbox_data.values())
-                big_yc = [(b[0]+b[1])/2 for b in bbox_data.values() if b[2] >= case_w*0.4]
-                if len(big_yc) >= 2:
-                    ref_y = _stats.median(big_yc)
+            if yc_data:
+                all_yc = list(yc_data.values())
+                rough_median = _stats.median(all_yc)
+                # Odfiltruj outlier vrstvy (Logo, nožičky apod. — vzdálené >50 mm)
+                inlier_yc = [yc for yc in all_yc if abs(yc - rough_median) <= 50.0]
+                if inlier_yc:
+                    ref_y = _stats.median(inlier_yc)
                     for v in vrstvy:
-                        bb = bbox_data.get(v['filename'])
-                        if not bb: continue
-                        delta = ref_y - (bb[0]+bb[1])/2
+                        yc = yc_data.get(v['filename'])
+                        if yc is None: continue
+                        delta = ref_y - yc
                         if 0.5 < abs(delta) <= 10.0:
                             path = os.path.join(target_dir, v['filename'])
                             tris = _stl_read_triangles(path)
