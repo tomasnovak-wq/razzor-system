@@ -1169,86 +1169,47 @@ def api_3d_post(typ_id):
     except zipfile.BadZipFile:
         return jsonify({'error': 'Neplatný ZIP soubor'}), 400
 
-    # ── AUTO-KOREKCE pomocí referenčního boxu (v14+) ────────────────────────
-    # LISP v14 přidá do každého STL referenční box 1×1×1 mm na souřadnicích (0,0,0).
-    # Server z jeho polohy v exportovaném souboru přesně zjistí UCS offset,
-    # opraví všechny vrcholy a referenční box odstraní.
-    #
-    # Fallback (starší LISP bez ref. boxu): Y-median přístup.
-    #
+    # ── AUTO-KOREKCE Y-offsetu (Y-median přístup) ───────────────────────────
+    # LISP v16+ nepoužívá referenční box. Korekce se počítá z mediánu Y-středů
+    # "velkých" vrstev (X-šířka >= 40 % max X-šířky) a aplikuje se na všechny
+    # vrstvy jejichž delta je v rozsahu 0.5–10 mm.
+    # Dolní mez 0.5 mm filtruje numerický šum.
+    # Horní mez 10 mm zachovává záměrně jinak umístěné vrstvy (nožičky ~15 mm pod dnem).
     korektovano = []
     try:
-        has_ref_box = False  # zjistíme za chvíli
-
-        for v in vrstvy:
-            path = os.path.join(target_dir, v['filename'])
+        def _ybbox(path):
             tris = _stl_read_triangles(path)
-            if not tris:
-                continue
+            if not tris: return None
+            ys = [v[1] for t in tris for v in _tri_verts(t)]
+            xs = [v[0] for t in tris for v in _tri_verts(t)]
+            return min(ys), max(ys), max(xs)-min(xs)
 
-            # Přečti hlavičku (80 bytů) pro zápis zpět
-            with open(path, 'rb') as f:
-                header = f.read(80)
+        bbox_data = {}
+        for v in vrstvy:
+            bb = _ybbox(os.path.join(target_dir, v['filename']))
+            if bb: bbox_data[v['filename']] = bb
 
-            ox, oy, oz, ref_tris, rest_tris = _stl_find_ref_box(tris)
-
-            if ref_tris:
-                # ── Ref. box nalezen — přesná korekce ──
-                has_ref_box = True
-                dx, dy, dz = -ox, -oy, -oz
-                needs_fix = (abs(dx) > 0.1 or abs(dy) > 0.1 or abs(dz) > 0.1)
-                if needs_fix:
-                    _stl_shift_xyz(rest_tris, dx, dy, dz)
-                    korektovano.append({
-                        'vrstva':   v['nazev'],
-                        'delta_mm': round(dy, 3),   # hlavní osa Y
-                        'dx': round(dx,3), 'dy': round(dy,3), 'dz': round(dz,3),
-                    })
-                # Vždy odstraň ref. box z výstupního souboru
-                _stl_write_triangles(path, header, rest_tris)
-
-            # (pokud ref. box není, soubor necháme jak je — fallback níže)
-
-        # ── Fallback: LISP bez ref. boxu → Y-median ─────────────────────────
-        if not has_ref_box:
-            def _ybbox(path):
-                tris = _stl_read_triangles(path)
-                if not tris: return None
-                ys = [v[1] for t in tris for v in _tri_verts(t)]
-                xs = [v[0] for t in tris for v in _tri_verts(t)]
-                return min(ys), max(ys), max(xs)-min(xs)
-
-            bbox_data = {}
-            for v in vrstvy:
-                bb = _ybbox(os.path.join(target_dir, v['filename']))
-                if bb: bbox_data[v['filename']] = bb
-
-            if bbox_data:
-                case_w = max(b[2] for b in bbox_data.values())
-                # ref_y = medián Y-středů VELKÝCH vrstev (šířka >= 40 % case_w)
-                # Velké vrstvy = hlavní pláty (desky, víka) — jejich střed je referenční
-                big_yc = [(b[0]+b[1])/2 for b in bbox_data.values() if b[2] >= case_w*0.4]
-                if len(big_yc) >= 2:
-                    ref_y = _stats.median(big_yc)
-                    # Korekci aplikujeme na VŠECHNY vrstvy (velké i malé hardware),
-                    # pokud je jejich delta v rozsahu 0.5–10 mm.
-                    # Dolní mez 0.5 mm: filtruje numerický šum.
-                    # Horní mez 10 mm: zachová záměrně jinak umístěné vrstvy
-                    # (např. nožičky pod dnem case jsou typicky 15+ mm pod ref_y).
-                    for v in vrstvy:
-                        bb = bbox_data.get(v['filename'])
-                        if not bb: continue
-                        delta = ref_y - (bb[0]+bb[1])/2
-                        if 0.5 < abs(delta) <= 10.0:
-                            path = os.path.join(target_dir, v['filename'])
-                            tris = _stl_read_triangles(path)
-                            with open(path, 'rb') as f: header = f.read(80)
-                            _stl_shift_xyz(tris, 0, delta, 0)
-                            _stl_write_triangles(path, header, tris)
-                            korektovano.append({'vrstva': v['nazev'], 'delta_mm': round(delta,3)})
+        if bbox_data:
+            case_w = max(b[2] for b in bbox_data.values())
+            # ref_y = medián Y-středů VELKÝCH vrstev (šířka >= 40 % case_w)
+            # Velké vrstvy = hlavní pláty (desky, víka) — jejich střed je referenční
+            big_yc = [(b[0]+b[1])/2 for b in bbox_data.values() if b[2] >= case_w*0.4]
+            if len(big_yc) >= 2:
+                ref_y = _stats.median(big_yc)
+                for v in vrstvy:
+                    bb = bbox_data.get(v['filename'])
+                    if not bb: continue
+                    delta = ref_y - (bb[0]+bb[1])/2
+                    if 0.5 < abs(delta) <= 10.0:
+                        path = os.path.join(target_dir, v['filename'])
+                        tris = _stl_read_triangles(path)
+                        with open(path, 'rb') as f: header = f.read(80)
+                        _stl_shift_xyz(tris, 0, delta, 0)
+                        _stl_write_triangles(path, header, tris)
+                        korektovano.append({'vrstva': v['nazev'], 'delta_mm': round(delta,3)})
 
     except Exception as _e:
-        pass   # korekce selhala – pokračujeme se soubory jak jsou
+        print(f"[3D korekce] chyba pri Y-median korekci: {_e!r}", flush=True)
 
     # Ulož záznam do DB
     conn = get_db()

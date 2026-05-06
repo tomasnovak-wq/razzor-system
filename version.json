@@ -1,8 +1,8 @@
 {
-  "verze": 51,
-  "popis": "v51: Y-median korekce pro vsechny vrstvy 0.5-10mm — oprava hardware vrstev (zamky, nyte) ktere Y-median drive preskakoval",
+  "verze": 52,
+  "popis": "Fix 3D Y-median korekce: odstranil ref-box detection ktera blokovala korekci, pridat logovani chyb",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "12:11",
-  "git_commit": "c345e6b"
+  "cas": "12:29",
+  "git_commit": "1d257a8"
 }
