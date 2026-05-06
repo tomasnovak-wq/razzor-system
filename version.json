@@ -1,8 +1,8 @@
 {
-  "verze": 79,
-  "popis": "3D legenda — pill styl misto checkboxu, toggle skupin i vrstev",
+  "verze": 80,
+  "popis": "3D legenda — skupiny na radcich, master pill tmavy, mezery mezi skupinami",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "21:45",
-  "git_commit": "2306ab9"
+  "cas": "21:49",
+  "git_commit": "3e20c92"
 }

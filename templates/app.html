@@ -4503,18 +4503,9 @@ async function _bu3dInitViewer(typId, vrstvy) {
       { typ:'jine',    label:'Jiné',    color:'#e2e8f0' },
     ];
     const presentTypes = new Set(meshes.map(m => m.userData.vrstva.typ));
-    const groupBtns = GROUP_DEF.filter(g => presentTypes.has(g.typ)).map(g =>
-      `<button id="grppill3d_${g.typ}" data-color="${g.color}" onclick="_3dToggleGroup('${g.typ}')"
-          title="Zobrazit/skrýt vše: ${g.label}"
-          style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;
-                 background:${g.color}22;border:1.5px solid ${g.color}88;border-radius:20px;
-                 padding:3px 11px;font-size:.75rem;font-weight:600;color:#374151">
-        <span data-swatch style="width:9px;height:9px;border-radius:50%;background:${g.color};flex-shrink:0"></span>
-        ${g.label}
-      </button>`
-    ).join('');
-
-    const indivChk = meshes.map(m => {
+    // Sestav mapu typ → individual pills
+    const byTyp = {};
+    meshes.forEach(m => {
       const v      = m.userData.vrstva;
       const b      = m.userData.bb;
       const col    = '#' + layerColor(v).toString(16).padStart(6, '0');
@@ -4525,18 +4516,32 @@ async function _bu3dInitViewer(typId, vrstvy) {
       const normN   = v.nazev.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
       const dispName = mat ? `${normN} · ${mat.nazev}` : normN;
       const swatchBorder = (col === '#ffffff') ? 'border:1px solid #d1d5db;' : '';
-      return `<button id="${pillId}" data-color="${col}" data-typ="${v.typ}"
+      const pill = `<button id="${pillId}" data-color="${col}" data-typ="${v.typ}"
           title="${tip}" onclick="_3dToggleLayer('${v.filename.replace(/'/g,"\\'")}')"
           style="display:inline-flex;align-items:center;gap:5px;background:${col}22;
                  border:1.5px solid ${col}88;border-radius:20px;padding:3px 9px;cursor:pointer">
-        <span data-swatch style="width:9px;height:9px;border-radius:2px;background:${col};${swatchBorder}flex-shrink:0"></span>
-        <span style="font-size:.75rem;color:#374151">${dispName}</span>
+        <span data-swatch style="width:8px;height:8px;border-radius:2px;background:${col};${swatchBorder}flex-shrink:0"></span>
+        <span style="font-size:.73rem;color:#374151">${dispName}</span>
       </button>`;
-    }).join('');
+      if (!byTyp[v.typ]) byTyp[v.typ] = [];
+      byTyp[v.typ].push(pill);
+    });
 
-    legend.innerHTML =
-      `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">${groupBtns}</div>` +
-      `<div style="display:flex;flex-wrap:wrap;gap:4px">${indivChk}</div>`;
+    // Jeden řádek na skupinu: [master pill] [individual pills...]
+    const groupRows = GROUP_DEF.filter(g => presentTypes.has(g.typ)).map(g => {
+      const masterPill = `<button id="grppill3d_${g.typ}" data-color="${g.color}" onclick="_3dToggleGroup('${g.typ}')"
+          title="Zobrazit/skrýt vše: ${g.label}"
+          style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;
+                 background:${g.color};border:1.5px solid ${g.color};border-radius:20px;
+                 padding:3px 12px;font-size:.73rem;font-weight:700;color:#fff">
+        <span data-swatch style="width:8px;height:8px;border-radius:50%;background:#ffffff66;flex-shrink:0"></span>
+        ${g.label}
+      </button>`;
+      const indiv = (byTyp[g.typ] || []).join('');
+      return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px">${masterPill}${indiv}</div>`;
+    }).join('<div style="height:10px"></div>');
+
+    legend.innerHTML = groupRows;
   }
 
   // Animační smyčka
