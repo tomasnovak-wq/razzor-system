@@ -1,8 +1,8 @@
 {
-  "verze": 76,
-  "popis": "Upload 3D ZIP primy vyberem souboru, bez extra tlacitka Nahrat",
+  "verze": 78,
+  "popis": "Odstraneni emoji z casovych kroku vyroby",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "21:34",
-  "git_commit": "eeed3b9"
+  "cas": "21:40",
+  "git_commit": "9770ccc"
 }
