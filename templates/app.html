@@ -4100,7 +4100,6 @@ function _3dToggleLayer(filename) {
 
 function _3dToggleGroup(typ) {
   if (!_3dMeshMap) return;
-  // Zjisti aktuální stav skupiny — pokud jsou všechny zapnuté, vypni; jinak zapni
   const meshes = Object.values(_3dMeshMap).filter(m => m.userData?.vrstva?.typ === typ);
   const allOn  = meshes.every(m => m.visible);
   const visible = !allOn;
@@ -4110,10 +4109,8 @@ function _3dToggleGroup(typ) {
     const pill = document.getElementById(id);
     if (pill) _3dPillSetActive(pill, visible);
   });
-  // Sync skupinový pill
-  const gid = 'grppill3d_' + typ;
-  const gpill = document.getElementById(gid);
-  if (gpill) _3dPillSetActive(gpill, visible);
+  // Sync master checkbox-btn
+  _3dMasterSetActive(typ, visible);
 }
 
 function _3dPillSetActive(pill, active) {
@@ -4121,16 +4118,32 @@ function _3dPillSetActive(pill, active) {
   if (active) {
     pill.style.background = col + '22';
     pill.style.border = `1.5px solid ${col}88`;
-    pill.style.color = '#374151';
     pill.style.opacity = '1';
   } else {
-    pill.style.background = '#f1f5f9';
+    pill.style.background = '#f8fafc';
     pill.style.border = '1.5px solid #e2e8f0';
-    pill.style.color = '#9ca3af';
-    pill.style.opacity = '0.6';
+    pill.style.opacity = '0.45';
   }
   const swatch = pill.querySelector('[data-swatch]');
   if (swatch) swatch.style.opacity = active ? '1' : '0.3';
+}
+
+function _3dMasterSetActive(typ, active) {
+  const btn = document.getElementById('grppill3d_' + typ);
+  const chk = document.getElementById('grpchk3d_' + typ);
+  if (!btn) return;
+  const col = btn.dataset.color || '#94a3b8';
+  if (active) {
+    btn.style.background = '#fff';
+    btn.style.color = '#374151';
+    btn.style.opacity = '1';
+    if (chk) { chk.style.background = col; chk.style.borderColor = col; chk.textContent = '✓'; }
+  } else {
+    btn.style.background = '#f8fafc';
+    btn.style.color = '#9ca3af';
+    btn.style.opacity = '0.6';
+    if (chk) { chk.style.background = '#e5e7eb'; chk.style.borderColor = '#d1d5db'; chk.textContent = ''; }
+  }
 }
 
 // Barva vrstvy — globální, sdílí _buTab3D (seznam) i _bu3dInitViewer (Three.js mesh)
@@ -4519,29 +4532,35 @@ async function _bu3dInitViewer(typId, vrstvy) {
       const pill = `<button id="${pillId}" data-color="${col}" data-typ="${v.typ}"
           title="${tip}" onclick="_3dToggleLayer('${v.filename.replace(/'/g,"\\'")}')"
           style="display:inline-flex;align-items:center;gap:5px;background:${col}22;
-                 border:1.5px solid ${col}88;border-radius:20px;padding:3px 9px;cursor:pointer">
+                 border:1.5px solid ${col}88;border-radius:20px;padding:2px 9px;cursor:pointer;white-space:nowrap">
         <span data-swatch style="width:8px;height:8px;border-radius:2px;background:${col};${swatchBorder}flex-shrink:0"></span>
-        <span style="font-size:.73rem;color:#374151">${dispName}</span>
+        <span style="font-size:.72rem;color:#374151">${dispName}</span>
       </button>`;
       if (!byTyp[v.typ]) byTyp[v.typ] = [];
       byTyp[v.typ].push(pill);
     });
 
-    // Jeden řádek na skupinu: [master pill] [individual pills...]
+    // Jeden řádek na skupinu: [checkbox-btn vlevo fixní šířka] + [pills flex-wrap vpravo]
     const groupRows = GROUP_DEF.filter(g => presentTypes.has(g.typ)).map(g => {
-      const masterPill = `<button id="grppill3d_${g.typ}" data-color="${g.color}" onclick="_3dToggleGroup('${g.typ}')"
+      const masterBtn = `<button id="grppill3d_${g.typ}" data-color="${g.color}" onclick="_3dToggleGroup('${g.typ}')"
           title="Zobrazit/skrýt vše: ${g.label}"
-          style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;
-                 background:${g.color};border:1.5px solid ${g.color};border-radius:20px;
-                 padding:3px 12px;font-size:.73rem;font-weight:700;color:#fff">
-        <span data-swatch style="width:8px;height:8px;border-radius:50%;background:#ffffff66;flex-shrink:0"></span>
+          style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0;
+                 width:82px;justify-content:flex-start;
+                 background:#fff;border:1.5px solid ${g.color};border-radius:7px;
+                 padding:4px 10px;font-size:.76rem;font-weight:700;color:#374151">
+        <span id="grpchk3d_${g.typ}" style="display:inline-flex;align-items:center;justify-content:center;
+              width:14px;height:14px;border-radius:3px;border:1.5px solid ${g.color};
+              background:${g.color};flex-shrink:0;font-size:.6rem;color:#fff;line-height:1">✓</span>
         ${g.label}
       </button>`;
       const indiv = (byTyp[g.typ] || []).join('');
-      return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px">${masterPill}${indiv}</div>`;
-    }).join('<div style="height:10px"></div>');
+      return `<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px">
+        <div style="padding-top:1px">${masterBtn}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;flex:1">${indiv}</div>
+      </div>`;
+    }).join('');
 
-    legend.innerHTML = groupRows;
+    legend.innerHTML = `<div style="margin-top:4px">${groupRows}</div>`;
   }
 
   // Animační smyčka
