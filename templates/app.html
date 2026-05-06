@@ -2081,6 +2081,12 @@ function _buRender() {
   `, 'xl');
   // Obnov neuložené změny pro záložku Profily
   if (_buTab === 3) _buRestoreProfilyDraft();
+  // Auto-init 3D vieweru — viewer je inline v záložce, inicializuj po renderu
+  if (_buTab === 7 && _buData?.model3dData?.vrstvy?.length) {
+    const _3dTypId  = _buData.typId;
+    const _3dVrstvy = _buData.model3dData.vrstvy;
+    _bu3dLoadThree().then(() => _bu3dInitViewer(_3dTypId, _3dVrstvy));
+  }
 }
 
 function _buTabSpec(t, typId) {
@@ -3856,73 +3862,81 @@ function _3dToggleLayer(filename, visible) {
 }
 
 function _buTab3D(typId, model3dData) {
-  const listHtml = model3dData
-    ? (() => {
-        const d = model3dData;
-        const rows = (d.vrstvy||[]).map(v => {
-          const typLabel = v.typ === 'deska' ? '🪵 Deska'
-                         : v.typ === 'pena'  ? '🟡 Pěna'
-                         : '📦 Jiné';
-          const typStyle = v.typ === 'deska'
-            ? 'background:#e8c9a0;color:#7c4a1e'
-            : v.typ === 'pena'
-            ? 'background:#d1fae5;color:#065f46'
-            : 'background:#f1f5f9;color:#475569';
-          return `<tr>
-            <td class="py-1 pr-3 text-sm">${v.nazev}</td>
-            <td class="py-1 pr-3"><span class="text-xs px-2 py-0.5 rounded" style="${typStyle}">${typLabel}</span></td>
-            <td class="py-1 text-sm text-gray-400">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
-          </tr>`;
-        }).join('');
-        const pocet = (d.vrstvy||[]).length;
-        return `
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.83rem;color:#166534">
-          ✓ Nahrán model: <strong>${d.nazev_souboru}</strong>
-          ${pocet > 0 ? `&nbsp;·&nbsp; ${pocet} vrstev` : ''}
-          &nbsp;·&nbsp; <span class="text-gray-400">${(d.nahrano||'').slice(0,16).replace('T',' ')}</span>
-        </div>
-        ${pocet > 0 ? `<div style="overflow-x:auto;margin-bottom:14px">
-          <table class="text-sm" style="border-collapse:collapse;min-width:300px">
-            <thead><tr style="border-bottom:1px solid #e5e7eb">
-              <th class="py-1 pr-3 text-left text-xs text-gray-500">Vrstva</th>
-              <th class="py-1 pr-3 text-left text-xs text-gray-500">Typ</th>
-              <th class="py-1 text-left text-xs text-gray-500">Tloušťka</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>` : ''}`;
-      })()
-    : `<p class="text-sm text-gray-400 italic text-center py-4">Zatím nebyl nahrán žádný 3D model.</p>`;
+  const vrstvy = model3dData?.vrstvy || [];
+  const rows = vrstvy.map(v => {
+    const col = '#' + (layerColor(v) || 0xe2e8f0).toString(16).padStart(6, '0');
+    const typLabel = v.typ === 'deska' ? '🪵 Deska'
+                   : v.typ === 'pena'  ? '🟡 Pěna'
+                   : '📦 Jiné';
+    const typStyle = v.typ === 'deska'
+      ? 'background:#e8c9a0;color:#7c4a1e'
+      : v.typ === 'pena'
+      ? 'background:#d1fae5;color:#065f46'
+      : 'background:#f1f5f9;color:#475569';
+    return `<tr>
+      <td class="py-1 pr-2" style="font-size:.8rem">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:5px;vertical-align:middle;flex-shrink:0"></span>${v.nazev}
+      </td>
+      <td class="py-1 pr-2"><span class="text-xs px-2 py-0.5 rounded" style="${typStyle}">${typLabel}</span></td>
+      <td class="py-1 text-xs text-gray-400">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const modelBadge = model3dData
+    ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.8rem;color:#166534">
+        ✓ <strong>${model3dData.nazev_souboru}</strong>
+        &nbsp;·&nbsp; ${vrstvy.length} vrstev
+        &nbsp;·&nbsp; <span style="color:#9ca3af">${(model3dData.nahrano||'').slice(0,16).replace('T',' ')}</span>
+      </div>`
+    : `<p class="text-xs text-gray-400 italic py-2">Zatím nebyl nahrán žádný 3D model.</p>`;
 
   return `
-  <div>
-    <p class="text-xs text-gray-500 mb-3">
-      Nahraj ZIP soubor se STL soubory vrstev (vytvořeným LISP skriptem <code>export_layers_3d.lsp</code>).
-      Systém rozpozná vrstvy <code>D_XYmm</code> (desky) a <code>P_XYmm</code> (pěny) a zobrazí je barevně.
-    </p>
+  <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start">
 
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-      <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;
-                    background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:7px 14px;
-                    font-size:.88rem;color:#374151">
-        📦 <span>Vybrat ZIP se STL soubory</span>
-        <input type="file" accept=".zip" id="3d-stl-input" style="display:none"
-               onchange="_bu3dFileChosen(this, ${typId})">
-      </label>
-      <span id="3d-chosen-name" style="font-size:.82rem;color:#6b7280"></span>
-      <button id="3d-upload-btn" class="btn btn-primary py-1 px-4 text-sm" style="display:none"
-              onclick="_bu3dUpload(${typId})">⬆ Nahrát</button>
-      <span id="3d-upload-status" style="font-size:.82rem"></span>
+    <!-- Levý sloupec: upload + seznam vrstev -->
+    <div>
+      <p class="text-xs text-gray-500 mb-2">
+        Nahraj ZIP se STL soubory vrstev (LISP skript <code>export_layers_3d.lsp</code>).
+      </p>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+                      background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:5px 12px;
+                      font-size:.83rem;color:#374151">
+          📦 <span>Vybrat ZIP</span>
+          <input type="file" accept=".zip" id="3d-stl-input" style="display:none"
+                 onchange="_bu3dFileChosen(this, ${typId})">
+        </label>
+        <span id="3d-chosen-name" style="font-size:.78rem;color:#6b7280"></span>
+        <button id="3d-upload-btn" class="btn btn-primary py-1 px-3 text-xs" style="display:none"
+                onclick="_bu3dUpload(${typId})">⬆ Nahrát</button>
+      </div>
+      <span id="3d-upload-status" style="font-size:.78rem;display:block;margin-bottom:8px"></span>
+
+      <div id="3d-model-info">
+      ${modelBadge}
+
+      ${vrstvy.length > 0 ? `
+      <table style="border-collapse:collapse;width:100%">
+        <thead><tr style="border-bottom:1px solid #e5e7eb">
+          <th class="py-1 pr-2 text-left text-xs text-gray-500">Vrstva</th>
+          <th class="py-1 pr-2 text-left text-xs text-gray-500">Typ</th>
+          <th class="py-1 text-left text-xs text-gray-500">Tl.</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>` : ''}
+      </div>
     </div>
 
-    <div id="3d-layer-list">${listHtml}</div>
-
-    ${model3dData && (model3dData.vrstvy||[]).length > 0 ? `
-    <div style="margin-top:8px">
-      <button class="btn btn-secondary text-sm" onclick="_bu3dOpenViewer(${typId})">
-        🔲 Zobrazit 3D model
-      </button>
-    </div>` : ''}
+    <!-- Pravý sloupec: 3D viewer vždy viditelný -->
+    <div>
+      <div id="3d-viewer-wrap" style="width:100%;height:480px;background:#1e293b;border-radius:10px;overflow:hidden;position:relative">
+        <div id="3d-viewer-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.9rem">
+          ${vrstvy.length > 0 ? '⏳ Načítám 3D model…' : '<span style="color:#475569;font-size:.85rem">Nahraj ZIP se STL soubory →</span>'}
+        </div>
+        <canvas id="3d-viewer-canvas" style="width:100%;height:100%;display:block"></canvas>
+      </div>
+      <div id="3d-layer-legend" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;font-size:.75rem"></div>
+    </div>
   </div>`;
 }
 
@@ -3959,9 +3973,48 @@ async function _bu3dUpload(typId) {
     }
     status.textContent = statusMsg;
     status.style.color = '#16a34a';
-    _buData.model3dData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
+
+    const vrstvy = json.vrstvy || [];
+    _buData.model3dData = { nazev_souboru: input.files[0].name, vrstvy,
                             nahrano: new Date().toISOString() };
-    _buRender();
+
+    // Aktualizuj model-info sekci bez přerenderování celé záložky (canvas by zanikl)
+    const infoEl = document.getElementById('3d-model-info');
+    if (infoEl) {
+      const rows = vrstvy.map(v => {
+        const col = '#' + (layerColor(v) || 0xe2e8f0).toString(16).padStart(6, '0');
+        const typLabel = v.typ === 'deska' ? '🪵 Deska' : v.typ === 'pena' ? '🟡 Pěna' : '📦 Jiné';
+        const typStyle = v.typ === 'deska'
+          ? 'background:#e8c9a0;color:#7c4a1e'
+          : v.typ === 'pena' ? 'background:#d1fae5;color:#065f46' : 'background:#f1f5f9;color:#475569';
+        return `<tr>
+          <td class="py-1 pr-2" style="font-size:.8rem">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};margin-right:5px;vertical-align:middle;flex-shrink:0"></span>${v.nazev}
+          </td>
+          <td class="py-1 pr-2"><span class="text-xs px-2 py-0.5 rounded" style="${typStyle}">${typLabel}</span></td>
+          <td class="py-1 text-xs text-gray-400">${v.tloustka_mm ? v.tloustka_mm + ' mm' : '—'}</td>
+        </tr>`;
+      }).join('');
+      infoEl.innerHTML = `
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:.8rem;color:#166534">
+          ✓ <strong>${_buData.model3dData.nazev_souboru}</strong>
+          &nbsp;·&nbsp; ${vrstvy.length} vrstev
+          &nbsp;·&nbsp; <span style="color:#9ca3af">${_buData.model3dData.nahrano.slice(0,16).replace('T',' ')}</span>
+        </div>
+        ${vrstvy.length > 0 ? `<table style="border-collapse:collapse;width:100%">
+          <thead><tr style="border-bottom:1px solid #e5e7eb">
+            <th class="py-1 pr-2 text-left text-xs text-gray-500">Vrstva</th>
+            <th class="py-1 pr-2 text-left text-xs text-gray-500">Typ</th>
+            <th class="py-1 text-left text-xs text-gray-500">Tl.</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>` : ''}`;
+    }
+
+    // Aktualizuj loading placeholder a spusť viewer
+    const loadingEl = document.getElementById('3d-viewer-loading');
+    if (loadingEl) loadingEl.textContent = '⏳ Načítám 3D model…';
+    _bu3dLoadThree().then(() => _bu3dInitViewer(typId, vrstvy));
   } catch(e) {
     status.textContent = '✗ Chyba sítě'; status.style.color = '#dc2626';
     if (btn) btn.disabled = false;
@@ -3969,29 +4022,9 @@ async function _bu3dUpload(typId) {
 }
 
 function _bu3dOpenViewer(typId) {
+  // Viewer je nyní inline v záložce 3D — tato funkce jen spustí init pokud viewer existuje
   const vrstvy = _buData?.model3dData?.vrstvy || [];
   if (!vrstvy.length) return;
-
-  // Otevři fullscreen modal s Three.js viewerem
-  openModal(`
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <h3 style="font-weight:600;font-size:1rem">3D model — ${_buData.data.typ?.hn_cislo||''} ${_buData.data.typ?.nazev||''}</h3>
-    <div style="display:flex;gap:8px;align-items:center">
-      <span style="font-size:.78rem;color:#94a3b8">Myš: otáčení &nbsp;|&nbsp; Kolečko: zoom &nbsp;|&nbsp; Pravé tl.: posun</span>
-      <button onclick="closeModal();bomDetailUnified(${typId},7)" class="btn btn-secondary py-1 px-2 text-sm">← Zpět</button>
-      <button onclick="closeModal()" class="btn btn-secondary py-1 px-2">✕</button>
-    </div>
-  </div>
-  <div id="3d-viewer-wrap" style="width:100%;height:520px;background:#1e293b;border-radius:10px;overflow:hidden;position:relative">
-    <div id="3d-viewer-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.9rem">
-      ⏳ Načítám 3D model…
-    </div>
-    <canvas id="3d-viewer-canvas" style="width:100%;height:100%;display:block"></canvas>
-  </div>
-  <div id="3d-layer-legend" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:.78rem"></div>
-  `, 'xl');
-
-  // Načti Three.js lazy a pak inicializuj viewer
   _bu3dLoadThree().then(() => _bu3dInitViewer(typId, vrstvy));
 }
 

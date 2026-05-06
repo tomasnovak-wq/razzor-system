@@ -1,8 +1,8 @@
 {
-  "verze": 58,
-  "popis": "3D viewer: barvy vrstev dle tloustky (D Xmm / P Xmm), match bez diakritiky, fallback na typ",
+  "verze": 59,
+  "popis": "3D viewer inline: po nahrání ZIP se model zobrazí přímo vedle seznamu vrstev bez přerenderování",
   "autor": "Ludek",
   "datum": "06.05.2026",
-  "cas": "15:53",
-  "git_commit": "76b4af3"
+  "cas": "16:03",
+  "git_commit": "efbdd70"
 }
