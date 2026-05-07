@@ -1,8 +1,8 @@
 {
-  "verze": 89,
-  "popis": "3D legenda: tlacitka pruhlednosti 25/50/75/100% pro skupiny vrstev",
+  "verze": 90,
+  "popis": "3D: slider pruhlednosti misto tlacitek, fix depthWrite pro transparentni vrstvy",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "10:00",
-  "git_commit": "eeda2ce"
+  "cas": "10:10",
+  "git_commit": "0015cba"
 }

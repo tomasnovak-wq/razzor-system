@@ -4156,19 +4156,19 @@ function _3dSetGroupOpacity(typ, opacity) {
   _3dOpacityMap[typ] = opacity;
   Object.values(_3dMeshMap).forEach(m => {
     if (m.userData?.vrstva?.typ === typ && m.material) {
-      m.material.transparent = opacity < 1.0;
-      m.material.opacity = opacity;
+      m.material.transparent  = opacity < 1.0;
+      m.material.opacity      = opacity;
+      // depthWrite=false pro průhledné objekty — jinak blokují objekty za nimi
+      m.material.depthWrite   = opacity >= 1.0;
+      m.material.needsUpdate  = true;
     }
   });
-  [0.25, 0.5, 0.75, 1.0].forEach(op => {
-    const id = 'opabtn_' + typ + '_' + op.toString().replace('.','_');
-    const btn = document.getElementById(id);
-    if (!btn) return;
-    const isActive = Math.abs(op - opacity) < 0.01;
-    btn.style.background   = isActive ? '#1e40af' : '#f1f5f9';
-    btn.style.color        = isActive ? '#fff'    : '#6b7280';
-    btn.style.borderColor  = isActive ? '#1e40af' : '#e2e8f0';
-  });
+  // Aktualizuj slider v legendě
+  const sl = document.getElementById('opaslider_' + typ);
+  if (sl) sl.value = opacity;
+  // Aktualizuj popisek
+  const lbl = document.getElementById('opalabel_' + typ);
+  if (lbl) lbl.textContent = Math.round(opacity * 100) + '%';
 }
 
 // Barva vrstvy — globální, sdílí _buTab3D (seznam) i _bu3dInitViewer (Three.js mesh)
@@ -4432,7 +4432,7 @@ function _bu3dRebuildLegend(typId, vid, vrstvy) {
     const masterBtn = `<button id="grppill3d_${g.typ}" data-color="${g.color}" onclick="_3dToggleGroup('${g.typ}')"
         title="Zobrazit/skrýt vše: ${g.label}"
         style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;flex-shrink:0;
-               width:82px;justify-content:flex-start;
+               width:100%;justify-content:flex-start;
                background:${allOn ? '#fff' : '#f8fafc'};border:1.5px solid ${g.color};border-radius:7px;
                padding:4px 10px;font-size:.76rem;font-weight:700;color:${allOn ? '#374151' : '#9ca3af'};
                opacity:${allOn ? '1' : '0.6'}">
@@ -4444,22 +4444,19 @@ function _bu3dRebuildLegend(typId, vid, vrstvy) {
     </button>`;
     const indiv = (byTyp[g.typ] || []).join('');
     const curOpa = _3dOpacityMap[g.typ] ?? 1.0;
-    const opaStyle = (op) => {
-      const active = Math.abs(op - curOpa) < 0.01;
-      return `id="opabtn_${g.typ}_${op.toString().replace('.','_')}"
-        onclick="_3dSetGroupOpacity('${g.typ}',${op})"
-        style="font-size:.66rem;padding:1px 5px;border-radius:4px;cursor:pointer;border:1px solid;line-height:1.6;
-               background:${active?'#1e40af':'#f1f5f9'};color:${active?'#fff':'#6b7280'};border-color:${active?'#1e40af':'#e2e8f0'}"`;
-    };
-    const opaBtns = `<div style="display:flex;gap:2px;padding-top:2px;flex-shrink:0">
-      <button ${opaStyle(0.25)}>25%</button>
-      <button ${opaStyle(0.5)}>50%</button>
-      <button ${opaStyle(0.75)}>75%</button>
-      <button ${opaStyle(1.0)}>100%</button>
+    const opaSlider = `<div style="display:flex;align-items:center;gap:4px;margin-top:3px">
+      <input id="opaslider_${g.typ}" type="range" min="0.05" max="1" step="0.05"
+             value="${curOpa}"
+             oninput="_3dSetGroupOpacity('${g.typ}',parseFloat(this.value))"
+             onclick="event.stopPropagation()"
+             style="width:78px;height:3px;accent-color:${g.color};cursor:pointer;margin:0">
+      <span id="opalabel_${g.typ}" style="font-size:.65rem;color:#9ca3af;min-width:26px;text-align:right">${Math.round(curOpa*100)}%</span>
     </div>`;
     return `<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px">
-      <div style="padding-top:1px">${masterBtn}</div>
-      ${opaBtns}
+      <div style="padding-top:1px;width:90px;flex-shrink:0">
+        ${masterBtn}
+        ${opaSlider}
+      </div>
       <div style="display:flex;flex-wrap:wrap;gap:5px;flex:1">${indiv}</div>
     </div>`;
   }).join('');
