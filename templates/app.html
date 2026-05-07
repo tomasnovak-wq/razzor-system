@@ -2747,26 +2747,43 @@ function _buTabDxf(typId, dxfData, verze) {
 }
 
 async function _buDxfActivate(typId, vid) {
-  await api(`/api/typy-casu/${typId}/dxf/${vid}/activate`, 'POST');
-  // Přenačti záložku DXF
-  const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
-  if (r) {
-    _buData.dxfData  = r.dxf  || null;
-    _buData.dxfVerze = r.verze || [];
-    _dxfOverrides = {};
-    _buRender();
+  // Najdi verzi v seznamu — pokud nemá analýzu, nejprve analyzuj
+  const v = (_buData.dxfVerze || []).find(x => x.id === vid);
+  if (v) {
+    await _buDxfAnalyzeAndActivate(typId, v);
+  } else {
+    await api(`/api/typy-casu/${typId}/dxf/${vid}/activate`, 'POST');
+    const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
+    if (r) { _buData.dxfData = r.dxf || null; _buData.dxfVerze = r.verze || []; _dxfOverrides = {}; _buRender(); }
   }
 }
 
 async function _buDxfActivateCncNew(typId) {
-  // Najde nejnovější CNC verzi (neaktivní) a aktivuje ji → přenačte DXF analýzu
+  // Najde nejnovější CNC verzi (neaktivní) a spustí na ní analýzu + aktivaci
   const verze = _buData.dxfVerze || [];
   const activeIdx = verze.findIndex(v => v.is_bom_active);
   const cncNew = verze.find((v, i) => v.source === 'cnc' && !v.is_bom_active && i < activeIdx);
   if (!cncNew) return;
-  // Aktivovat verzi — server ji označí jako bom_active (ale analýza je prázdná, potřebuje re-upload)
-  await api(`/api/typy-casu/${typId}/dxf/${cncNew.id}/activate`, 'POST');
-  alert('Verze označena jako aktivní. Pokud chcete aktualizovat analýzu (vrstvy, m²), nahrajte soubor znovu přes tlačítko Nahrát a analyzovat.');
+  await _buDxfAnalyzeAndActivate(typId, cncNew);
+}
+
+async function _buDxfAnalyzeAndActivate(typId, v) {
+  // Pokud verze nemá analýzu a má soubor — nejprve analyzujeme, pak aktivujeme
+  const statusEl = document.getElementById('dxf-upload-status');
+  if (!v.has_vrstvy && v.has_file) {
+    if (statusEl) { statusEl.textContent = '⏳ Analyzuji DXF…'; statusEl.style.color = '#6b7280'; }
+    const ar = await api(`/api/typy-casu/${typId}/dxf/${v.id}/analyze`, 'POST').catch(e => null);
+    if (!ar || ar.error) {
+      if (statusEl) { statusEl.textContent = '❌ Chyba analýzy: ' + (ar?.error || 'neznámá'); statusEl.style.color = '#dc2626'; }
+      return;
+    }
+    if (statusEl) { statusEl.textContent = ''; }
+  } else if (!v.has_file) {
+    alert('Soubor není k dispozici na disku. Nahrajte DXF znovu přes tlačítko Nahrát a analyzovat.');
+    return;
+  }
+  // Aktivovat
+  await api(`/api/typy-casu/${typId}/dxf/${v.id}/activate`, 'POST');
   const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
   if (r) { _buData.dxfData = r.dxf || null; _buData.dxfVerze = r.verze || []; _dxfOverrides = {}; _buRender(); }
 }
@@ -11528,9 +11545,13 @@ function _cncDxfPanelHtml(zakId, typId, verze) {
                         padding:2px 8px;cursor:pointer;color:#15803d"
                  onclick="cncDxfActivate(${typId},${v.id},${zakId})">Aktivovat</button>`
       : '';
-    return `<div style="border:1px solid ${active?'#86efac':'#e2e8f0'};border-radius:8px;padding:8px 12px;
+    const noAnalysis = !v.has_vrstvy
+      ? `<span style="font-size:.65rem;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px">bez analýzy</span>`
+      : '';
+    return `<div data-vid="${v.id}" data-has-vrstvy="${v.has_vrstvy?'1':'0'}" data-has-file="${v.has_file?'1':'0'}"
+                 style="border:1px solid ${active?'#86efac':'#e2e8f0'};border-radius:8px;padding:8px 12px;
                         background:${active?'#f0fdf4':'white'};min-width:190px;flex:1;max-width:300px">
-      <div style="font-size:.82rem;font-weight:600;color:#374151">${v.version_name||'Verze'}${srcBadge}${activeBadge}</div>
+      <div style="font-size:.82rem;font-weight:600;color:#374151">${v.version_name||'Verze'}${srcBadge}${activeBadge}${noAnalysis}</div>
       <div style="font-size:.7rem;color:#9ca3af;margin-top:1px">${v.nazev_souboru||'–'} · ${date}</div>
       ${pozn}
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${dlBtn}${activateBtn}</div>
@@ -11538,7 +11559,8 @@ function _cncDxfPanelHtml(zakId, typId, verze) {
   }).join('');
 
   return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${cards}</div>
-    <div style="display:flex;align-items:center;gap:8px">${uploadBtn}</div>`;
+    <div style="display:flex;align-items:center;gap:8px">${uploadBtn}</div>
+    <div class="cnc-dxf-status" style="display:none;font-size:.8rem;color:#6b7280;margin-top:4px"></div>`;
 }
 
 function cncDxfToggle(zakId, typId) {
@@ -11548,11 +11570,31 @@ function cncDxfToggle(zakId, typId) {
 }
 
 async function cncDxfActivate(typId, vid, zakId) {
+  // Pokud verze nemá analýzu a má soubor, nejprve analyzujeme
+  const panel = document.getElementById('cnc-dxf-panel-' + zakId);
+  const statusEl = panel ? panel.querySelector('.cnc-dxf-status') : null;
+  // Zjisti stav verze z aktuálního panelu (data-has-vrstvy atribut na kartě)
+  const card = panel ? panel.querySelector(`[data-vid="${vid}"]`) : null;
+  const hasVrstvy = card ? card.dataset.hasVrstvy === '1' : true;
+  const hasFile   = card ? card.dataset.hasFile   === '1' : false;
+
+  if (!hasVrstvy && hasFile) {
+    if (statusEl) { statusEl.textContent = '⏳ Analyzuji…'; statusEl.style.display = ''; }
+    const ar = await api(`/api/typy-casu/${typId}/dxf/${vid}/analyze`, 'POST').catch(() => null);
+    if (!ar || ar.error) {
+      if (statusEl) { statusEl.textContent = '❌ ' + (ar?.error || 'Chyba analýzy'); statusEl.style.display = ''; }
+      return;
+    }
+    if (statusEl) { statusEl.textContent = ''; statusEl.style.display = 'none'; }
+  } else if (!hasVrstvy && !hasFile) {
+    alert('Soubor není k dispozici. Požádejte CNC operátora o opětovné nahrání.');
+    return;
+  }
+
   await api(`/api/typy-casu/${typId}/dxf/${vid}/activate`, 'POST');
   // Přenačti jen DXF panel tohoto řádku
   const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
   if (!r) return;
-  const panel = document.getElementById('cnc-dxf-panel-' + zakId);
   if (panel) {
     const inner = panel.querySelector('div');
     if (inner) inner.innerHTML = _cncDxfPanelHtml(zakId, typId, r.verze || []);

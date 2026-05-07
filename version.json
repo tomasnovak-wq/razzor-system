@@ -1,8 +1,8 @@
 {
-  "verze": 95,
-  "popis": "DXF verze: BOM verzovani + CNC upload/download panel",
+  "verze": 96,
+  "popis": "DXF verze: analyze endpoint + frontend analyze+activate flow",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "12:41",
-  "git_commit": "1d8671d"
+  "cas": "12:50",
+  "git_commit": "ee3d2bd"
 }

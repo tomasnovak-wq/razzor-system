@@ -752,6 +752,7 @@ def api_dxf_get(typ_id):
         'nahrano':      r['nahrano'],
         'is_bom_active': r['is_bom_active'],
         'has_file':     bool(r['filepath']),
+        'has_vrstvy':   len(_json.loads(r['vrstvy_json'] or '[]')) > 0,
         'poznamka':     r['poznamka'],
     } for r in rows]
     return jsonify({
@@ -855,21 +856,9 @@ def api_dxf_upload_cnc(typ_id):
     return jsonify({'ok': True, 'vid': vid, 'version_name': version_name})
 
 
-@app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['POST'])
-def api_dxf_post(typ_id):
-    import re as _re, math as _math, json as _json
-
-    if 'dxf' not in request.files:
-        return jsonify({'error': 'Žádný soubor'}), 400
-
-    f = request.files['dxf']
-    if not f.filename:
-        return jsonify({'error': 'Prázdný název souboru'}), 400
-
-    try:
-        content = f.read().decode('utf-8', errors='replace')
-    except Exception as e:
-        return jsonify({'error': f'Nelze přečíst soubor: {e}'}), 400
+def _dxf_parse_content(content):
+    """Parsuje text DXF souboru. Vrátí (result_layers, warnings, result_polygony)."""
+    import re as _re, math as _math
 
     # ── DXF PARSER ───────────────────────────────────────────────────────────
     SNAP  = 5.0    # mm – tolerance pro propojení otevřených segmentů
@@ -1204,6 +1193,22 @@ def api_dxf_post(typ_id):
     typ_order = {'deska': 0, 'pena': 1, 'jine': 2}
     result_layers.sort(key=lambda x: (typ_order.get(x['typ'], 9), x['nazev']))
 
+    return result_layers, warnings, result_polygony
+
+
+@app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['POST'])
+def api_dxf_post(typ_id):
+    import json as _json
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'error': 'Chybí soubor'}), 400
+    try:
+        content = f.stream.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+    result_layers, warnings, result_polygony = _dxf_parse_content(content)
+
     # Ulož do DB — nová verze (předchozí zachovány jako záloha)
     conn = get_db()
     c = conn.cursor()
@@ -1228,12 +1233,56 @@ def api_dxf_post(typ_id):
         dxf_type_dir = os.path.join(DXF_DIR, str(typ_id))
         os.makedirs(dxf_type_dir, exist_ok=True)
         fp = os.path.join(dxf_type_dir, f'{vid}.dxf')
-        # f byl již přečten jako content — potřebujeme text zpět
         with open(fp, 'w', encoding='utf-8') as fout:
             fout.write(content)
         c.execute("UPDATE typy_casu_dxf SET filepath=? WHERE id=?", (fp, vid))
     except Exception:
         pass  # Uložení na disk není kritické
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        'ok':       True,
+        'vid':      vid,
+        'vrstvy':   result_layers,
+        'varovani': warnings,
+        'polygony': result_polygony,
+    })
+
+
+@app.route('/api/typy-casu/<int:typ_id>/dxf/<int:vid>/analyze', methods=['POST'])
+def api_dxf_analyze(typ_id, vid):
+    """Spustí DXF parser na uloženém souboru dané verze a uloží výsledky do DB."""
+    import json as _json
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT filepath, nazev_souboru FROM typy_casu_dxf WHERE id=? AND typ_casu_id=?", (vid, typ_id))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Verze nenalezena'}), 404
+    filepath = row['filepath']
+    if not filepath or not os.path.isfile(filepath):
+        conn.close()
+        return jsonify({'error': 'Soubor není k dispozici na disku'}), 400
+
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='replace') as fin:
+            content = fin.read()
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': f'Chyba čtení souboru: {e}'}), 500
+
+    result_layers, warnings, result_polygony = _dxf_parse_content(content)
+
+    c.execute("""
+        UPDATE typy_casu_dxf
+        SET vrstvy_json=?, varovani_json=?, polygony_json=?
+        WHERE id=?
+    """, (_json.dumps(result_layers, ensure_ascii=False),
+          _json.dumps(warnings, ensure_ascii=False),
+          _json.dumps(result_polygony, ensure_ascii=False),
+          vid))
     conn.commit()
     conn.close()
 
