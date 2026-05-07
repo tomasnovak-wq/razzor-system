@@ -1,8 +1,8 @@
 {
-  "verze": 92,
-  "popis": "Seed výchozích barev typů materiálů (DESKA, HW *, PĚNA, PROFIL AL…)",
+  "verze": 93,
+  "popis": "Barevne pruhy materialu — 3px v Materialech, 5px v BOM",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "10:34",
-  "git_commit": "120e724"
+  "cas": "10:47",
+  "git_commit": "21a90af"
 }

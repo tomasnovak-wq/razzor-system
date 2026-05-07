@@ -2191,7 +2191,7 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
       const fav = b.oblibeny == 1;
       const jePrekryv = spojKody.has(b.material_kod);
       const _bBarva = _barvaMat(b.typ);
-      const _bBorder = _bBarva ? `border-left:3px solid ${_bBarva}` : 'border-left:3px solid transparent';
+      const _bBorder = _bBarva ? `border-left:5px solid ${_bBarva}` : 'border-left:5px solid transparent';
       return `<tr class="border-b border-gray-50${fav ? ' bg-amber-50' : ''}${jePrekryv ? ' ring-1 ring-inset ring-orange-300' : ''}">
         <td class="text-center text-amber-400" style="${_bBorder}">${fav ? '★' : ''}</td>
         <td><p class="font-medium${fav?' text-amber-900':''}${jePrekryv?' text-orange-700':''}">${b.nazev}${jePrekryv?' <span class="text-orange-400 text-xs" title="Tento materiál je i ve spojenikách">⚠</span>':''}</p>
