@@ -1146,6 +1146,12 @@ def auto_migrate():
     else:
         log.append("  [OK] typy_casu_prilohy")
 
+    # typy_casu_3d — přidat typ_sestavy pro multi-verze
+    _cols_3d = [r[1] for r in c.execute("PRAGMA table_info(typy_casu_3d)").fetchall()]
+    if 'typ_sestavy' not in _cols_3d:
+        c.execute("ALTER TABLE typy_casu_3d ADD COLUMN typ_sestavy TEXT NOT NULL DEFAULT 'sestava'")
+        log.append("  [OK] typy_casu_3d +typ_sestavy")
+
     conn.commit()
     conn.close()
     if log:

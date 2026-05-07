@@ -1,8 +1,8 @@
 {
-  "verze": 84,
-  "popis": "Aktualizace CLAUDE.md — Soubory tab, 3D legenda, LISP v22",
+  "verze": 85,
+  "popis": "Multi-verzni 3D: tabs Sestava/Polstrovani, prepinani modelu, pill tlacitka",
   "autor": "Ludek",
-  "datum": "06.05.2026",
-  "cas": "22:12",
-  "git_commit": "6faf438"
+  "datum": "07.05.2026",
+  "cas": "09:45",
+  "git_commit": "610edb8"
 }

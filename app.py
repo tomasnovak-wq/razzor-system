@@ -1112,66 +1112,111 @@ def api_dxf_post(typ_id):
 
 STL_3D_DIR = os.path.join('/data', '3d_modely') if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data', '3d_modely')
 
+
+def _3d_stl_dir(typ_id, vid):
+    """Adresář STL souborů pro danou verzi. Nové verze: <typ_id>/<vid>/. Legacy: <typ_id>/."""
+    versioned = os.path.join(STL_3D_DIR, str(typ_id), str(vid))
+    if os.path.isdir(versioned):
+        return versioned
+    # Zpětná kompatibilita — starší záznamy mají soubory přímo v <typ_id>/
+    return os.path.join(STL_3D_DIR, str(typ_id))
+
+
 @app.route('/api/typy-casu/<int:typ_id>/3d', methods=['GET'])
 def api_3d_get(typ_id):
     import json as _json
     conn = get_db()
     c = conn.cursor()
     c.execute("""
-        SELECT id, nazev_souboru, vrstvy_json, nahrano
+        SELECT id, nazev_souboru, vrstvy_json, nahrano, typ_sestavy
         FROM typy_casu_3d WHERE typ_casu_id=?
-        ORDER BY id DESC LIMIT 1
+        ORDER BY id ASC
     """, (typ_id,))
-    row = c.fetchone()
+    rows = c.fetchall()
     conn.close()
-    if not row:
-        return jsonify({'model3d': None})
-    return jsonify({
-        'model3d': {
-            'id':            row['id'],
-            'nazev_souboru': row['nazev_souboru'],
-            'vrstvy':        _json.loads(row['vrstvy_json'] or '[]'),
-            'nahrano':       row['nahrano'],
-        }
-    })
+    versions = [{
+        'id':            r['id'],
+        'nazev_souboru': r['nazev_souboru'],
+        'vrstvy':        _json.loads(r['vrstvy_json'] or '[]'),
+        'nahrano':       r['nahrano'],
+        'typ_sestavy':   r['typ_sestavy'] or 'sestava',
+    } for r in rows]
+    return jsonify({'versions': versions})
 
 
-@app.route('/api/typy-casu/<int:typ_id>/3d', methods=['PATCH'])
-def api_3d_patch(typ_id):
-    """Uloží manuální přiřazení typů vrstev (typ_overrides_json)."""
+@app.route('/api/typy-casu/<int:typ_id>/3d/<int:vid>', methods=['PATCH'])
+def api_3d_patch(typ_id, vid):
+    """Uloží přiřazení typů vrstev nebo typ_sestavy pro konkrétní verzi."""
     import json as _json
     data = request.get_json(force=True) or {}
-    updates = data.get('updates', [])  # [{"filename": "...", "typ": "deska|pena|jine|ignorovat"}]
-    if not isinstance(updates, list):
-        return jsonify({'error': 'updates musí být seznam'}), 400
 
     conn = get_db()
     c = conn.cursor()
-    c.execute("""
-        SELECT id, vrstvy_json FROM typy_casu_3d WHERE typ_casu_id=?
-        ORDER BY id DESC LIMIT 1
-    """, (typ_id,))
+    c.execute("SELECT id, vrstvy_json FROM typy_casu_3d WHERE id=? AND typ_casu_id=?", (vid, typ_id))
     row = c.fetchone()
     if not row:
         conn.close()
-        return jsonify({'error': 'Žádný 3D model'}), 404
+        return jsonify({'error': 'Verze nenalezena'}), 404
 
-    vrstvy = _json.loads(row['vrstvy_json'] or '[]')
-    upd_map = {u['filename']: u['typ'] for u in updates if 'filename' in u and 'typ' in u}
-    for v in vrstvy:
-        if v.get('filename') in upd_map:
-            v['typ'] = upd_map[v['filename']]
+    # Aktualizuj typ_sestavy
+    if 'typ_sestavy' in data:
+        c.execute("UPDATE typy_casu_3d SET typ_sestavy=? WHERE id=?", (data['typ_sestavy'], vid))
 
-    c.execute("UPDATE typy_casu_3d SET vrstvy_json=? WHERE id=?",
-              (_json.dumps(vrstvy, ensure_ascii=False), row['id']))
+    # Aktualizuj typy vrstev
+    updates = data.get('updates', [])
+    if isinstance(updates, list) and updates:
+        vrstvy = _json.loads(row['vrstvy_json'] or '[]')
+        upd_map = {u['filename']: u['typ'] for u in updates if 'filename' in u and 'typ' in u}
+        for v in vrstvy:
+            if v.get('filename') in upd_map:
+                v['typ'] = upd_map[v['filename']]
+        c.execute("UPDATE typy_casu_3d SET vrstvy_json=? WHERE id=?",
+                  (_json.dumps(vrstvy, ensure_ascii=False), vid))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'vrstvy': vrstvy})
+
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'vrstvy': vrstvy})
+    return jsonify({'ok': True})
+
+
+@app.route('/api/typy-casu/<int:typ_id>/3d/<int:vid>', methods=['DELETE'])
+def api_3d_delete(typ_id, vid):
+    """Smaže verzi 3D modelu včetně STL souborů."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM typy_casu_3d WHERE id=? AND typ_casu_id=?", (vid, typ_id))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': 'Verze nenalezena'}), 404
+    c.execute("DELETE FROM typy_casu_3d WHERE id=?", (vid,))
+    conn.commit()
+    conn.close()
+    # Smaž STL soubory (pouze verzovaný adresář, ne legacy)
+    import shutil
+    versioned_dir = os.path.join(STL_3D_DIR, str(typ_id), str(vid))
+    if os.path.isdir(versioned_dir):
+        shutil.rmtree(versioned_dir, ignore_errors=True)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/typy-casu/<int:typ_id>/3d/<int:vid>/stl/<path:filename>', methods=['GET'])
+def api_3d_stl_versioned(typ_id, vid, filename):
+    """Vrátí STL soubor pro konkrétní verzi."""
+    safe = os.path.basename(filename)
+    if not safe.lower().endswith('.stl'):
+        return jsonify({'error': 'Neplatný soubor'}), 400
+    stl_path = os.path.join(_3d_stl_dir(typ_id, vid), safe)
+    if not os.path.exists(stl_path):
+        return jsonify({'error': 'Soubor nenalezen'}), 404
+    return send_file(stl_path, mimetype='application/octet-stream',
+                     as_attachment=False, download_name=safe)
 
 
 @app.route('/api/typy-casu/<int:typ_id>/3d', methods=['POST'])
 def api_3d_post(typ_id):
-    """Přijme ZIP soubor se STL soubory (jeden per vrstva), rozbalí, uloží."""
+    """Přijme ZIP soubor se STL soubory, rozbalí, uloží jako novou verzi."""
     import zipfile, json as _json, re as _re
 
     if 'zip' not in request.files:
@@ -1181,281 +1226,196 @@ def api_3d_post(typ_id):
     if not zf.filename.lower().endswith('.zip'):
         return jsonify({'error': 'Soubor musí být ZIP'}), 400
 
-    # Vytvoř adresář pro tento typ casu
-    target_dir = os.path.join(STL_3D_DIR, str(typ_id))
-    os.makedirs(target_dir, exist_ok=True)
-
-    # Smaž staré STL soubory
-    for old_f in os.listdir(target_dir):
-        if old_f.lower().endswith('.stl'):
-            os.remove(os.path.join(target_dir, old_f))
-
-    # ── pomocné funkce pro práci s binárním STL ──────────────────────────────
-    import struct as _struct, statistics as _stats
-
-    def _stl_read_triangles(path):
-        """Načte všechny trojúhelníky z binary STL. Vrátí list bytearrays (50 B každý)."""
-        tris = []
-        with open(path, 'rb') as f:
-            f.read(80)
-            n = _struct.unpack('<I', f.read(4))[0]
-            for _ in range(n):
-                d = f.read(50)
-                if len(d) < 50: break
-                tris.append(bytearray(d))
-        return tris
-
-    def _tri_verts(tri):
-        """Vrátí souřadnice tří vrcholů trojúhelníku jako list of (x,y,z)."""
-        verts = []
-        for vi in range(3):
-            x, y, z = _struct.unpack('<fff', tri[12+vi*12:24+vi*12])
-            verts.append((x, y, z))
-        return verts
-
-    def _stl_write_triangles(path, header, tris):
-        """Zapíše binary STL soubor."""
-        with open(path, 'wb') as f:
-            f.write(header.ljust(80, b'\x00')[:80])
-            f.write(_struct.pack('<I', len(tris)))
-            for t in tris:
-                f.write(bytes(t))
-
-    def _stl_shift_xyz(tris, dx, dy, dz):
-        """Posune X/Y/Z souřadnice všech vrcholů v listu trojúhelníků (in-place)."""
-        for tri in tris:
-            for vi in range(3):
-                base = 12 + vi * 12
-                x, y, z = _struct.unpack('<fff', tri[base:base+12])
-                _struct.pack_into('<fff', tri, base, x+dx, y+dy, z+dz)
-
-    def _stl_find_ref_box(tris, threshold=20.0):
-        """Najde trojúhelníky referenčního boxu (1×1×1 mm u souřadnic ~0,0,0).
-        Vrátí (offset_x, offset_y, offset_z, ref_tris, rest_tris).
-        Ref. box rozpozná jako skupinu trojúhelníků kde:
-          - VŠECHNY vrcholy mají |x|, |y|, |z| < threshold
-          - Počet trojúhelníků >= 10 (box = 12 trojúhelníků)
-          - Bounding box kandidátů je přibližně 1×1×1 mm (0.5–2 mm v každé ose)
-        Tím se zabrání falešné detekci náhodné geometrie blízko originu.
-        """
-        ref_tris, rest_tris = [], []
-        for tri in tris:
-            verts = _tri_verts(tri)
-            if all(abs(v[0]) < threshold and abs(v[1]) < threshold and abs(v[2]) < threshold
-                   for v in verts):
-                ref_tris.append(tri)
-            else:
-                rest_tris.append(tri)
-        if len(ref_tris) < 10:
-            # Příliš málo trojúhelníků — není to ref box, jsou to náhodné entity
-            return None, None, None, [], tris
-        # Ověř že bounding box kandidátů odpovídá ~1×1×1 mm cube
-        all_verts = [v for tri in ref_tris for v in _tri_verts(tri)]
-        xs = [v[0] for v in all_verts]
-        ys = [v[1] for v in all_verts]
-        zs = [v[2] for v in all_verts]
-        dx = max(xs) - min(xs)
-        dy = max(ys) - min(ys)
-        dz = max(zs) - min(zs)
-        if not (0.5 <= dx <= 2.0 and 0.5 <= dy <= 2.0 and 0.5 <= dz <= 2.0):
-            # Rozměry neodpovídají 1×1×1 boxu — ignoruj
-            return None, None, None, [], tris
-        # Střed ref. boxu = průměr všech vrcholů
-        cx = sum(xs) / len(xs)
-        cy = sum(ys) / len(ys)
-        cz = sum(zs) / len(zs)
-        # Střed 1×1×1 boxu na (0,0,0) by měl být (0.5, 0.5, 0.5)
-        # Odchylka = střed minus očekávaný střed
-        offset_x = cx - 0.5
-        offset_y = cy - 0.5
-        offset_z = cz - 0.5
-        return offset_x, offset_y, offset_z, ref_tris, rest_tris
-
-    # Rozbal ZIP
-    vrstvy = []
-    try:
-        with zipfile.ZipFile(zf.stream, 'r') as zzip:
-            names = [n for n in zzip.namelist()
-                     if n.lower().endswith('.stl') and not n.startswith('__MACOSX')]
-            if not names:
+    # Extrahuj do temp adresáře
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        zip_path = os.path.join(tmp_dir, 'upload.zip')
+        zf.save(zip_path)
+        with zipfile.ZipFile(zip_path, 'r') as zzip:
+            stl_names = [n for n in zzip.namelist()
+                         if os.path.basename(n).lower().endswith('.stl')
+                         and not os.path.basename(n).startswith('.')]
+            if not stl_names:
                 return jsonify({'error': 'ZIP neobsahuje žádné STL soubory'}), 400
+            for stl_name in stl_names:
+                zzip.extract(stl_name, tmp_dir)
 
-            for name in names:
-                safe = os.path.basename(name)
-                if not safe:
-                    continue
-                dest = os.path.join(target_dir, safe)
-                with zzip.open(name) as src, open(dest, 'wb') as dst:
-                    dst.write(src.read())
+        # ── pomocné funkce pro práci s binárním STL ──────────────────────────────
+        import struct as _struct, statistics as _stats
 
-                # Název vrstvy = název souboru bez .stl, podtržítka → mezery
-                layer_name = os.path.splitext(safe)[0]
-                layer_name_display = layer_name.replace('_', ' ')
-
-                # Detekuj typ vrstvy z názvu (stejná logika jako DXF)
-                typ = 'jine'
-                tloustka = None
-                m = _re.match(r'^D[_\s]+(\d+(?:[,\.]\d+)?)mm', layer_name_display, _re.IGNORECASE)
-                if m:
-                    typ = 'deska'
-                    tloustka = float(m.group(1).replace(',', '.'))
-                else:
-                    m = _re.match(r'^P[_\s]+(\d+(?:[,\.]\d+)?)mm', layer_name_display, _re.IGNORECASE)
-                    if m:
-                        typ = 'pena'
-                        tloustka = float(m.group(1).replace(',', '.'))
-
-                # Speciální: vrstva "Nyty" / "Nýty" → kategorie nyty
-                norm_name = layer_name_display.lower().replace('ý','y').replace('ú','u').replace('í','i')
-                if norm_name in ('nyty', 'nyty'):
-                    typ = 'nyty'
-
-                vrstvy.append({
-                    'nazev':       layer_name_display,
-                    'filename':    safe,
-                    'typ':         typ,
-                    'tloustka_mm': tloustka,
-                })
-
-    except zipfile.BadZipFile:
-        return jsonify({'error': 'Neplatný ZIP soubor'}), 400
-
-    # ── Přiřazení typů vrstev dle typ_materialu v katalogu ───────────────────
-    # Pro vrstvy kde typ = 'jine' (nezjistil se z názvu): zkusíme najít kód
-    # v tabulce materialy a přiřadit typ dle typ_materialu.
-    try:
-        conn_mat = get_db()
-        cm = conn_mat.cursor()
-        codes = [v['nazev'].strip() for v in vrstvy if v['typ'] == 'jine']
-        if codes:
-            placeholders = ','.join('?' * len(codes))
-            cm.execute(
-                f"SELECT kod, UPPER(COALESCE(typ,'')) as tm FROM materialy WHERE kod IN ({placeholders})",
-                codes
-            )
-            mat_type_map = {row['kod']: row['tm'] for row in cm.fetchall()}
-            conn_mat.close()
-            for v in vrstvy:
-                if v['typ'] != 'jine':
-                    continue
-                tm = mat_type_map.get(v['nazev'].strip(), '')
-                if not tm:
-                    continue
-                if tm.startswith('HW'):
-                    v['typ'] = 'hw'
-                elif 'PROFIL' in tm:
-                    v['typ'] = 'profily'
-                elif tm in ('PENA', 'PÉNA'):
-                    v['typ'] = 'pena'
-                elif tm == 'DESKA':
-                    v['typ'] = 'deska'
-        else:
-            conn_mat.close()
-    except Exception as _me:
-        print(f'[3D mat-lookup] chyba: {_me!r}', flush=True)
-
-    # ── AUTO-KOREKCE offsetu ─────────────────────────────────────────────────
-    # Primární metoda (LISP v18+): referenční box 1×1×1 mm u WCS (0,0,0).
-    #   LISP přidá box do každého STL před exportem a smaže ho po exportu.
-    #   Server z polohy boxu přesně zjistí UCS offset, opraví vrcholy,
-    #   a box odstraní z výstupního souboru.
-    # Fallback (LISP bez ref. boxu): Y-median přístup.
-    #   ref_y = medián Y-středů velkých vrstev; vrstvy s delta 0.5–10 mm se opraví.
-    korektovano = []
-    try:
-        has_ref_box = False
-
-        for v in vrstvy:
-            path = os.path.join(target_dir, v['filename'])
-            tris = _stl_read_triangles(path)
-            if not tris:
-                continue
+        def _stl_read_triangles(path):
+            tris = []
             with open(path, 'rb') as f:
-                header = f.read(80)
-            ox, oy, oz, ref_tris, rest_tris = _stl_find_ref_box(tris)
-            if ref_tris:
-                has_ref_box = True
-                dx, dy, dz = -ox, -oy, -oz
-                if abs(dx) > 0.1 or abs(dy) > 0.1 or abs(dz) > 0.1:
-                    _stl_shift_xyz(rest_tris, dx, dy, dz)
-                    korektovano.append({
-                        'vrstva':   v['nazev'],
-                        'delta_mm': round(dy, 3),
-                        'dx': round(dx, 3), 'dy': round(dy, 3), 'dz': round(dz, 3),
-                    })
-                # Vždy odstraň ref. box z výstupního souboru
-                _stl_write_triangles(path, header, rest_tris)
+                f.read(80)
+                n = _struct.unpack('<I', f.read(4))[0]
+                for _ in range(n):
+                    data_b = f.read(50)
+                    if len(data_b) == 50:
+                        tris.append(bytearray(data_b))
+            return tris
 
-        # ── Fallback: LISP bez ref. boxu → Y-median ─────────────────────────
-        # Algoritmus:
-        # 1. Spočítej Y-střed každé vrstvy (bbox center)
-        # 2. Hrubý medián VŠECH vrstev → odfiltruj zjevné odlehlé hodnoty (>50 mm)
-        # 3. ref_y = medián zbývajících vrstev
-        # 4. Vrstvy s |delta| v rozsahu 0.5–10 mm posuň na ref_y
-        #    (0.5 mm filtruje šum; 10 mm zachová záměrně jinak umístěné části)
-        if not has_ref_box:
-            def _ybbox(path):
-                tris = _stl_read_triangles(path)
-                if not tris: return None
-                ys = [v[1] for t in tris for v in _tri_verts(t)]
-                return min(ys), max(ys)
+        def _tri_verts(tri):
+            nx,ny,nz = _struct.unpack_from('<fff', tri, 0)
+            v1 = _struct.unpack_from('<fff', tri, 12)
+            v2 = _struct.unpack_from('<fff', tri, 24)
+            v3 = _struct.unpack_from('<fff', tri, 36)
+            return v1, v2, v3
 
-            yc_data = {}   # filename → Y-střed
+        def _stl_write_triangles(path, tris):
+            with open(path, 'wb') as f:
+                f.write(b'\x00' * 80)
+                f.write(_struct.pack('<I', len(tris)))
+                for tri in tris:
+                    f.write(bytes(tri))
+
+        def _stl_shift_xyz(path, dx, dy, dz):
+            tris = _stl_read_triangles(path)
+            for tri in tris:
+                for offset in (12, 24, 36):
+                    x, y, z = _struct.unpack_from('<fff', tri, offset)
+                    _struct.pack_into('<fff', tri, offset, x+dx, y+dy, z+dz)
+            _stl_write_triangles(path, tris)
+
+        def _stl_find_ref_box(path):
+            """Najde referenční box 1×1×1 mm u (0,0,0) — vrátí (min_x,min_y,min_z) nebo None."""
+            tris = _stl_read_triangles(path)
+            box_verts = []
+            for tri in tris:
+                verts = _tri_verts(tri)
+                if all(abs(c) < 20 for v in verts for c in v):
+                    box_verts.extend(verts)
+            if len(box_verts) < 3:
+                return None
+            xs = [v[0] for v in box_verts]
+            ys = [v[1] for v in box_verts]
+            zs = [v[2] for v in box_verts]
+            if (max(xs)-min(xs) > 5 or max(ys)-min(ys) > 5 or max(zs)-min(zs) > 5):
+                return None
+            return (min(xs), min(ys), min(zs))
+
+        # ── Zpracuj STL soubory ────────────────────────────────────────────────
+        conn = get_db()
+        c_db = conn.cursor()
+        c_db.execute("SELECT kod, nazev, typ_materialu FROM materialy")
+        mat_rows = c_db.fetchall()
+        conn.close()
+        mat_map = {r['kod'].lower().strip(): r for r in mat_rows if r['kod']}
+
+        import unicodedata as _ud
+        def _norm(s):
+            return _ud.normalize('NFD', s.lower()).encode('ascii', 'ignore').decode()
+
+        def _detect_typ(nazev):
+            import re as _rer
+            n = _norm(nazev)
+            if _rer.match(r'^d[_\s]+(\d+)mm', n): return 'deska'
+            if _rer.match(r'^p[_\s]+(\d+)mm', n): return 'pena'
+            if 'nyty' in n or 'nyty' in n: return 'nyty'
+            mat = mat_map.get(nazev.lower().strip())
+            if mat:
+                t = (mat['typ_materialu'] or '').upper()
+                if t.startswith('HW'): return 'hw'
+                if 'PROFIL' in t: return 'profily'
+                if 'PENA' in t or 'PÉNA' in t: return 'pena'
+                if 'DESKA' in t: return 'deska'
+            return 'jine'
+
+        # Najdi ref box ze 1. souboru
+        ref_offset = None
+        stl_paths = []
+        for stl_name in stl_names:
+            stl_base = os.path.basename(stl_name)
+            stl_src  = os.path.join(tmp_dir, stl_name)
+            stl_paths.append((stl_base, stl_src))
+
+        for stl_base, stl_src in stl_paths:
+            off = _stl_find_ref_box(stl_src)
+            if off is not None:
+                ref_offset = off
+                break
+
+        # Vytvoř dočasně ID=0 adresář, pak přejmenuje
+        # Nejdřív vytvoř DB záznam, pak přesuň soubory
+        conn = get_db()
+        c_db = conn.cursor()
+        c_db.execute("""
+            INSERT INTO typy_casu_3d (typ_casu_id, nazev_souboru, vrstvy_json, typ_sestavy)
+            VALUES (?, ?, '[]', 'sestava')
+        """, (typ_id, zf.filename))
+        new_vid = c_db.lastrowid
+        conn.commit()
+        conn.close()
+
+        # Ulož STL soubory do verzovaného adresáře
+        target_dir = os.path.join(STL_3D_DIR, str(typ_id), str(new_vid))
+        os.makedirs(target_dir, exist_ok=True)
+
+        import shutil as _shutil
+        for stl_base, stl_src in stl_paths:
+            dest = os.path.join(target_dir, stl_base)
+            _shutil.copy2(stl_src, dest)
+
+        # Zpracuj vrstvy + korekce
+        vrstvy = []
+        korektovano = []
+        ref_box_name = None
+
+        for stl_base, _ in stl_paths:
+            stl_path = os.path.join(target_dir, stl_base)
+            # Aplikuj ref box offset
+            if ref_offset is not None:
+                dx, dy, dz = -ref_offset[0], -ref_offset[1], -ref_offset[2]
+                if abs(dx) > 0.001 or abs(dy) > 0.001 or abs(dz) > 0.001:
+                    _stl_shift_xyz(stl_path, dx, dy, dz)
+
+            # Detekuj ref box soubor (bude odebrán z výstupu)
+            tris = _stl_read_triangles(stl_path)
+            if len(tris) <= 12 and _stl_find_ref_box(stl_path) is not None:
+                ref_box_name = stl_base
+                continue
+
+            nazev = stl_base[:-4].replace('_', ' ').replace(',', '.')
+            typ   = _detect_typ(nazev)
+            import re as _rer2
+            th_m  = _rer2.match(r'^[dp][_\s]+(\d+(?:[.,]\d+)?)mm', _norm(nazev))
+            tloustka = float(th_m.group(1).replace(',', '.')) if th_m else None
+
+            vrstvy.append({
+                'nazev':       nazev,
+                'filename':    stl_base,
+                'typ':         typ,
+                'tloustka_mm': tloustka,
+            })
+
+        # Y-median fallback korekce (pouze pokud nebyl ref box)
+        if ref_offset is None:
+            y_meds = {}
             for v in vrstvy:
-                bb = _ybbox(os.path.join(target_dir, v['filename']))
-                if bb: yc_data[v['filename']] = (bb[0]+bb[1])/2
+                tris = _stl_read_triangles(os.path.join(target_dir, v['filename']))
+                if not tris: continue
+                ys = [c for t in tris for vv in _tri_verts(t) for i, c in enumerate(vv) if i == 1]
+                if ys: y_meds[v['filename']] = _stats.median(ys)
+            if y_meds:
+                meds = list(y_meds.values())
+                global_med = _stats.median(meds)
+                for fname, med in y_meds.items():
+                    delta = global_med - med
+                    if 0.5 < abs(delta) < 10:
+                        _stl_shift_xyz(os.path.join(target_dir, fname), 0, delta, 0)
+                        korektovano.append({'vrstva': fname, 'delta_mm': round(delta, 2)})
 
-            if yc_data:
-                all_yc = list(yc_data.values())
-                rough_median = _stats.median(all_yc)
-                # Odfiltruj outlier vrstvy (Logo, nožičky apod. — vzdálené >50 mm)
-                inlier_yc = [yc for yc in all_yc if abs(yc - rough_median) <= 50.0]
-                if inlier_yc:
-                    ref_y = _stats.median(inlier_yc)
-                    for v in vrstvy:
-                        yc = yc_data.get(v['filename'])
-                        if yc is None: continue
-                        delta = ref_y - yc
-                        if 0.5 < abs(delta) <= 10.0:
-                            path = os.path.join(target_dir, v['filename'])
-                            tris = _stl_read_triangles(path)
-                            with open(path, 'rb') as f: header = f.read(80)
-                            _stl_shift_xyz(tris, 0, delta, 0)
-                            _stl_write_triangles(path, header, tris)
-                            korektovano.append({'vrstva': v['nazev'], 'delta_mm': round(delta,3)})
+        # Ulož výsledné vrstvy
+        conn = get_db()
+        c_db = conn.cursor()
+        c_db.execute("UPDATE typy_casu_3d SET vrstvy_json=? WHERE id=?",
+                     (_json.dumps(vrstvy, ensure_ascii=False), new_vid))
+        conn.commit()
+        conn.close()
 
-    except Exception as _e:
-        print(f"[3D korekce] chyba: {_e!r}", flush=True)
-
-    # Ulož záznam do DB
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("DELETE FROM typy_casu_3d WHERE typ_casu_id=?", (typ_id,))
-    c.execute("""
-        INSERT INTO typy_casu_3d (typ_casu_id, nazev_souboru, vrstvy_json)
-        VALUES (?, ?, ?)
-    """, (typ_id, zf.filename, _json.dumps(vrstvy, ensure_ascii=False)))
-    conn.commit()
-    conn.close()
-
-    resp = {'ok': True, 'vrstvy': vrstvy, 'pocet': len(vrstvy)}
+    resp = {'ok': True, 'vid': new_vid, 'vrstvy': vrstvy, 'pocet': len(vrstvy)}
     if korektovano:
         resp['korekce'] = korektovano
     return jsonify(resp)
-
-
-@app.route('/api/typy-casu/<int:typ_id>/3d/<path:filename>', methods=['GET'])
-def api_3d_stl(typ_id, filename):
-    """Vrátí STL soubor pro danou vrstvu."""
-    # Bezpečnostní kontrola — jen soubory v adresáři daného typu
-    safe = os.path.basename(filename)
-    if not safe.lower().endswith('.stl'):
-        return jsonify({'error': 'Neplatný soubor'}), 400
-    stl_path = os.path.join(STL_3D_DIR, str(typ_id), safe)
-    if not os.path.exists(stl_path):
-        return jsonify({'error': 'Soubor nenalezen'}), 404
-    return send_file(stl_path, mimetype='application/octet-stream',
-                     as_attachment=False, download_name=safe)
 
 
 @app.route('/api/kusovniky/migrace-spravna-mc', methods=['POST'])
