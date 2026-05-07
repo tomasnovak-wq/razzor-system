@@ -1296,7 +1296,7 @@ def api_3d_post(typ_id):
         # ── Zpracuj STL soubory ────────────────────────────────────────────────
         conn = get_db()
         c_db = conn.cursor()
-        c_db.execute("SELECT kod, nazev, typ_materialu FROM materialy")
+        c_db.execute("SELECT kod, nazev, typ FROM materialy")
         mat_rows = c_db.fetchall()
         conn.close()
         mat_map = {r['kod'].lower().strip(): r for r in mat_rows if r['kod']}
@@ -1313,7 +1313,7 @@ def api_3d_post(typ_id):
             if 'nyty' in n or 'nyty' in n: return 'nyty'
             mat = mat_map.get(nazev.lower().strip())
             if mat:
-                t = (mat['typ_materialu'] or '').upper()
+                t = (mat['typ'] or '').upper()
                 if t.startswith('HW'): return 'hw'
                 if 'PROFIL' in t: return 'profily'
                 if 'PENA' in t or 'PÉNA' in t: return 'pena'

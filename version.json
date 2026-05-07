@@ -1,8 +1,8 @@
 {
-  "verze": 86,
-  "popis": "Oprava: chybejici _bu3dTypOpts — karta 3D se opet otevre",
+  "verze": 87,
+  "popis": "Oprava: typ_materialu → typ (spravny nazev sloupce v materialy)",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "09:49",
-  "git_commit": "db18e98"
+  "cas": "09:52",
+  "git_commit": "e11224b"
 }
