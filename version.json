@@ -1,8 +1,8 @@
 {
-  "verze": 99,
-  "popis": "DXF: analyze endpoint, dashboard notifikace, fix aktivace verzí",
+  "verze": 100,
+  "popis": "DXF UX: CNC panel cleanup, BOM tab badge, auto-upload, seznam typy",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "13:35",
-  "git_commit": "c443f2c"
+  "cas": "14:09",
+  "git_commit": "1fbaa19"
 }

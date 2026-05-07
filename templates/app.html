@@ -1572,7 +1572,7 @@ function _tcRow(i) {
   const mcTitle = `(${fmtKc(i.cena_dilu||0)} dílů + ${fmt(i.cas_narocnost||0,1)}h × ${sazba} Kč/h) × ${koef} × ${100+dph}%`;
   return `<tr class="tr-hover cursor-pointer" onclick="bomDetailUnified(${i.id}, 1)">
     <td class="font-mono text-blue-600 text-xs font-semibold">${i.hn_cislo}</td>
-    <td class="font-medium">${i.nazev}</td>
+    <td class="font-medium">${i.nazev}${(_cache._dxfPendingIds||new Set()).has(i.id) ? ' <span style="font-size:.65rem;background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 5px;font-weight:600;vertical-align:middle">DXF</span>' : ''}</td>
     <td class="text-xs text-gray-500">${i.typ_korpusu||'–'}</td>
     <td class="text-xs text-gray-500">${i.vnitrni_sirka||'?'}×${i.vnitrni_vyska||'?'}×${i.vnitrni_hloubka||'?'}</td>
     <td class="text-right text-gray-600" data-sort="${i.hmotnost||0}">${hmotnost}</td>
@@ -1632,10 +1632,18 @@ function _tcFilter() {
 async function typyCasu() {
   if (!_cache.typy) {
     setContent('<div class="text-center py-16 text-gray-400">Načítám 1500+ typů casů...</div>');
-    const data = await api('/api/typy-casu?limit=2000');
+    const [data, dxfPend] = await Promise.all([
+      api('/api/typy-casu?limit=2000'),
+      api('/api/typy-casu/dxf-cnc-pending').catch(() => ({ items: [] })),
+    ]);
     _cache.typy = data.items || [];
     _cache._tcTypy = data.typy || [];
     _cache.ceny_par = data.ceny_par || {};
+    _cache._dxfPendingIds = new Set((dxfPend.items || []).map(x => x.typ_id));
+  } else if (!_cache._dxfPendingIds) {
+    // Cache typů existuje, ale pending DXF potřebuje refresh (po zavření BOM editoru)
+    const dxfPend = await api('/api/typy-casu/dxf-cnc-pending').catch(() => ({ items: [] }));
+    _cache._dxfPendingIds = new Set((dxfPend.items || []).map(x => x.typ_id));
   }
   const typy = _cache._tcTypy || [];
 
@@ -1969,6 +1977,8 @@ function _buClose() {
   _buDirty  = false;
   _buActive = false;
   closeModal();
+  // Invalidate DXF pending cache — mohlo dojít k aktivaci verze
+  _cache._dxfPendingIds = null;
   if (currentPage !== 'typy-casu') return;
   // Pokud cache neexistuje (první načtení stránky), musíme udělat plný fetch
   if (!snap?.data || !_cache.typy) { typyCasu(); return; }
@@ -2092,16 +2102,26 @@ function _buRender() {
     ${TAB_NAMES.map((name, i) => {
       const idx = i + 1;
       const active = idx === _buTab;
-      // Barevné puntíky: DXF = zelená, Čas výroby = oranžová, 3D = modrá (pokud má data)
-      const dxfBadge    = (idx === 4 && dxfData)     ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-left:4px;vertical-align:middle"></span>` : '';
+      // Barevné puntíky: DXF = zelená/červená, Čas výroby = oranžová, 3D = modrá (pokud má data)
+      const activeIdx   = (dxfVerze||[]).findIndex(v => v.is_bom_active);
+      const hasCncNew   = (dxfVerze||[]).some((v, i) => v.source === 'cnc' && !v.is_bom_active && i < activeIdx);
+      const dxfBadge    = idx === 4
+        ? hasCncNew
+          ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#ef4444;margin-left:4px;vertical-align:middle"></span>`
+          : dxfData
+            ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#22c55e;margin-left:4px;vertical-align:middle"></span>`
+            : ''
+        : '';
       const casBadge    = (idx === 7 && casData)      ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f97316;margin-left:4px;vertical-align:middle"></span>` : '';
       const model3dBadge = (idx === 5 && model3dVersions.length > 0) ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#3b82f6;margin-left:4px;vertical-align:middle"></span>` : '';
       const allBadges   = dxfBadge + casBadge + model3dBadge;
+      const dxfTabBg    = idx === 4 && hasCncNew ? (active ? '#fef2f2' : '#fff5f5') : (active ? '#fff' : 'transparent');
+      const dxfTabColor = idx === 4 && hasCncNew ? '#dc2626' : (active ? '#1d4ed8' : '#64748b');
       return `<button onclick="_buSwitchTab(${idx})"
         style="border:none;border-radius:7px;cursor:pointer;font-size:.84rem;padding:6px 14px;
                font-weight:${active?'600':'400'};white-space:nowrap;flex:1;
-               background:${active?'#fff':'transparent'};
-               color:${active?'#1d4ed8':'#64748b'};
+               background:${dxfTabBg};
+               color:${dxfTabColor};
                box-shadow:${active?'0 1px 3px rgba(0,0,0,.12)':'none'};
                transition:all .15s">${name}${allBadges}</button>`;
     }).join('')}
@@ -2711,7 +2731,7 @@ function _buDxfVerzeHtml(typId, verze) {
                 margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <span style="font-size:.88rem;color:#92400e">⚠ Operátor CNC nahrál novou verzi DXF. Chcete ji použít pro analýzu?</span>
       <button class="btn text-xs py-1 px-3" style="background:#f59e0b;color:white"
-              onclick="_buDxfActivateCncNew(${typId})">Použít pro BOM</button>
+              onclick="_buDxfActivateCncNew(${typId})">Použít nejnovější verzi pro BOM</button>
     </div>` : '';
 
   const tabs = verze.map((v, i) => {
@@ -2771,9 +2791,6 @@ function _buTabDxf(typId, dxfData, verze) {
         <input type="file" accept=".dxf" id="dxf-file-input" style="display:none"
                onchange="_buDxfFileChosen(this, ${typId})">
       </label>
-      <span id="dxf-chosen-name" style="font-size:.82rem;color:#6b7280"></span>
-      <button id="dxf-upload-btn" class="btn btn-primary py-1 px-4 text-sm" style="display:none"
-              onclick="_buDxfUpload(${typId})">⬆ Nahrát a analyzovat</button>
       <span id="dxf-upload-status" style="font-size:.82rem"></span>
     </div>
     <div id="dxf-results">${resultHtml}</div>
@@ -2825,12 +2842,8 @@ async function _buDxfAnalyzeAndActivate(typId, v) {
 }
 
 async function _buDxfFileChosen(input, typId) {
-  const file = input.files[0];
-  if (!file) return;
-  document.getElementById('dxf-chosen-name').textContent = file.name;
-  const btn = document.getElementById('dxf-upload-btn');
-  if (btn) { btn.style.display = ''; btn.dataset.typId = typId; }
-  document.getElementById('dxf-upload-status').textContent = '';
+  if (!input.files[0]) return;
+  await _buDxfUpload(typId);
 }
 
 async function _buDxfUpload(typId) {
@@ -2838,10 +2851,10 @@ async function _buDxfUpload(typId) {
   const status = document.getElementById('dxf-upload-status');
   const btn    = document.getElementById('dxf-upload-btn');
   if (!input || !input.files[0]) return;
-  status.textContent = '⏳ Analyzuji…'; status.style.color = '#6b7280';
+  status.textContent = `⏳ Analyzuji ${input.files[0].name}…`; status.style.color = '#6b7280';
   if (btn) btn.disabled = true;
   const fd = new FormData();
-  fd.append('dxf', input.files[0]);
+  fd.append('file', input.files[0]);
   try {
     const resp = await fetch(`/api/typy-casu/${typId}/dxf`, { method: 'POST', body: fd });
     const json = await resp.json();
@@ -2850,18 +2863,18 @@ async function _buDxfUpload(typId) {
       status.style.color = '#dc2626';
       if (btn) btn.disabled = false; return;
     }
-    status.textContent = `✓ Hotovo – ${json.vrstvy.length} vrstev`;
-    status.style.color = '#16a34a';
-    // Nový upload → resetuj overrides (nové vrstvy), přenačti verze
+    // Nový upload → resetuj overrides, přenačti celou záložku
     _dxfOverrides = {};
     const refreshed = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
     _buData.dxfData  = refreshed?.dxf  || { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
                         varovani: json.varovani, overrides: {}, polygony: json.polygony || {},
                         nahrano: new Date().toISOString().slice(0,16) };
     _buData.dxfVerze = refreshed?.verze || [];
-    const resultsDiv = document.getElementById('dxf-results');
-    if (resultsDiv) resultsDiv.innerHTML = _dxfBuildTable(_buData.dxfData, typId);
     if (btn) btn.disabled = false;
+    _buRender(); // překreslí celou záložku včetně verze karet a tabulky
+    // Nastav status po re-renderu (element existuje znovu)
+    const s2 = document.getElementById('dxf-upload-status');
+    if (s2) { s2.textContent = `✓ Hotovo – ${json.vrstvy.length} vrstev`; s2.style.color = '#16a34a'; }
   } catch(e) {
     status.textContent = '✗ Chyba sítě'; status.style.color = '#dc2626';
     if (btn) btn.disabled = false;
@@ -11472,12 +11485,10 @@ async function _cncLoad() {
     const dxfVerze = z.dxf_verze || [];
     const activeDxf = dxfVerze.find(v => v.is_bom_active) || dxfVerze[0] || null;
     const hasCncNew = dxfVerze.some((v, i) => v.source === 'cnc' && !v.is_bom_active && i < dxfVerze.findIndex(x => x.is_bom_active));
-    const dxfBtnStyle = hasCncNew
-      ? 'background:#fef3c7;color:#92400e;border:1px solid #fbbf24'
-      : dxfVerze.length > 0
-        ? 'background:#f0fdf4;color:#15803d;border:1px solid #86efac'
-        : 'background:#f1f5f9;color:#9ca3af;border:1px solid #e2e8f0';
-    const dxfLabel = hasCncNew ? '📐 DXF ⚠' : dxfVerze.length > 0 ? '📐 DXF' : '📐 –';
+    const dxfBtnStyle = dxfVerze.length > 0
+      ? 'background:#f0fdf4;color:#15803d;border:1px solid #86efac'
+      : 'background:#f1f5f9;color:#9ca3af;border:1px solid #e2e8f0';
+    const dxfLabel = dxfVerze.length > 0 ? '📐 DXF' : '📐 –';
     const dxfBtn = z.typ_casu_id
       ? '<button class="btn text-xs py-1 px-2" style="' + dxfBtnStyle + ';font-size:.72rem" ' +
         'onclick="cncDxfToggle(' + z.id + ',' + z.typ_casu_id + ')">' + dxfLabel + '</button>'
@@ -11561,13 +11572,14 @@ function _cncDxfPanelHtml(zakId, typId, verze) {
     </div>`;
   }
 
-  const cards = verze.map(v => {
-    const active = v.is_bom_active;
+  // V CNC vždy zvýrazníme nejnovější verzi (index 0, seznam je DESC)
+  const cards = verze.map((v, i) => {
+    const isNewest = i === 0;
     const srcBadge = v.source === 'cnc'
       ? `<span style="font-size:.65rem;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:1px 5px;margin-left:4px">CNC</span>`
       : `<span style="font-size:.65rem;background:#f3e8ff;color:#7c3aed;border-radius:4px;padding:1px 5px;margin-left:4px">BOM</span>`;
-    const activeBadge = active
-      ? `<span style="font-size:.65rem;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px">AKTIVNÍ</span>`
+    const newestBadge = isNewest
+      ? `<span style="font-size:.65rem;background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 5px;margin-left:4px;font-weight:700">NEJNOVĚJŠÍ</span>`
       : '';
     const date = (v.nahrano||'').slice(0,16).replace('T',' ');
     const pozn = v.poznamka ? `<div style="font-size:.7rem;color:#6b7280;margin-top:2px">${v.poznamka}</div>` : '';
@@ -11575,24 +11587,15 @@ function _cncDxfPanelHtml(zakId, typId, verze) {
       ? `<a href="/api/typy-casu/${typId}/dxf/${v.id}/download"
             style="font-size:.72rem;color:#2563eb;text-decoration:none;background:#eff6ff;
                    border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;white-space:nowrap">⬇ Stáhnout</a>`
-      : `<span title="Soubor nebyl při nahrání uložen na disk. Nahrajte DXF znovu pro stažení."
+      : `<span title="Soubor nebyl při nahrání uložen. Nahrajte DXF znovu."
                style="font-size:.72rem;color:#9ca3af;background:#f9fafb;border:1px solid #e5e7eb;
                       border-radius:4px;padding:2px 8px;cursor:help">⬇ DXF N/A</span>`;
-    const activateBtn = !active
-      ? `<button style="font-size:.72rem;background:#f0fdf4;border:1px solid #86efac;border-radius:4px;
-                        padding:2px 8px;cursor:pointer;color:#15803d"
-                 onclick="cncDxfActivate(${typId},${v.id},${zakId})">Aktivovat</button>`
-      : '';
-    const noAnalysis = !v.has_vrstvy
-      ? `<span style="font-size:.65rem;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px">bez analýzy</span>`
-      : '';
-    return `<div data-vid="${v.id}" data-has-vrstvy="${v.has_vrstvy?'1':'0'}" data-has-file="${v.has_file?'1':'0'}"
-                 style="border:1px solid ${active?'#86efac':'#e2e8f0'};border-radius:8px;padding:8px 12px;
-                        background:${active?'#f0fdf4':'white'};min-width:190px;flex:1;max-width:300px">
-      <div style="font-size:.82rem;font-weight:600;color:#374151">${v.version_name||'Verze'}${srcBadge}${activeBadge}${noAnalysis}</div>
-      <div style="font-size:.7rem;color:#9ca3af;margin-top:1px">${v.nazev_souboru||'–'} · ${date}</div>
+    return `<div style="border:1px solid ${isNewest?'#bfdbfe':'#e2e8f0'};border-radius:8px;padding:8px 12px;
+                        background:${isNewest?'#eff6ff':'white'};min-width:190px;flex:1;max-width:300px">
+      <div style="font-size:.82rem;font-weight:600;color:#374151">${v.version_name||'Verze'}${srcBadge}${newestBadge}</div>
+      <div style="font-size:.7rem;color:#9ca3af;margin-top:1px">${v.nazev_souboru||'–'} · <span style="${isNewest?'color:#1d4ed8;font-weight:700':''}">${date}</span></div>
       ${pozn}
-      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${dlBtn}${activateBtn}</div>
+      <div style="display:flex;gap:6px;margin-top:6px">${dlBtn}</div>
     </div>`;
   }).join('');
 
@@ -11644,24 +11647,16 @@ async function cncDxfUpload(input, zakId, typId) {
   const file = input.files[0];
   if (!file) return;
 
-  // Dialog: Přepsat nebo Nová verze?
-  const mode = confirm(
-    `Jak nahrát soubor "${file.name}"?\n\nOK = Přepsat (nová kopie, BOM dostane notifikaci)\nZrušit = Nová verze (zadáš název změny)`
-  );
-  let versionName = '';
-  let poznamka = '';
-  if (!mode) {
-    versionName = prompt('Název verze (popis změny):', '') || '';
-    if (versionName === null) return; // uživatel zrušil
-    poznamka = prompt('Poznámka operátora (volitelné):', '') || '';
-  } else {
-    const now = new Date();
-    versionName = `Úprava ${now.getDate().toString().padStart(2,'0')}.${(now.getMonth()+1).toString().padStart(2,'0')}.${now.getFullYear()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
-  }
+  // Prompt: popis změny (prázdný = auto datum/čas), Zrušit = abort
+  const now = new Date();
+  const autoName = `Úprava ${now.getDate().toString().padStart(2,'0')}.${(now.getMonth()+1).toString().padStart(2,'0')}.${now.getFullYear()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+  const versionName = prompt(`Popis změny (nebo nechte prázdné pro "${autoName}"):`, '') ;
+  if (versionName === null) { input.value = ''; return; } // Zrušit
+  const poznamka = '';
 
   const fd = new FormData();
   fd.append('dxf', file);
-  fd.append('version_name', versionName);
+  fd.append('version_name', versionName.trim() || autoName);
   fd.append('poznamka', poznamka);
   try {
     const resp = await fetch(`/api/typy-casu/${typId}/dxf/upload-cnc`, { method: 'POST', body: fd });
