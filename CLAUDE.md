@@ -110,6 +110,7 @@ Klíčové tabulky:
 - `fifo_davky` — FIFO evidence nákupních cen
 - `_migrations` — tracking tabulka pro jednorázové datové migrace (pattern: `SELECT 1 FROM _migrations WHERE name='...'`)
 - `typy_casu_dxf` — výsledky parsování DXF souborů pro typ casu (viz sekce DXF níže)
+- `barvy_materialu` — barevné profily typů materiálů: `typ TEXT PRIMARY KEY, barva TEXT` (viz sekce Barevné profily níže)
 
 ### Výrobní zakázky — workflow stavů
 
@@ -349,15 +350,18 @@ Záložka **3D** (tab 5) v BOM editoru (`bomDetailUnified`) umožňuje nahrát Z
 
 **Tabulka `typy_casu_3d`** (database.py):
 ```
-id, typ_casu_id, nazev_souboru, vrstvy_json, nahrano
+id, typ_casu_id, nazev_souboru, vrstvy_json, nahrano, typ_sestavy
 ```
 `vrstvy_json` = seznam `{nazev, filename, typ, tloustka_mm}` kde `typ` ∈ `deska|pena|hw|profily|nyty|jine|ignorovat`.
+`typ_sestavy` (TEXT) — comma-separated multi-value: `'sestava'`, `'polstrovani'`, `'sestava,polstrovani'`. Jeden typ casu může mít více verzí 3D (více řádků v tabulce).
+
+**STL soubory** se ukládají do `data/3d_modely/<typ_id>/<vid>/` (kde `vid` = DB id řádku v typy_casu_3d). Legacy cesta bez `vid` (`data/3d_modely/<typ_id>/`) je podporována jako fallback.
 
 **Endpointy** (app.py):
-- `POST  /api/typy-casu/<id>/3d` — nahraje ZIP, rozbalí STL soubory do `data/3d/<id>/`, auto-detekuje typy vrstev, spustí auto-korekci Y-offsetu, uloží metadata do DB
-- `GET   /api/typy-casu/<id>/3d` — vrátí seznam vrstev (`vrstvy_json`) + timestamp
-- `PATCH /api/typy-casu/<id>/3d` — uloží manuální přiřazení typů: `{"updates": [{"filename": "...", "typ": "hw"}]}`
-- `GET   /api/typy-casu/<id>/3d/<filename>` — vrátí binární STL soubor
+- `POST  /api/typy-casu/<id>/3d` — nahraje ZIP, vytvoří nový záznam s novou verzí, STL do `data/3d_modely/<id>/<vid>/`
+- `GET   /api/typy-casu/<id>/3d` — vrátí seznam všech verzí: `[{id, nazev_souboru, typ_sestavy, nahrano, vrstvy_json}, ...]`
+- `PATCH /api/typy-casu/<id>/3d/<vid>` — uloží přiřazení typů vrstev nebo `typ_sestavy`
+- `GET   /api/typy-casu/<id>/3d/<vid>/stl/<filename>` — vrátí binární STL soubor
 
 **Auto-detekce typu vrstvy při uploadu** (v `api_3d_post()`, pořadí priorit):
 1. Název vrstvy — regex `^D[_\s]+(\d+)mm` → `deska`, `^P[_\s]+(\d+)mm` → `pena`
@@ -373,41 +377,74 @@ id, typ_casu_id, nazev_souboru, vrstvy_json, nahrano
 
 **Frontend** (app.html):
 
-Layout záložky 3D: dvousloupcový grid — vlevo (280px) upload + seznam vrstev, vpravo (1fr) Three.js canvas vždy viditelný inline. Canvas se **neničí** při přepínání záložek — `_buRender()` po uploadu nevolá (znovu), místo toho `_bu3dUpload()` aktualizuje jen `#3d-model-info` div a volá `_bu3dInitViewer` přímo.
+Layout záložky 3D: nahoře karty verzí (tabs), pod nimi dvousloupcový grid — vlevo (280px) seznam vrstev, vpravo (1fr) Three.js canvas vždy viditelný inline. Canvas se **neničí** při přepínání záložek ani při přepínání verzí.
 
 Globální proměnné a konstanty (všechny na module level, ne uvnitř funkcí):
-- `_3dMatMap = {}` — `{kod_lowercase: {kod, nazev, ...}}` — naplní se z `_cache.materialy` při přepnutí na záložku 3D. Materiály se načtou v `bomDetailUnified` vždy (přidáno do Promise.all fetchů).
+- `_3dCurrentVid = null` — aktuálně zobrazená verze 3D modelu (vid = DB id řádku v typy_casu_3d)
+- `_3dOpacityMap = {}` — `{typ → opacity}` (0.05–1.0) pro průhlednost skupin vrstev
+- `_3dMatMap = {}` — `{kod_lowercase: {kod, nazev, ...}}` — naplní se z `_cache.materialy` při přepnutí na záložku 3D
 - `_3D_COLORS` — barvy fallback dle typu: `deska=0xc8986a`, `pena=0x86efac`, `hw=0x94a3b8`, `profily=0xfbbf24`, `nyty=0xd4d4d8`, `jine=0xe2e8f0`
 - `_3D_DESKA_COLORS` / `_3D_PENA_COLORS` — barvy dle tloušťky (odpovídají AutoCAD paletě)
 - `_3D_NAMED_COLORS` — barvy pro specifické názvy vrstev (Logo, Nyty, Pomocna 1…)
-- `layerColor(v)` — **globální funkce** (pozor: dříve byla lokální uvnitř `_bu3dInitViewer`, což způsobovalo ReferenceError při renderování záložky). Priority: 0=kód materiálu→bílá, 1=přesný název, 2=tloušťka, 3=typ fallback
+- `layerColor(v)` — **globální funkce** (pozor: dříve byla lokální uvnitř `_bu3dInitViewer`, což způsobovalo ReferenceError). Priority: 0=kód materiálu→bílá, 1=přesný název, 2=tloušťka, 3=typ fallback
 - `_3dNormName(s)` — odstraní diakritiku, lowercase
 - `_3dColorByThickness(nazev)` — regex `^([dp])[_\s]+(\d+)mm`, lookup v color mapě
-- `_bu3dModelInfoHtml(typId, model3dData, vrstvy)` — helper sdílený `_buTab3D` i `_bu3dUpload`; renderuje badge + tabulku vrstev s dropdown přiřazení typu
+- `_bu3dModelInfoHtml(typId, vid, verData, vrstvy)` — tabulka vrstev s dropdown přiřazení typu (vid = verze)
 - `_bu3dTypOpts(cur)` — options pro dropdown: deska/pena/hw/profily/nyty/jiné/ignorovat
-- `_3dSetLayerType(typId, filename, newTyp)` — PATCH na server + aktualizace barvy meshe + přestavění legendy (`_bu3dRebuildLegend`)
-- `_3dToggleLayer(filename)` — přepne viditelnost jedné vrstvy (toggle, bez `visible` parametru)
-- `_3dToggleGroup(typ)` — přepne viditelnost celé skupiny (toggle: pokud vše zapnuto → vypne, jinak zapne)
-- `_3dPillSetActive(pill, active)` — vizuální stav individuálního pillu (průhlednost, barva rámečku)
+- `_3dSetLayerType(typId, vid, filename, newTyp)` — PATCH `/3d/<vid>` + aktualizace meshe + přestavění legendy
+- `_bu3dSwitchVersion(typId, vid)` — přepne viewer na jinou verzi (načte STL soubory dané verze)
+- `_bu3dSetTipSestavy(typId, vid, value)` — toggle Sestava/Polstrování (comma-separated set, obě najednou možné)
+- `_3dToggleLayer(filename)` — přepne viditelnost jedné vrstvy
+- `_3dToggleGroup(typ)` — přepne viditelnost celé skupiny
+- `_3dSetGroupOpacity(typ, opacity)` — nastaví průhlednost skupiny; `depthWrite = opacity >= 1.0` (jinak by průhledné vrstvy blokovaly objekty za nimi)
+- `_3dPillSetActive(pill, active)` — vizuální stav individuálního pillu
 - `_3dMasterSetActive(typ, active)` — vizuální stav master checkbox-tlačítka skupiny
-- `_bu3dRebuildLegend(typId, vrstvy)` — přestaví celou legendu bez dotyku Three.js canvasu; volá se po změně typu vrstvy přes dropdown
+- `_bu3dRebuildLegend(typId, vid, vrstvy)` — přestaví legendu; volá se po změně typu vrstvy
+- `_bu3dVersionTabsHtml(typId, versions, activeVid)` — karty verzí s pills Sestava/Polstrování + tlačítko „+"
 
 **Legenda vrstev** (renderována v `_bu3dInitViewer`, přestavována v `_bu3dRebuildLegend`):
-- Jeden řádek na skupinu: `[master checkbox-btn] [pill1] [pill2] …`
-- Master btn: bílé pozadí, barevný rámeček, zaškrtnutý čtvereček v barvě skupiny; kliknutím přepne celou skupinu
-- Individuální piluly: barevné pozadí (barva+`22` alpha), kliknutím přepne jednu vrstvu; zblednou při skrytí
+- Jeden řádek na skupinu: `[master checkbox-btn] [pill1] [pill2] …` + posuvník průhlednosti
+- Master btn: bílé pozadí, barevný rámeček; kliknutím přepne celou skupinu
+- Individuální piluly: barevné pozadí (barva+`22` alpha); zblednou při skrytí
+- Posuvník opacity (`<input type="range" min="0.05" max="1" step="0.05">`) — živý náhled v %
 - `GROUP_DEF`: deska=`#c8986a`, pěna=`#86efac`, hw=`#94a3b8`, profily=`#fbbf24`, nýty=`#d4d4d8`, jiné=`#e2e8f0`
 - Zobrazují se jen skupiny přítomné v modelu (`presentTypes`)
 
-Funkce `_bu3dInitViewer(typId, vrstvy)`:
+Funkce `_bu3dInitViewer(typId, vid, vrstvy)`:
 - Three.js r128, STLLoader, OrbitControls (CDN: cdn.jsdelivr.net/npm/three@0.128.0)
+- STL URL: `/api/typy-casu/${typId}/3d/${vid}/stl/${filename}`
 - **Rotace**: `geometry.applyMatrix4(makeRotationX(-Math.PI/2))` — AutoCAD Z-up → Three.js Y-up
 - **Orbit centra**: 5–95 percentil vrcholů (každý 50.) — ignoruje outlier body
 - **Emissive** pro tenké objekty (minDim < 3 mm): 45 % base barvy
 - **renderOrder + polygonOffset**: jine=2, pena=1, deska=0 — předchází Z-fightingu
+- **depthWrite**: `false` pro průhledné skupiny (opacity < 1.0) — nutné aby vrstvy za průhlednou vrstvou byly viditelné
 - `_3dMeshMap` — globální `{filename → mesh}`
 
 **Tip pro re-detekci typů:** Po přidání nových materiálů do katalogu nebo opravě kódů stačí ZIP nahrát znovu — server provede detekci znovu s aktuálními daty z DB.
+
+### Barevné profily materiálů
+
+Každý typ materiálu (`materialy.typ`) může mít přiřazenou barvu uloženou v tabulce `barvy_materialu`. Barvy se zobrazují jako tenký barevný pruh na levém okraji řádku v seznamu Materiálů (3px) a v BOM editoru (5px).
+
+**Tabulka `barvy_materialu`** (database.py):
+```
+typ TEXT PRIMARY KEY, barva TEXT NOT NULL DEFAULT '#e5e7eb'
+```
+
+**Migrace `barvy_materialu_seed_v1`** — při prvním spuštění po nasazení v92 automaticky naplní výchozí barvy:
+- DESKA=`#f0b429`, PĚNA=`#d1d5db`, PODVOZEK=`#e57373`, PROFIL AL=`#f59e0b`, LEPIDLO=`#f59e0b`
+- HW GUMOVÁ NOŽIČKA=`#4b5563`, HW KOULE=`#5b8fd9`, HW L ROH=`#4d8b8b`, HW OSTATNÍ=`#111827`
+- HW PANT=`#7c1d1d`, HW RACK=`#dc2626`, HW RUKOJEŤ=`#4a1942`, HW ZÁMEK=`#2e7d32`
+
+**Endpointy** (app.py):
+- `GET  /api/barvy-materialu` — vrátí `{barvy: {typ: barva, ...}}`
+- `POST /api/barvy-materialu` — uloží `{barvy: {typ: barva, ...}}`; prázdná/null hodnota barvy = smazání záznamu
+
+**Frontend** (app.html):
+- `let _barvyMat = {}` — globální cache `{typ: barva}`; naplní se při prvním načtení sekce Materiály (spolu s API `/api/barvy-materialu`)
+- `function _barvaMat(typ)` — vrátí barvu nebo `null`
+- Pruh v řádku: `border-left: 3px solid ${barva}` na první `<td>` v `_matRow()` (Materiály) a `border-left: 5px solid ${barva}` v BOM řádcích
+- Editace barev: Nastavení → záložka **🎨 Barevné profily** (`_renderBarvyMaterialu()`) — color pickery pro každý typ; `_barvySaveAll()` POSTuje na API a aktualizuje `_barvyMat` v paměti
 
 ### Verze
 

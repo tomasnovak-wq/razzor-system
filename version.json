@@ -1,8 +1,8 @@
 {
-  "verze": 93,
-  "popis": "Barevne pruhy materialu — 3px v Materialech, 5px v BOM",
+  "verze": 94,
+  "popis": "Aktualizace CLAUDE.md — multi-verze 3D, barevne profily materialu",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "10:47",
-  "git_commit": "21a90af"
+  "cas": "10:50",
+  "git_commit": "9759c35"
 }
