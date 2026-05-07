@@ -1152,6 +1152,15 @@ def auto_migrate():
         c.execute("ALTER TABLE typy_casu_3d ADD COLUMN typ_sestavy TEXT NOT NULL DEFAULT 'sestava'")
         log.append("  [OK] typy_casu_3d +typ_sestavy")
 
+    # ── Barevné profily typů materiálů ─────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS barvy_materialu (
+            typ   TEXT PRIMARY KEY,
+            barva TEXT NOT NULL DEFAULT '#e5e7eb'
+        )
+    """)
+    log.append("  [OK] barvy_materialu")
+
     conn.commit()
     conn.close()
     if log:

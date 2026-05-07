@@ -231,6 +231,9 @@ let currentData = {};
 
 // Cache pro client-side filtrování (data se načtou jednou, pak filtrujeme v JS)
 let _cache = { materialy: null, typy: null, sklad: null, zakazky: null, dodavatele: null };
+let _barvyMat = {};   // {typ: barva} — barevné profily typů materiálů
+
+function _barvaMat(typ) { return _barvyMat[typ] || null; }
 
 function setContent(html) {
   document.getElementById('page-content').innerHTML = html;
@@ -632,8 +635,10 @@ function _matRow(i) {
   const ss = sklStav(i);
   const fav = i.oblibeny == 1;
   const kodEsc = i.kod.replace(/'/g, "\\'");
+  const _mBarva = _barvaMat(i.typ);
+  const _mBorderStyle = _mBarva ? `border-left:3px solid ${_mBarva}` : 'border-left:3px solid transparent';
   return `<tr class="tr-hover${fav ? ' bg-amber-50' : ''}" onclick="materialDetail('${kodEsc}')">
-    <td onclick="event.stopPropagation()" class="w-8 text-center pr-0">
+    <td onclick="event.stopPropagation()" class="w-8 text-center pr-0" style="${_mBorderStyle}">
       <button title="${fav ? 'Odebrat z oblíbených' : 'Přidat do oblíbených'}"
               class="text-xl leading-none transition-colors ${fav ? 'text-amber-400' : 'text-gray-200 hover:text-amber-300'}"
               onclick="_matToggleOblibeny('${kodEsc}',this)">
@@ -699,9 +704,13 @@ function _matFilter() {
 async function materialy() {
   if (!_cache.materialy) {
     setContent('<div class="text-center py-16 text-gray-400">Načítám...</div>');
-    const data = await api('/api/materialy?limit=1000');
+    const [data, rBarvy] = await Promise.all([
+      api('/api/materialy?limit=1000'),
+      api('/api/barvy-materialu').catch(() => ({barvy:{}}))
+    ]);
     _cache.materialy = data.items || [];
     _cache._matTypy = data.typy || [];
+    if (rBarvy?.barvy) _barvyMat = rBarvy.barvy;
   }
   const typy = _cache._matTypy || [];
 
@@ -2181,8 +2190,10 @@ function _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData)
     ${bom.map(b => {
       const fav = b.oblibeny == 1;
       const jePrekryv = spojKody.has(b.material_kod);
+      const _bBarva = _barvaMat(b.typ);
+      const _bBorder = _bBarva ? `border-left:3px solid ${_bBarva}` : 'border-left:3px solid transparent';
       return `<tr class="border-b border-gray-50${fav ? ' bg-amber-50' : ''}${jePrekryv ? ' ring-1 ring-inset ring-orange-300' : ''}">
-        <td class="text-center text-amber-400">${fav ? '★' : ''}</td>
+        <td class="text-center text-amber-400" style="${_bBorder}">${fav ? '★' : ''}</td>
         <td><p class="font-medium${fav?' text-amber-900':''}${jePrekryv?' text-orange-700':''}">${b.nazev}${jePrekryv?' <span class="text-orange-400 text-xs" title="Tento materiál je i ve spojenikách">⚠</span>':''}</p>
             <p class="text-xs text-gray-400 font-mono">${b.material_kod}</p></td>
         <td class="text-xs text-gray-500">${b.typ||''}</td>
@@ -6407,7 +6418,7 @@ async function ulozInventuru() {
 function nastaveni(tab) {
   tab = tab || 'import';
   const tabBtn = t => `<button class="tab-btn ${t===tab?'active':''}" onclick="nastaveni('${t}')">${
-    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail', 'bom-ignore':'🚫 BOM import', 'typy-korpusu':'🗂 Typy korpusu', 'vychozi-bom':'📦 Výchozí materiály'}[t]
+    {import:'📥 Import', prorez:'✂️ Prořez', prekladac:'🔄 Překladač', stitky:'🏷 Štítky', uzivatele:'👤 Uživatelé', kancelar:'📋 Příprava zakázek', spojeniky:'⚙ Spojeniky', 'cas-param':'⏱ Časy výroby', email:'✉️ E-mail', 'bom-ignore':'🚫 BOM import', 'typy-korpusu':'🗂 Typy korpusu', 'vychozi-bom':'📦 Výchozí materiály', 'barvy':'🎨 Barevné profily'}[t]
   }</button>`;
 
   let body = '';
@@ -6471,13 +6482,15 @@ function nastaveni(tab) {
     body = `<div id="typy-korpusu-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   } else if (tab === 'vychozi-bom') {
     body = `<div id="vychozi-bom-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
+  } else if (tab === 'barvy') {
+    body = `<div id="barvy-panel" class="mt-4"><div class="text-gray-400 text-sm">Načítám…</div></div>`;
   }
 
   setContent(`
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-xl font-bold text-gray-800">Nastavení</h2>
     </div>
-    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email','bom-ignore','typy-korpusu','vychozi-bom'].map(tabBtn).join('')}</div>
+    <div class="flex gap-2 mb-2 flex-wrap">${['import','prorez','prekladac','stitky','uzivatele','kancelar','spojeniky','cas-param','email','bom-ignore','typy-korpusu','vychozi-bom','barvy'].map(tabBtn).join('')}</div>
     ${body}
   `);
 
@@ -6492,6 +6505,7 @@ function nastaveni(tab) {
   if (tab === 'bom-ignore')    _renderBomIgnore();
   if (tab === 'typy-korpusu')  _renderTypyKorpusu();
   if (tab === 'vychozi-bom')   _renderVychoziBom();
+  if (tab === 'barvy')          _renderBarvyMaterialu();
 }
 
 // ── BOM IMPORT — IGNOROVANÉ KÓDY ─────────────────────────────────────────────
@@ -6616,6 +6630,107 @@ async function _tkAdd() {
   _cache.typy_korpusu = null;
   inp.value = '';
   _renderTypyKorpusu();
+}
+
+// ── BAREVNÉ PROFILY MATERIÁLŮ ────────────────────────────────────────────────
+
+async function _renderBarvyMaterialu() {
+  const panel = document.getElementById('barvy-panel');
+  if (!panel) return;
+
+  // Načti aktuální barvy + seznam typů
+  const [rBarvy, rMat] = await Promise.all([
+    api('/api/barvy-materialu').catch(() => ({barvy:{}})),
+    _cache.materialy ? Promise.resolve({items: _cache.materialy, typy: _cache._matTypy||[]})
+                     : api('/api/materialy?limit=2000').catch(() => ({items:[], typy:[]}))
+  ]);
+  const barvy = rBarvy.barvy || {};
+  if (rMat.items) { _cache.materialy = rMat.items; _cache._matTypy = rMat.typy||[]; }
+  _barvyMat = barvy;
+
+  // Sesbírej všechny unikátní typy z katalogu materiálů
+  const typy = [...new Set((_cache._matTypy || []).filter(Boolean))].sort((a,b) => a.localeCompare(b,'cs'));
+
+  const rows = typy.map(typ => {
+    const barva = barvy[typ] || '';
+    const previewStyle = barva
+      ? `background:${barva};width:14px;height:36px;border-radius:3px;flex-shrink:0`
+      : `background:#e5e7eb;width:14px;height:36px;border-radius:3px;flex-shrink:0`;
+    return `<tr class="border-b border-gray-50 hover:bg-gray-50">
+      <td style="padding:4px 8px;width:18px">
+        <div style="${previewStyle}" id="barvyprev_${CSS.escape(typ)}"></div>
+      </td>
+      <td style="padding:4px 8px;font-size:.875rem;color:#374151;min-width:180px">${typ}</td>
+      <td style="padding:4px 8px">
+        <input type="color" value="${barva || '#e5e7eb'}"
+               id="barvyinp_${CSS.escape(typ)}"
+               oninput="_barvyLive('${typ.replace(/'/g,"\\'")}',this.value)"
+               style="width:36px;height:26px;border:none;border-radius:4px;cursor:pointer;padding:1px 2px">
+      </td>
+      <td style="padding:4px 8px">
+        <button onclick="_barvyClear('${typ.replace(/'/g,"\\'")}',this)"
+                style="font-size:.72rem;color:#9ca3af;background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px"
+                title="Odebrat barvu">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  panel.innerHTML = `
+  <div class="card p-5">
+    <p class="text-sm text-gray-500 mb-4">Přiřaďte barvy typům materiálů. Barva se zobrazí jako tenká čára vlevo v seznamu Materiálů a v BOM kusovníku.</p>
+    <table class="w-full" style="border-collapse:collapse">
+      <thead>
+        <tr style="border-bottom:1px solid #e5e7eb">
+          <th style="padding:4px 8px;width:18px"></th>
+          <th class="text-left" style="padding:4px 8px;font-size:.8rem;color:#6b7280;font-weight:600">Typ materiálu</th>
+          <th class="text-left" style="padding:4px 8px;font-size:.8rem;color:#6b7280;font-weight:600">Barva</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="mt-4 flex gap-2">
+      <button class="btn btn-primary" onclick="_barvySaveAll()">💾 Uložit vše</button>
+      <span id="barvy-save-msg" style="font-size:.8rem;color:#16a34a;align-self:center"></span>
+    </div>
+  </div>`;
+}
+
+function _barvyLive(typ, barva) {
+  // Živý náhled pruhu
+  const el = document.getElementById('barvyprev_' + CSS.escape(typ));
+  if (el) el.style.background = barva;
+}
+
+function _barvyClear(typ, btn) {
+  const inp = document.getElementById('barvyinp_' + CSS.escape(typ));
+  if (inp) inp.value = '#e5e7eb';
+  _barvyLive(typ, '#e5e7eb');
+}
+
+async function _barvySaveAll() {
+  const panel = document.getElementById('barvy-panel');
+  if (!panel) return;
+  const typy = (_cache._matTypy || []).filter(Boolean);
+  const barvy = {};
+  typy.forEach(typ => {
+    const inp = document.getElementById('barvyinp_' + CSS.escape(typ));
+    if (!inp) return;
+    const v = inp.value;
+    // Ulož jen pokud je to "opravdová" barva (ne výchozí šedá)
+    if (v && v.toLowerCase() !== '#e5e7eb') barvy[typ] = v;
+    else barvy[typ] = null;  // smaž
+  });
+  const r = await api('/api/barvy-materialu', 'POST', { barvy });
+  if (!r.error) {
+    // Aktualizuj globální cache
+    _barvyMat = {};
+    Object.entries(barvy).forEach(([k,v]) => { if (v) _barvyMat[k] = v; });
+    const msg = document.getElementById('barvy-save-msg');
+    if (msg) { msg.textContent = '✓ Uloženo'; setTimeout(() => msg.textContent = '', 2500); }
+    // Překresli seznam materiálů pokud je otevřený
+    if (currentPage === 'materialy') _matFilter();
+  }
 }
 
 // ── VÝCHOZÍ BOM ───────────────────────────────────────────────────────────────

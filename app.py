@@ -263,6 +263,32 @@ def api_material_toggle_oblibeny(kod):
     conn.close()
     return jsonify({'ok': True, 'oblibeny': row['oblibeny'] if row else 0})
 
+# ─── BAREVNÉ PROFILY MATERIÁLŮ ───────────────────────────────────────────────
+
+@app.route('/api/barvy-materialu', methods=['GET'])
+def api_barvy_materialu_get():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT typ, barva FROM barvy_materialu ORDER BY typ")
+    rows = {r['typ']: r['barva'] for r in c.fetchall()}
+    conn.close()
+    return jsonify({'barvy': rows})
+
+@app.route('/api/barvy-materialu', methods=['POST'])
+def api_barvy_materialu_post():
+    data = request.json or {}
+    barvy = data.get('barvy', {})   # {typ: barva}
+    conn = get_db()
+    c = conn.cursor()
+    for typ, barva in barvy.items():
+        if barva:
+            c.execute("INSERT OR REPLACE INTO barvy_materialu (typ, barva) VALUES (?,?)", (typ, barva))
+        else:
+            c.execute("DELETE FROM barvy_materialu WHERE typ=?", (typ,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
 # ─── TYPY CASŮ API ────────────────────────────────────────────────────────
 
 @app.route('/api/typy-casu')

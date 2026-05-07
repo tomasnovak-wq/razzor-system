@@ -1,8 +1,8 @@
 {
-  "verze": 90,
-  "popis": "3D: slider pruhlednosti misto tlacitek, fix depthWrite pro transparentni vrstvy",
+  "verze": 91,
+  "popis": "Barevne profily materialu: Nastaveni + barevny pruh v Materialech a BOM",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "10:10",
-  "git_commit": "0015cba"
+  "cas": "10:28",
+  "git_commit": "729eeec"
 }
