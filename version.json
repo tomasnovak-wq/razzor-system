@@ -1,8 +1,8 @@
 {
-  "verze": 100,
-  "popis": "DXF UX: CNC panel cleanup, BOM tab badge, auto-upload, seznam typy",
+  "verze": 102,
+  "popis": "CNC: vsechny casy z Pripravy vyroby, badge Muze se rezat, toggle filtr; CLAUDE.md aktualizovan",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "14:09",
-  "git_commit": "1fbaa19"
+  "cas": "14:35",
+  "git_commit": "df43293"
 }

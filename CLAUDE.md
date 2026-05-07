@@ -155,12 +155,17 @@ Správný výpočet disponibilního množství je vždy `COALESCE(s.naskladneno 
 
 ### Karta CNC (cnc sekce v app.html)
 
-Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Filtr nahoře:
+Zobrazuje **všechny zakázky** ve stavech `Čeká`, `CNC hotovo`, `Výroba` — bez ohledu na `odeslano_do_vyroby`. Sloupec `odeslano_do_vyroby` je součástí SELECT a používá se pro badge a filtr.
+
+**Filtr nahoře:**
 - **Čeká na řezání** — stav `Čeká`
 - **CNC hotovo** — stav `CNC hotovo` nebo `Výroba`
 - **Všechny casy** — stav `Čeká`, `CNC hotovo`, nebo `Výroba`
+- **✅ Může se řezat** — toggle tlačítko (`_cncMuzeSeRezat`); když aktivní, zobrazí jen zakázky s `odeslano_do_vyroby = 1`; filtruje na frontendu z načtených dat
 
-Sloupce: HN+badge | Název/Zákazník | Poznámka z kanceláře (`poznamka_cnc`, read-only) | Termín | Materiály | Checklist | Poznámka operátora (`poznamka_cnc_operator`, editovatelná) | Akce
+**Badge „Může se řezat"** — zelený badge (`background:#dcfce7;color:#15803d`) pod názvem casu (na novém řádku přes `<br>`, `white-space:nowrap`), zobrazí se pouze když `odeslano_do_vyroby == 1`.
+
+Sloupce: HN+badge | Název/Zákazník + badge „Může se řezat" | Poznámka z kanceláře (`poznamka_cnc`, read-only) | Termín | Materiály | Checklist | Poznámka operátora (`poznamka_cnc_operator`, editovatelná) | Akce
 
 Barevné kódování materiálových chipů (funkce `_cncMatStyle`): prémiové=červená, natural=žluto-oranžová, plast=žlutá, fenol=hnědá, pěna=šedá, ostatní=modrá.
 
@@ -449,6 +454,25 @@ typ TEXT PRIMARY KEY, barva TEXT NOT NULL DEFAULT '#e5e7eb'
 ### Verze
 
 Při nasazení `_NASTROJE\Nasadit na cloud.bat` se volá `python update_version.py "popis" "autor"`, který zapíše `version.json`. Endpoint `/api/verze` tato data zobrazuje ve spodním pravém rohu aplikace.
+
+### UI — barevné konvence
+
+**Chybové / urgentní upozornění** (červená):
+```
+background: #fef2f2
+border:      1px solid #fca5a5
+nadpis:      color #991b1b, font-weight 700
+popis/text:  color #991b1b
+badge/počet: background #dc2626, color #fff
+tlačítko:    background #dc2626, color #fff
+řádek karty: border 1px solid #fecaca, background white
+```
+
+**Varování** (žlutá — starší styl, preferuj červenou pro akční upozornění):
+```
+background: #fef3c7
+border:      1px solid #fbbf24
+```
 
 ## Spolupráce více vývojářů
 

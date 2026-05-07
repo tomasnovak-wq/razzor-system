@@ -732,7 +732,7 @@ def api_dxf_cnc_pending():
     conn = get_db()
     c = conn.cursor()
     c.execute("""
-        SELECT tc.id AS typ_id, tc.hn, tc.nazev,
+        SELECT tc.id AS typ_id, tc.hn_cislo AS hn, tc.nazev,
                d.id AS vid, d.version_name, d.nazev_souboru, d.nahrano, d.poznamka
         FROM typy_casu tc
         JOIN typy_casu_dxf d ON d.typ_casu_id = tc.id
@@ -5927,11 +5927,11 @@ def api_cnc():
     c.execute(f"""
         SELECT z.id, z.hn_cislo, z.nazev, z.stav, z.pocet_ks, z.termin,
                z.zakaznik, z.prioritni, z.poznamka_cnc, z.typ_casu_id,
+               z.odeslano_do_vyroby,
                t.nazev AS case_nazev, t.vnitrni_sirka, t.vnitrni_vyska, t.vnitrni_hloubka
         FROM zakazky z
         LEFT JOIN typy_casu t ON t.id = z.typ_casu_id
         WHERE z.stav IN ({placeholders})
-          AND z.odeslano_do_vyroby = 1
         ORDER BY z.prioritni DESC, z.termin ASC, z.created_at ASC
     """, stavy)
     zakazky_rows = c.fetchall()
