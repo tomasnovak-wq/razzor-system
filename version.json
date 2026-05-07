@@ -1,8 +1,8 @@
 {
-  "verze": 102,
-  "popis": "CNC: vsechny casy z Pripravy vyroby, badge Muze se rezat, toggle filtr; CLAUDE.md aktualizovan",
+  "verze": 103,
+  "popis": "BOM: mazani verzi DXF a 3D modelu (krizek v karte)",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "14:35",
-  "git_commit": "df43293"
+  "cas": "14:43",
+  "git_commit": "3f2c7cc"
 }

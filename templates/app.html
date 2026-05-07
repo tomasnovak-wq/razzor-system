@@ -2752,12 +2752,23 @@ function _buDxfVerzeHtml(typId, verze) {
       ? `<button style="font-size:.72rem;background:#f0fdf4;border:1px solid #86efac;border-radius:4px;padding:1px 7px;cursor:pointer;color:#15803d"
                  onclick="_buDxfActivate(${typId}, ${v.id})">Aktivovat</button>`
       : '';
+    const deleteBtn = !active
+      ? `<button title="Smazat tuto verzi" onclick="_buDxfDeleteVerze(${typId},${v.id})"
+           style="margin-left:auto;font-size:.8rem;line-height:1;background:none;border:none;
+                  color:#d1d5db;cursor:pointer;padding:0 2px" onmouseover="this.style.color='#ef4444'"
+           onmouseout="this.style.color='#d1d5db'">✕</button>`
+      : '';
     return `
-      <div style="border:1px solid ${active ? '#86efac' : '#e2e8f0'};border-radius:8px;padding:8px 12px;
+      <div style="position:relative;border:1px solid ${active ? '#86efac' : '#e2e8f0'};border-radius:8px;padding:8px 12px;
                   background:${active ? '#f0fdf4' : '#f8fafc'};min-width:200px;flex:1;max-width:320px">
-        <div style="font-size:.82rem;font-weight:600;color:#374151">${v.version_name || 'Verze'}${srcBadge}${activeBadge}</div>
-        <div style="font-size:.72rem;color:#9ca3af;margin-top:2px">${v.nazev_souboru || '–'} · ${date}</div>
-        ${pozn}
+        <div style="display:flex;align-items:flex-start;gap:4px">
+          <div style="flex:1">
+            <div style="font-size:.82rem;font-weight:600;color:#374151">${v.version_name || 'Verze'}${srcBadge}${activeBadge}</div>
+            <div style="font-size:.72rem;color:#9ca3af;margin-top:2px">${v.nazev_souboru || '–'} · ${date}</div>
+            ${pozn}
+          </div>
+          ${deleteBtn}
+        </div>
         <div style="display:flex;gap:8px;margin-top:6px;align-items:center">${dlBtn}${activateBtn}</div>
       </div>`;
   }).join('');
@@ -2807,6 +2818,15 @@ async function _buDxfActivate(typId, vid) {
     const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
     if (r) { _buData.dxfData = r.dxf || null; _buData.dxfVerze = r.verze || []; _dxfOverrides = {}; _buRender(); }
   }
+}
+
+async function _buDxfDeleteVerze(typId, vid) {
+  if (!confirm('Opravdu smazat tuto verzi DXF? Akci nelze vrátit.')) return;
+  const r = await api(`/api/typy-casu/${typId}/dxf/${vid}`, 'DELETE').catch(e => ({ error: String(e) }));
+  if (r.error) { alert('Chyba: ' + r.error); return; }
+  const fresh = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
+  if (fresh) { _buData.dxfData = fresh.dxf || null; _buData.dxfVerze = fresh.verze || []; _dxfOverrides = {}; }
+  _buRender();
 }
 
 async function _buDxfActivateCncNew(typId) {
@@ -4379,11 +4399,16 @@ function _bu3dVersionTabsHtml(typId, versions, activeVid) {
              border:1px solid ${onP?'#93c5fd':'#e2e8f0'}">Polstrování</button>`;
     return `<div onclick="_bu3dSwitchVersion(${typId},${v.id})"
       title="${short}"
-      style="cursor:pointer;border-radius:8px;padding:5px 10px;min-width:100px;max-width:160px;
+      style="position:relative;cursor:pointer;border-radius:8px;padding:5px 10px 5px 10px;min-width:100px;max-width:160px;
              background:${isActive?'#eff6ff':'#f8fafc'};
              border:1.5px solid ${isActive?'#3b82f6':'#e2e8f0'}">
+      <button onclick="event.stopPropagation();_bu3dDeleteVerze(${typId},${v.id})"
+        title="Smazat tuto verzi"
+        style="position:absolute;top:3px;right:4px;font-size:.75rem;line-height:1;background:none;border:none;
+               color:#d1d5db;cursor:pointer;padding:0 2px"
+        onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#d1d5db'">✕</button>
       <div style="font-weight:600;font-size:.78rem;color:${isActive?'#1d4ed8':'#374151'};
-                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px">${short}</div>
+                  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px;padding-right:12px">${short}</div>
       <div style="display:flex;gap:3px">${pillS}${pillP}</div>
     </div>`;
   }).join('');
@@ -4511,6 +4536,28 @@ async function _bu3dUpload(typId, input) {
     input.value = '';
   }
 }
+async function _bu3dDeleteVerze(typId, vid) {
+  if (!confirm('Opravdu smazat tuto verzi 3D modelu včetně STL souborů? Akci nelze vrátit.')) return;
+  const r = await api(`/api/typy-casu/${typId}/3d/${vid}`, 'DELETE').catch(e => ({ error: String(e) }));
+  if (r.error) { alert('Chyba: ' + r.error); return; }
+  _buData.model3dVersions = (_buData.model3dVersions || []).filter(v => v.id !== vid);
+  // Pokud jsme smazali aktivní verzi, přepneme na první zbývající
+  if (_3dCurrentVid === vid) {
+    _3dCurrentVid = _buData.model3dVersions[0]?.id || null;
+  }
+  const tabsEl = document.getElementById('3d-version-tabs');
+  if (tabsEl) tabsEl.innerHTML = _bu3dVersionTabsHtml(typId, _buData.model3dVersions, _3dCurrentVid);
+  if (_3dCurrentVid) {
+    const ver = _buData.model3dVersions.find(v => v.id === _3dCurrentVid);
+    const infoEl = document.getElementById('3d-model-info');
+    if (infoEl && ver) infoEl.innerHTML = _bu3dModelInfoHtml(typId, _3dCurrentVid, ver, ver.vrstvy || []);
+    _bu3dLoadThree().then(() => _bu3dInitViewer(typId, _3dCurrentVid, ver?.vrstvy || []));
+  } else {
+    const infoEl = document.getElementById('3d-model-info');
+    if (infoEl) infoEl.innerHTML = '<div style="color:#9ca3af;font-size:.83rem;padding:8px 0">Nahraj ZIP se STL soubory</div>';
+  }
+}
+
 async function _3dSetLayerType(typId, vid, filename, newTyp) {
   try {
     const resp = await fetch(`/api/typy-casu/${typId}/3d/${vid}`, {

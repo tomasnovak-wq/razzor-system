@@ -1333,6 +1333,32 @@ def api_dxf_analyze(typ_id, vid):
     })
 
 
+@app.route('/api/typy-casu/<int:typ_id>/dxf/<int:vid>', methods=['DELETE'])
+def api_dxf_delete(typ_id, vid):
+    """Smaže verzi DXF včetně souboru na disku. Aktivní (is_bom_active=1) verzi nelze smazat."""
+    import json as _json
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT filepath, is_bom_active FROM typy_casu_dxf WHERE id=? AND typ_casu_id=?", (vid, typ_id))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Verze nenalezena'}), 404
+    if row['is_bom_active']:
+        conn.close()
+        return jsonify({'error': 'Aktivní verzi nelze smazat. Nejdříve aktivujte jinou verzi.'}), 400
+    filepath = row['filepath']
+    c.execute("DELETE FROM typy_casu_dxf WHERE id=?", (vid,))
+    conn.commit()
+    conn.close()
+    if filepath and os.path.isfile(filepath):
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+    return jsonify({'ok': True})
+
+
 # ── 3D MODELY (STL po vrstvách) ────────────────────────────────────────────────
 
 STL_3D_DIR = os.path.join('/data', '3d_modely') if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data', '3d_modely')
