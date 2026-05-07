@@ -1108,9 +1108,21 @@ def auto_migrate():
         )
     """)
     c.execute("CREATE INDEX IF NOT EXISTS idx_typy_casu_dxf ON typy_casu_dxf(typ_casu_id)")
-    add_column('typy_casu_dxf', 'overrides_json', "TEXT NOT NULL DEFAULT '{}'")
-    add_column('typy_casu_dxf', 'polygony_json',  "TEXT NOT NULL DEFAULT '{}'")
+    add_column('typy_casu_dxf', 'overrides_json',  "TEXT NOT NULL DEFAULT '{}'")
+    add_column('typy_casu_dxf', 'polygony_json',   "TEXT NOT NULL DEFAULT '{}'")
+    add_column('typy_casu_dxf', 'version_name',    "TEXT NOT NULL DEFAULT 'Původní verze'")
+    add_column('typy_casu_dxf', 'source',          "TEXT NOT NULL DEFAULT 'bom'")
+    add_column('typy_casu_dxf', 'filepath',        "TEXT")
+    add_column('typy_casu_dxf', 'is_bom_active',   "INTEGER NOT NULL DEFAULT 0")
+    add_column('typy_casu_dxf', 'poznamka',        "TEXT")
     log.append("  [OK] typy_casu_dxf")
+
+    # Migrace: stávající řádky DXF označit jako bom_active
+    c.execute("SELECT 1 FROM _migrations WHERE name='dxf_bom_active_init_v1'")
+    if not c.fetchone():
+        c.execute("UPDATE typy_casu_dxf SET is_bom_active=1 WHERE is_bom_active=0")
+        c.execute("INSERT INTO _migrations (name) VALUES ('dxf_bom_active_init_v1')")
+        log.append("  [OK] dxf_bom_active_init_v1: stávající DXF řádky označeny jako bom_active")
 
     # 3D modely (STL soubory exportované po vrstvách z AutoCADu)
     c.execute("""

@@ -723,29 +723,49 @@ def api_tc_priloha_delete(typ_id, fid):
     conn.close()
     return jsonify({'ok': True})
 
+DXF_DIR = os.path.join('/data', 'dxf') if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data', 'dxf')
+
+
 @app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['GET'])
 def api_dxf_get(typ_id):
+    import json as _json
     conn = get_db()
     c = conn.cursor()
+    # Všechny verze – nejnovější první
     c.execute("""
-        SELECT id, nazev_souboru, vrstvy_json, varovani_json, overrides_json, polygony_json, nahrano
+        SELECT id, nazev_souboru, vrstvy_json, varovani_json, overrides_json, polygony_json,
+               nahrano, version_name, source, filepath, is_bom_active, poznamka
         FROM typy_casu_dxf WHERE typ_casu_id=?
-        ORDER BY id DESC LIMIT 1
+        ORDER BY id DESC
     """, (typ_id,))
-    row = c.fetchone()
+    rows = c.fetchall()
     conn.close()
-    if not row:
-        return jsonify({'dxf': None})
-    import json as _json
+    if not rows:
+        return jsonify({'dxf': None, 'verze': []})
+    # Aktivní verze (is_bom_active=1)
+    active = next((r for r in rows if r['is_bom_active']), rows[0])
+    verze = [{
+        'id':           r['id'],
+        'nazev_souboru': r['nazev_souboru'],
+        'version_name': r['version_name'],
+        'source':       r['source'],
+        'nahrano':      r['nahrano'],
+        'is_bom_active': r['is_bom_active'],
+        'has_file':     bool(r['filepath']),
+        'poznamka':     r['poznamka'],
+    } for r in rows]
     return jsonify({
+        'verze': verze,
         'dxf': {
-            'id':             row['id'],
-            'nazev_souboru':  row['nazev_souboru'],
-            'vrstvy':         _json.loads(row['vrstvy_json']    or '[]'),
-            'varovani':       _json.loads(row['varovani_json']  or '[]'),
-            'overrides':      _json.loads(row['overrides_json'] or '{}'),
-            'polygony':       _json.loads(row['polygony_json']  or '{}'),
-            'nahrano':        row['nahrano'],
+            'id':            active['id'],
+            'nazev_souboru': active['nazev_souboru'],
+            'vrstvy':        _json.loads(active['vrstvy_json']    or '[]'),
+            'varovani':      _json.loads(active['varovani_json']  or '[]'),
+            'overrides':     _json.loads(active['overrides_json'] or '{}'),
+            'polygony':      _json.loads(active['polygony_json']  or '{}'),
+            'nahrano':       active['nahrano'],
+            'version_name':  active['version_name'],
+            'source':        active['source'],
         }
     })
 
@@ -757,11 +777,82 @@ def api_dxf_patch(typ_id):
     overrides = data.get('overrides', {})
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE typy_casu_dxf SET overrides_json=? WHERE typ_casu_id=?",
+    # Uloží overrides na aktivní verzi
+    c.execute("""UPDATE typy_casu_dxf SET overrides_json=?
+                 WHERE typ_casu_id=? AND is_bom_active=1""",
               (_json.dumps(overrides, ensure_ascii=False), typ_id))
+    if c.rowcount == 0:
+        # Fallback: nejnovější řádek
+        c.execute("""UPDATE typy_casu_dxf SET overrides_json=?
+                     WHERE id=(SELECT id FROM typy_casu_dxf WHERE typ_casu_id=? ORDER BY id DESC LIMIT 1)""",
+                  (_json.dumps(overrides, ensure_ascii=False), typ_id))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/typy-casu/<int:typ_id>/dxf/<int:vid>/download')
+def api_dxf_download(typ_id, vid):
+    """Stáhne uložený DXF soubor dané verze."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT filepath, nazev_souboru FROM typy_casu_dxf WHERE id=? AND typ_casu_id=?",
+              (vid, typ_id))
+    row = c.fetchone()
+    conn.close()
+    if not row or not row['filepath']:
+        return jsonify({'error': 'Soubor není uložen'}), 404
+    fp = row['filepath']
+    if not os.path.exists(fp):
+        return jsonify({'error': 'Soubor nenalezen na disku'}), 404
+    return send_file(fp, as_attachment=True, download_name=row['nazev_souboru'] or 'soubor.dxf',
+                     mimetype='application/dxf')
+
+
+@app.route('/api/typy-casu/<int:typ_id>/dxf/<int:vid>/activate', methods=['POST'])
+def api_dxf_activate(typ_id, vid):
+    """Označí danou verzi jako aktivní pro BOM analýzu."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("UPDATE typy_casu_dxf SET is_bom_active=0 WHERE typ_casu_id=?", (typ_id,))
+    c.execute("UPDATE typy_casu_dxf SET is_bom_active=1 WHERE id=? AND typ_casu_id=?", (vid, typ_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/typy-casu/<int:typ_id>/dxf/upload-cnc', methods=['POST'])
+def api_dxf_upload_cnc(typ_id):
+    """Upload upraveného DXF z CNC operátora. Uloží jako novou verzi (is_bom_active=0)."""
+    import json as _json
+    if 'dxf' not in request.files:
+        return jsonify({'error': 'Žádný soubor'}), 400
+    f = request.files['dxf']
+    if not f.filename:
+        return jsonify({'error': 'Prázdný název'}), 400
+    version_name = request.form.get('version_name') or f'CNC úprava {__import__("datetime").datetime.now().strftime("%d.%m.%Y %H:%M")}'
+    poznamka     = request.form.get('poznamka') or ''
+    content = f.read()
+    # Uložit soubor – nejdřív dočasně bez ID
+    os.makedirs(os.path.join(DXF_DIR, str(typ_id)), exist_ok=True)
+    conn = get_db()
+    c = conn.cursor()
+    # Vložit řádek
+    c.execute("""
+        INSERT INTO typy_casu_dxf
+            (typ_casu_id, nazev_souboru, vrstvy_json, varovani_json, overrides_json, polygony_json,
+             version_name, source, is_bom_active, poznamka)
+        VALUES (?,?,?,?,?,?,?,?,0,?)
+    """, (typ_id, f.filename, '[]', '[]', '{}', '{}', version_name, 'cnc', poznamka))
+    vid = c.lastrowid
+    # Uložit soubor na disk
+    fp = os.path.join(DXF_DIR, str(typ_id), f'{vid}.dxf')
+    with open(fp, 'wb') as fout:
+        fout.write(content)
+    c.execute("UPDATE typy_casu_dxf SET filepath=? WHERE id=?", (fp, vid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'vid': vid, 'version_name': version_name})
 
 
 @app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['POST'])
@@ -1113,21 +1204,42 @@ def api_dxf_post(typ_id):
     typ_order = {'deska': 0, 'pena': 1, 'jine': 2}
     result_layers.sort(key=lambda x: (typ_order.get(x['typ'], 9), x['nazev']))
 
-    # Ulož do DB
+    # Ulož do DB — nová verze (předchozí zachovány jako záloha)
     conn = get_db()
     c = conn.cursor()
-    c.execute("DELETE FROM typy_casu_dxf WHERE typ_casu_id=?", (typ_id,))
+    # Odznačit stávající aktivní verze
+    c.execute("UPDATE typy_casu_dxf SET is_bom_active=0 WHERE typ_casu_id=?", (typ_id,))
+    # Spočítat číslo nové verze
+    c.execute("SELECT COUNT(*) FROM typy_casu_dxf WHERE typ_casu_id=?", (typ_id,))
+    ver_num = (c.fetchone()[0] or 0) + 1
+    ver_name = f'BOM verze {ver_num}'
     c.execute("""
-        INSERT INTO typy_casu_dxf (typ_casu_id, nazev_souboru, vrstvy_json, varovani_json, polygony_json)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO typy_casu_dxf
+            (typ_casu_id, nazev_souboru, vrstvy_json, varovani_json, polygony_json,
+             version_name, source, is_bom_active)
+        VALUES (?, ?, ?, ?, ?, ?, 'bom', 1)
     """, (typ_id, f.filename, _json.dumps(result_layers, ensure_ascii=False),
           _json.dumps(warnings, ensure_ascii=False),
-          _json.dumps(result_polygony, ensure_ascii=False)))
+          _json.dumps(result_polygony, ensure_ascii=False),
+          ver_name))
+    vid = c.lastrowid
+    # Uložit soubor na disk
+    try:
+        dxf_type_dir = os.path.join(DXF_DIR, str(typ_id))
+        os.makedirs(dxf_type_dir, exist_ok=True)
+        fp = os.path.join(dxf_type_dir, f'{vid}.dxf')
+        # f byl již přečten jako content — potřebujeme text zpět
+        with open(fp, 'w', encoding='utf-8') as fout:
+            fout.write(content)
+        c.execute("UPDATE typy_casu_dxf SET filepath=? WHERE id=?", (fp, vid))
+    except Exception:
+        pass  # Uložení na disk není kritické
     conn.commit()
     conn.close()
 
     return jsonify({
         'ok':       True,
+        'vid':      vid,
         'vrstvy':   result_layers,
         'varovani': warnings,
         'polygony': result_polygony,
@@ -5778,6 +5890,20 @@ def api_cnc():
         cnc_celkem = len(aktivni)
         cnc_hotovo = sum(1 for v in aktivni if v)
 
+        # DXF verze pro tento typ casu
+        dxf_verze = []
+        if typ_id:
+            c.execute("""
+                SELECT id, nazev_souboru, version_name, source, nahrano, is_bom_active, has_file, poznamka
+                FROM (
+                    SELECT id, nazev_souboru, version_name, source, nahrano, is_bom_active,
+                           CASE WHEN filepath IS NOT NULL AND filepath != '' THEN 1 ELSE 0 END AS has_file,
+                           poznamka
+                    FROM typy_casu_dxf WHERE typ_casu_id=?
+                ) ORDER BY id DESC
+            """, (typ_id,))
+            dxf_verze = [dict(r) for r in c.fetchall()]
+
         result.append({
             **dict(zak),
             'desky_mats':    [m['nazev'] for m in desky_mats],
@@ -5789,6 +5915,7 @@ def api_cnc():
             'checklist':    checklist,
             'cnc_celkem':   cnc_celkem,
             'cnc_hotovo':   cnc_hotovo,
+            'dxf_verze':    dxf_verze,
         })
 
     conn.close()

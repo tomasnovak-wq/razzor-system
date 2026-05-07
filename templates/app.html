@@ -1854,9 +1854,10 @@ async function bomDetailUnified(typId, tab) {
   _cache.typy_korpusu = typyKorpusu;
   if (matResp?.items) { _cache.materialy = matResp.items; _cache._matTypy = matResp.typy || []; }
   const dxfData     = dxfResp?.dxf        || null;
+  const dxfVerze    = dxfResp?.verze      || [];
   const model3dVersions = model3dResp?.versions || [];
   const prilohy     = prilohyResp?.prilohy || [];
-  _buData = { typId, data, casData, profilyData, typyKorpusu, dxfData, model3dVersions, prilohy };
+  _buData = { typId, data, casData, profilyData, typyKorpusu, dxfData, dxfVerze, model3dVersions, prilohy };
   _buRender();
 }
 
@@ -1993,7 +1994,7 @@ async function _buSmazatTyp(typId, hnCislo, nazev) {
 function _buRender() {
   if (!_buData) return;
   _buDirty = false;
-  const { typId, data, casData, profilyData, dxfData, model3dVersions, prilohy } = _buData;
+  const { typId, data, casData, profilyData, dxfData, dxfVerze, model3dVersions, prilohy } = _buData;
   const t = data.typ;
   const bom = data.bom || [];
   const spojeniky = data.spojeniky || [];
@@ -2079,7 +2080,7 @@ function _buRender() {
   if (_buTab === 1)      tabContent = _buTabSpec(t, typId);
   else if (_buTab === 2) tabContent = _buTabMaterialy(typId, t, bom, spojeniky, links, profilyCount, casData);
   else if (_buTab === 3) tabContent = _buTabProfily(typId, profilyData);
-  else if (_buTab === 4) tabContent = _buTabDxf(typId, dxfData);
+  else if (_buTab === 4) tabContent = _buTabDxf(typId, dxfData, dxfVerze);
   else if (_buTab === 5) {
     // Naplň mapu materiálů dle kódu (pro barevné zvýraznění a popis vrstev)
     _3dMatMap = {};
@@ -2667,16 +2668,63 @@ function _dxfBuildTable(dxfData, typId) {
     </div>`;
 }
 
-function _buTabDxf(typId, dxfData) {
+function _buDxfVerzeHtml(typId, verze) {
+  if (!verze || verze.length === 0) return '';
+  // Notifikace: existuje CNC verze novější než aktivní?
+  const activeIdx = verze.findIndex(v => v.is_bom_active);
+  const hasCncNew = verze.some((v, i) => v.source === 'cnc' && !v.is_bom_active && i < activeIdx);
+  const banner = hasCncNew ? `
+    <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 14px;
+                margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:.88rem;color:#92400e">⚠ Operátor CNC nahrál novou verzi DXF. Chcete ji použít pro analýzu?</span>
+      <button class="btn text-xs py-1 px-3" style="background:#f59e0b;color:white"
+              onclick="_buDxfActivateCncNew(${typId})">Použít pro BOM</button>
+    </div>` : '';
+
+  const tabs = verze.map((v, i) => {
+    const active = v.is_bom_active;
+    const srcBadge = v.source === 'cnc'
+      ? `<span style="font-size:.65rem;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:1px 5px;margin-left:4px">CNC</span>`
+      : '';
+    const activeBadge = active
+      ? `<span style="font-size:.65rem;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px">AKTIVNÍ</span>`
+      : '';
+    const date = (v.nahrano || '').slice(0, 16).replace('T', ' ');
+    const pozn = v.poznamka ? `<span style="font-size:.7rem;color:#6b7280;display:block;margin-top:2px">${v.poznamka}</span>` : '';
+    const dlBtn = v.has_file
+      ? `<a href="/api/typy-casu/${typId}/dxf/${v.id}/download" style="font-size:.72rem;color:#2563eb;text-decoration:none;white-space:nowrap">⬇ DXF</a>`
+      : '';
+    const activateBtn = !active
+      ? `<button style="font-size:.72rem;background:#f0fdf4;border:1px solid #86efac;border-radius:4px;padding:1px 7px;cursor:pointer;color:#15803d"
+                 onclick="_buDxfActivate(${typId}, ${v.id})">Aktivovat</button>`
+      : '';
+    return `
+      <div style="border:1px solid ${active ? '#86efac' : '#e2e8f0'};border-radius:8px;padding:8px 12px;
+                  background:${active ? '#f0fdf4' : '#f8fafc'};min-width:200px;flex:1;max-width:320px">
+        <div style="font-size:.82rem;font-weight:600;color:#374151">${v.version_name || 'Verze'}${srcBadge}${activeBadge}</div>
+        <div style="font-size:.72rem;color:#9ca3af;margin-top:2px">${v.nazev_souboru || '–'} · ${date}</div>
+        ${pozn}
+        <div style="display:flex;gap:8px;margin-top:6px;align-items:center">${dlBtn}${activateBtn}</div>
+      </div>`;
+  }).join('');
+
+  return `${banner}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px">${tabs}</div>
+    <div style="border-top:1px solid #e5e7eb;margin-bottom:14px"></div>`;
+}
+
+function _buTabDxf(typId, dxfData, verze) {
   // _dxfOverrides se NEresetuje při přepínání karet — zachováme rozpracované přiřazení.
   // Reset nastane jen při nahrání nového souboru (_buDxfUpload) nebo otevření jiného typu casu.
 
+  const verzeHtml  = _buDxfVerzeHtml(typId, verze);
   const resultHtml = dxfData
     ? _dxfBuildTable(dxfData, typId)
     : `<p class="text-sm text-gray-400 italic text-center py-6">Zatím nebyl nahrán žádný DXF soubor.</p>`;
 
   return `
   <div>
+    ${verzeHtml}
     <p class="text-xs text-gray-500 mb-3">
       Nahraj DXF výkres. Systém rozpozná vrstvy <code>D XYmm …</code> (desky) a <code>P XYmm …</code> (pěny).
       U starých výkresů s jinak pojmenovanými hladinami použij sloupec <strong>Přiřadit jako</strong>.
@@ -2696,6 +2744,31 @@ function _buTabDxf(typId, dxfData) {
     </div>
     <div id="dxf-results">${resultHtml}</div>
   </div>`;
+}
+
+async function _buDxfActivate(typId, vid) {
+  await api(`/api/typy-casu/${typId}/dxf/${vid}/activate`, 'POST');
+  // Přenačti záložku DXF
+  const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
+  if (r) {
+    _buData.dxfData  = r.dxf  || null;
+    _buData.dxfVerze = r.verze || [];
+    _dxfOverrides = {};
+    _buRender();
+  }
+}
+
+async function _buDxfActivateCncNew(typId) {
+  // Najde nejnovější CNC verzi (neaktivní) a aktivuje ji → přenačte DXF analýzu
+  const verze = _buData.dxfVerze || [];
+  const activeIdx = verze.findIndex(v => v.is_bom_active);
+  const cncNew = verze.find((v, i) => v.source === 'cnc' && !v.is_bom_active && i < activeIdx);
+  if (!cncNew) return;
+  // Aktivovat verzi — server ji označí jako bom_active (ale analýza je prázdná, potřebuje re-upload)
+  await api(`/api/typy-casu/${typId}/dxf/${cncNew.id}/activate`, 'POST');
+  alert('Verze označena jako aktivní. Pokud chcete aktualizovat analýzu (vrstvy, m²), nahrajte soubor znovu přes tlačítko Nahrát a analyzovat.');
+  const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
+  if (r) { _buData.dxfData = r.dxf || null; _buData.dxfVerze = r.verze || []; _dxfOverrides = {}; _buRender(); }
 }
 
 async function _buDxfFileChosen(input, typId) {
@@ -2726,11 +2799,13 @@ async function _buDxfUpload(typId) {
     }
     status.textContent = `✓ Hotovo – ${json.vrstvy.length} vrstev`;
     status.style.color = '#16a34a';
-    // Nový upload → resetuj overrides (nové vrstvy)
+    // Nový upload → resetuj overrides (nové vrstvy), přenačti verze
     _dxfOverrides = {};
-    _buData.dxfData = { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
+    const refreshed = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
+    _buData.dxfData  = refreshed?.dxf  || { nazev_souboru: input.files[0].name, vrstvy: json.vrstvy,
                         varovani: json.varovani, overrides: {}, polygony: json.polygony || {},
                         nahrano: new Date().toISOString().slice(0,16) };
+    _buData.dxfVerze = refreshed?.verze || [];
     const resultsDiv = document.getElementById('dxf-results');
     if (resultsDiv) resultsDiv.innerHTML = _dxfBuildTable(_buData.dxfData, typId);
     if (btn) btn.disabled = false;
@@ -11340,7 +11415,25 @@ async function _cncLoad() {
     const poznamkaTa = '<span style="font-size:.72rem;color:#374151;white-space:pre-wrap;line-height:1.4;display:block;min-width:140px">' +
       (z.poznamka_cnc || '<span style="color:#9ca3af">–</span>') + '</span>';
 
-    return '<tr class="' + (isPrio ? 'prioritni-row' : '') + '">' +
+    // DXF sekce — verze pro tento typ casu
+    const dxfVerze = z.dxf_verze || [];
+    const activeDxf = dxfVerze.find(v => v.is_bom_active) || dxfVerze[0] || null;
+    const hasCncNew = dxfVerze.some((v, i) => v.source === 'cnc' && !v.is_bom_active && i < dxfVerze.findIndex(x => x.is_bom_active));
+    const dxfBtnStyle = hasCncNew
+      ? 'background:#fef3c7;color:#92400e;border:1px solid #fbbf24'
+      : dxfVerze.length > 0
+        ? 'background:#f0fdf4;color:#15803d;border:1px solid #86efac'
+        : 'background:#f1f5f9;color:#9ca3af;border:1px solid #e2e8f0';
+    const dxfLabel = hasCncNew ? '📐 DXF ⚠' : dxfVerze.length > 0 ? '📐 DXF' : '📐 –';
+    const dxfBtn = z.typ_casu_id
+      ? '<button class="btn text-xs py-1 px-2" style="' + dxfBtnStyle + ';font-size:.72rem" ' +
+        'onclick="cncDxfToggle(' + z.id + ',' + z.typ_casu_id + ')">' + dxfLabel + '</button>'
+      : '';
+
+    const dxfPanelId = 'cnc-dxf-panel-' + z.id;
+    const dxfPanelHtml = _cncDxfPanelHtml(z.id, z.typ_casu_id, dxfVerze);
+
+    return '<tr class="' + (isPrio ? 'prioritni-row' : '') + '" id="cnc-row-' + z.id + '">' +
       '<td class="font-mono text-xs text-blue-600 font-semibold">' + prioIcon + (z.hn_cislo||'–') + '<br>' + stavBadgeCnc + '</td>' +
       '<td class="font-medium text-gray-800">' + (z.case_nazev||z.nazev||'–') +
         (z.zakaznik ? '<p class="text-xs text-gray-400">' + z.zakaznik + '</p>' : '') + '</td>' +
@@ -11352,7 +11445,12 @@ async function _cncLoad() {
         'onblur="cncSavePoznamkaOperator(' + z.id + ',this.value)" ' +
         'style="width:100%;font-size:.72rem;padding:4px 6px;border-radius:6px;border:1.5px solid #e2e8f0;resize:vertical;background:white">' +
         (z.poznamka_cnc_operator || '') + '</textarea></td>' +
-      '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + btnCncHotovo + '</div></td>' +
+      '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + dxfBtn + btnCncHotovo + '</div></td>' +
+    '</tr>' +
+    '<tr id="' + dxfPanelId + '" style="display:none">' +
+      '<td colspan="8" style="padding:0;background:#fafafa;border-top:1px solid #e2e8f0">' +
+        '<div style="padding:12px 16px">' + dxfPanelHtml + '</div>' +
+      '</td>' +
     '</tr>';
   });
 
@@ -11391,6 +11489,115 @@ async function cncToggleAll(zakId, kody, rezano, btn) {
 
 async function cncSavePoznamkaOperator(zakId, text) {
   await api('/api/zakazky/' + zakId, 'PUT', { poznamka_cnc_operator: text });
+}
+
+function _cncDxfPanelHtml(zakId, typId, verze) {
+  const uploadBtn = `
+    <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+                  background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;padding:5px 12px;
+                  font-size:.8rem;color:#1d4ed8">
+      ⬆ Nahrát upravenou verzi
+      <input type="file" accept=".dxf" style="display:none"
+             onchange="cncDxfUpload(this,${zakId},${typId})">
+    </label>`;
+
+  if (!verze || verze.length === 0) {
+    return `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font-size:.82rem;color:#9ca3af">Žádný DXF soubor zatím nahrán.</span>
+      ${uploadBtn}
+    </div>`;
+  }
+
+  const cards = verze.map(v => {
+    const active = v.is_bom_active;
+    const srcBadge = v.source === 'cnc'
+      ? `<span style="font-size:.65rem;background:#dbeafe;color:#1d4ed8;border-radius:4px;padding:1px 5px;margin-left:4px">CNC</span>`
+      : `<span style="font-size:.65rem;background:#f3e8ff;color:#7c3aed;border-radius:4px;padding:1px 5px;margin-left:4px">BOM</span>`;
+    const activeBadge = active
+      ? `<span style="font-size:.65rem;background:#dcfce7;color:#15803d;border-radius:4px;padding:1px 5px;margin-left:4px">AKTIVNÍ</span>`
+      : '';
+    const date = (v.nahrano||'').slice(0,16).replace('T',' ');
+    const pozn = v.poznamka ? `<div style="font-size:.7rem;color:#6b7280;margin-top:2px">${v.poznamka}</div>` : '';
+    const dlBtn = v.has_file
+      ? `<a href="/api/typy-casu/${typId}/dxf/${v.id}/download"
+            style="font-size:.72rem;color:#2563eb;text-decoration:none;background:#eff6ff;
+                   border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;white-space:nowrap">⬇ Stáhnout</a>`
+      : '';
+    const activateBtn = !active
+      ? `<button style="font-size:.72rem;background:#f0fdf4;border:1px solid #86efac;border-radius:4px;
+                        padding:2px 8px;cursor:pointer;color:#15803d"
+                 onclick="cncDxfActivate(${typId},${v.id},${zakId})">Aktivovat</button>`
+      : '';
+    return `<div style="border:1px solid ${active?'#86efac':'#e2e8f0'};border-radius:8px;padding:8px 12px;
+                        background:${active?'#f0fdf4':'white'};min-width:190px;flex:1;max-width:300px">
+      <div style="font-size:.82rem;font-weight:600;color:#374151">${v.version_name||'Verze'}${srcBadge}${activeBadge}</div>
+      <div style="font-size:.7rem;color:#9ca3af;margin-top:1px">${v.nazev_souboru||'–'} · ${date}</div>
+      ${pozn}
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${dlBtn}${activateBtn}</div>
+    </div>`;
+  }).join('');
+
+  return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">${cards}</div>
+    <div style="display:flex;align-items:center;gap:8px">${uploadBtn}</div>`;
+}
+
+function cncDxfToggle(zakId, typId) {
+  const panel = document.getElementById('cnc-dxf-panel-' + zakId);
+  if (!panel) return;
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+async function cncDxfActivate(typId, vid, zakId) {
+  await api(`/api/typy-casu/${typId}/dxf/${vid}/activate`, 'POST');
+  // Přenačti jen DXF panel tohoto řádku
+  const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
+  if (!r) return;
+  const panel = document.getElementById('cnc-dxf-panel-' + zakId);
+  if (panel) {
+    const inner = panel.querySelector('div');
+    if (inner) inner.innerHTML = _cncDxfPanelHtml(zakId, typId, r.verze || []);
+  }
+}
+
+async function cncDxfUpload(input, zakId, typId) {
+  const file = input.files[0];
+  if (!file) return;
+
+  // Dialog: Přepsat nebo Nová verze?
+  const mode = confirm(
+    `Jak nahrát soubor "${file.name}"?\n\nOK = Přepsat (nová kopie, BOM dostane notifikaci)\nZrušit = Nová verze (zadáš název změny)`
+  );
+  let versionName = '';
+  let poznamka = '';
+  if (!mode) {
+    versionName = prompt('Název verze (popis změny):', '') || '';
+    if (versionName === null) return; // uživatel zrušil
+    poznamka = prompt('Poznámka operátora (volitelné):', '') || '';
+  } else {
+    const now = new Date();
+    versionName = `Úprava ${now.getDate().toString().padStart(2,'0')}.${(now.getMonth()+1).toString().padStart(2,'0')}.${now.getFullYear()} ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+  }
+
+  const fd = new FormData();
+  fd.append('dxf', file);
+  fd.append('version_name', versionName);
+  fd.append('poznamka', poznamka);
+  try {
+    const resp = await fetch(`/api/typy-casu/${typId}/dxf/upload-cnc`, { method: 'POST', body: fd });
+    const json = await resp.json();
+    if (!resp.ok || json.error) { alert('Chyba: ' + (json.error || resp.status)); return; }
+    // Přenačti panel
+    const r = await api(`/api/typy-casu/${typId}/dxf`).catch(() => null);
+    if (!r) return;
+    const panel = document.getElementById('cnc-dxf-panel-' + zakId);
+    if (panel) {
+      const inner = panel.querySelector('div');
+      if (inner) inner.innerHTML = _cncDxfPanelHtml(zakId, typId, r.verze || []);
+      panel.style.display = '';
+    }
+    // Aktualizuj DXF tlačítko v hlavním řádku
+    _cncLoad(); // nejjednodušší — přenačte celý CNC view
+  } catch(e) { alert('Chyba sítě'); }
 }
 
 async function cncZmenaStavu(zakId, novyStav) {

@@ -1,8 +1,8 @@
 {
-  "verze": 94,
-  "popis": "Aktualizace CLAUDE.md — multi-verze 3D, barevne profily materialu",
+  "verze": 95,
+  "popis": "DXF verze: BOM verzovani + CNC upload/download panel",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "10:50",
-  "git_commit": "9759c35"
+  "cas": "12:41",
+  "git_commit": "1d8671d"
 }
