@@ -4192,17 +4192,19 @@ function _bu3dVersionTabsHtml(typId, versions, activeVid) {
   const tabs = versions.map(v => {
     const isActive = v.id === activeVid;
     const short = v.nazev_souboru || `ZIP ${v.id}`;
-    const ts = v.typ_sestavy || 'sestava';
+    // typ_sestavy je comma-separated set: 'sestava', 'polstrovani', nebo 'sestava,polstrovani'
+    const tsSet = new Set((v.typ_sestavy || 'sestava').split(',').map(s => s.trim()).filter(Boolean));
+    const onS = tsSet.has('sestava'), onP = tsSet.has('polstrovani');
     const pillS = `<button onclick="event.stopPropagation();_bu3dSetTipSestavy(${typId},${v.id},'sestava')"
       style="font-size:.67rem;padding:1px 6px;border-radius:10px;cursor:pointer;line-height:1.5;
-             background:${ts==='sestava'?'#dbeafe':'#f1f5f9'};
-             color:${ts==='sestava'?'#1d4ed8':'#9ca3af'};
-             border:1px solid ${ts==='sestava'?'#93c5fd':'#e2e8f0'}">Sestava</button>`;
+             background:${onS?'#dbeafe':'#f1f5f9'};
+             color:${onS?'#1d4ed8':'#9ca3af'};
+             border:1px solid ${onS?'#93c5fd':'#e2e8f0'}">Sestava</button>`;
     const pillP = `<button onclick="event.stopPropagation();_bu3dSetTipSestavy(${typId},${v.id},'polstrovani')"
       style="font-size:.67rem;padding:1px 6px;border-radius:10px;cursor:pointer;line-height:1.5;
-             background:${ts==='polstrovani'?'#dbeafe':'#f1f5f9'};
-             color:${ts==='polstrovani'?'#1d4ed8':'#9ca3af'};
-             border:1px solid ${ts==='polstrovani'?'#93c5fd':'#e2e8f0'}">Polstrování</button>`;
+             background:${onP?'#dbeafe':'#f1f5f9'};
+             color:${onP?'#1d4ed8':'#9ca3af'};
+             border:1px solid ${onP?'#93c5fd':'#e2e8f0'}">Polstrování</button>`;
     return `<div onclick="_bu3dSwitchVersion(${typId},${v.id})"
       title="${short}"
       style="cursor:pointer;border-radius:8px;padding:5px 10px;min-width:100px;max-width:160px;
@@ -4463,20 +4465,24 @@ function _bu3dSwitchVersion(typId, vid) {
 }
 
 // Uloží typ sestavy (sestava / polstrovani) pro danou verzi
-async function _bu3dSetTipSestavy(typId, vid, typSestavy) {
+async function _bu3dSetTipSestavy(typId, vid, value) {
+  // Toggle: přidá nebo odebere hodnotu z comma-separated setu
+  const versions = _buData?.model3dVersions || [];
+  const ver = versions.find(v => v.id === vid);
+  if (!ver) return;
+  const tsSet = new Set((ver.typ_sestavy || 'sestava').split(',').map(s => s.trim()).filter(Boolean));
+  if (tsSet.has(value)) { tsSet.delete(value); if (tsSet.size === 0) tsSet.add(value); } // alespoň jedna hodnota
+  else tsSet.add(value);
+  const newVal = [...tsSet].join(',');
   try {
     const resp = await fetch(`/api/typy-casu/${typId}/3d/${vid}`, {
       method: 'PATCH',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ typ_sestavy: typSestavy })
+      body: JSON.stringify({ typ_sestavy: newVal })
     });
     const json = await resp.json();
     if (!resp.ok || json.error) { console.error('Chyba typ_sestavy:', json.error); return; }
-    // Aktualizuj lokální data
-    const versions = _buData?.model3dVersions || [];
-    const ver = versions.find(v => v.id === vid);
-    if (ver) ver.typ_sestavy = typSestavy;
-    // Přerenduj záložky
+    ver.typ_sestavy = newVal;
     const tabsEl = document.getElementById('3d-version-tabs');
     if (tabsEl) tabsEl.innerHTML = _bu3dVersionTabsHtml(typId, versions, _3dCurrentVid);
   } catch(e) {
