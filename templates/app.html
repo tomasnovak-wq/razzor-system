@@ -2726,7 +2726,8 @@ function _buDxfVerzeHtml(typId, verze) {
     const pozn = v.poznamka ? `<span style="font-size:.7rem;color:#6b7280;display:block;margin-top:2px">${v.poznamka}</span>` : '';
     const dlBtn = v.has_file
       ? `<a href="/api/typy-casu/${typId}/dxf/${v.id}/download" style="font-size:.72rem;color:#2563eb;text-decoration:none;white-space:nowrap">⬇ DXF</a>`
-      : '';
+      : `<span title="Soubor nebyl při nahrání uložen. Nahrajte DXF znovu pro stažení."
+               style="font-size:.72rem;color:#9ca3af;cursor:help">⬇ DXF N/A</span>`;
     const activateBtn = !active
       ? `<button style="font-size:.72rem;background:#f0fdf4;border:1px solid #86efac;border-radius:4px;padding:1px 7px;cursor:pointer;color:#15803d"
                  onclick="_buDxfActivate(${typId}, ${v.id})">Aktivovat</button>`
@@ -11574,7 +11575,9 @@ function _cncDxfPanelHtml(zakId, typId, verze) {
       ? `<a href="/api/typy-casu/${typId}/dxf/${v.id}/download"
             style="font-size:.72rem;color:#2563eb;text-decoration:none;background:#eff6ff;
                    border:1px solid #bfdbfe;border-radius:4px;padding:2px 8px;white-space:nowrap">⬇ Stáhnout</a>`
-      : '';
+      : `<span title="Soubor nebyl při nahrání uložen na disk. Nahrajte DXF znovu pro stažení."
+               style="font-size:.72rem;color:#9ca3af;background:#f9fafb;border:1px solid #e5e7eb;
+                      border-radius:4px;padding:2px 8px;cursor:help">⬇ DXF N/A</span>`;
     const activateBtn = !active
       ? `<button style="font-size:.72rem;background:#f0fdf4;border:1px solid #86efac;border-radius:4px;
                         padding:2px 8px;cursor:pointer;color:#15803d"
