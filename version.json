@@ -1,8 +1,8 @@
 {
-  "verze": 96,
-  "popis": "DXF verze: analyze endpoint + frontend analyze+activate flow",
+  "verze": 99,
+  "popis": "DXF: analyze endpoint, dashboard notifikace, fix aktivace verzí",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "12:50",
-  "git_commit": "ee3d2bd"
+  "cas": "13:35",
+  "git_commit": "c443f2c"
 }

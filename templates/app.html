@@ -439,18 +439,20 @@ function _modalOverlayClose() {
 // ── DASHBOARD ─────────────────────────────────────────────────────────────
 async function dashboard() {
   setContent('<div class="text-center py-16 text-gray-400">Načítám...</div>');
-  const [nedostatek, navrh, zakazky_r, dochR, liveR] = await Promise.all([
+  const [nedostatek, navrh, zakazky_r, dochR, liveR, dxfPending] = await Promise.all([
     api('/api/sklad?filtr=nedostatek'),
     api('/api/nakupy/navrh?dni=14&okno=90').catch(() => ({ items: [] })),
     api('/api/zakazky?limit=5'),
     api('/api/dochazka/tyden').catch(() => ({ by_day: {}, dnes: '' })),
     api('/api/dochazka-live/stav').catch(() => ({ users: [] })),
+    api('/api/typy-casu/dxf-cnc-pending').catch(() => ({ items: [] })),
   ]);
   const nd = nedostatek.items || [];
   const navrh14 = navrh.items || [];
   const zak = zakazky_r.items || [];
   const byDay = dochR.by_day || {};
   const dnesISO = dochR.dnes || new Date().toISOString().slice(0,10);
+  const dxfItems = dxfPending.items || [];
 
   // Dny zásoby badge
   function dnuBadge(dnu) {
@@ -462,6 +464,37 @@ async function dashboard() {
 
   setContent(`
   <h2 class="text-2xl font-bold text-gray-800 mb-6">Dashboard</h2>
+
+  ${dxfItems.length > 0 ? `
+  <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;padding:12px 16px;margin-bottom:20px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-size:1rem">⚠</span>
+      <span style="font-weight:700;color:#92400e;font-size:.95rem">Operátor CNC nahrál nové DXF verze</span>
+      <span style="background:#f59e0b;color:#fff;border-radius:999px;padding:0 8px;font-size:.75rem;font-weight:700">${dxfItems.length}</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${dxfItems.map(item => {
+        const verStr = item.verze.map(v => {
+          const date = (v.nahrano||'').slice(0,16).replace('T',' ');
+          const pozn = v.poznamka ? ` · ${v.poznamka}` : '';
+          return `<span style="font-size:.75rem;color:#78350f">${v.version_name||'Nová verze'} (${date}${pozn})</span>`;
+        }).join(', ');
+        return `<div style="display:flex;align-items:center;justify-content:space-between;background:white;border:1px solid #fde68a;border-radius:7px;padding:8px 12px;gap:12px;flex-wrap:wrap">
+          <div>
+            <span style="font-weight:600;color:#1e293b;font-size:.88rem">${item.hn}</span>
+            <span style="color:#6b7280;font-size:.82rem;margin-left:6px">${item.nazev}</span>
+            <div style="margin-top:2px">${verStr}</div>
+          </div>
+          <button onclick="navigate('typy-casu'); setTimeout(()=>bomDetail(${item.typ_id},4),600)"
+                  style="background:#f59e0b;color:white;border:none;border-radius:7px;padding:5px 14px;
+                         font-size:.8rem;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0">
+            Otevřít DXF →
+          </button>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>` : ''}
+
   <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
     <div class="card p-5 cursor-pointer hover:shadow-md" onclick="navigate('materialy')">
       <p class="text-sm text-gray-500">Položky v katalogu</p>
@@ -2768,19 +2801,21 @@ async function _buDxfActivateCncNew(typId) {
 }
 
 async function _buDxfAnalyzeAndActivate(typId, v) {
-  // Pokud verze nemá analýzu a má soubor — nejprve analyzujeme, pak aktivujeme
+  // Pokud verze nemá analýzu: potřebujeme soubor pro analýzu
+  // Pokud verze analýzu MÁ (has_vrstvy): stačí aktivovat, soubor nepotřebujeme
   const statusEl = document.getElementById('dxf-upload-status');
-  if (!v.has_vrstvy && v.has_file) {
+  if (!v.has_vrstvy) {
+    if (!v.has_file) {
+      alert('Soubor není k dispozici na disku. Nahrajte DXF znovu přes tlačítko Nahrát a analyzovat.');
+      return;
+    }
     if (statusEl) { statusEl.textContent = '⏳ Analyzuji DXF…'; statusEl.style.color = '#6b7280'; }
-    const ar = await api(`/api/typy-casu/${typId}/dxf/${v.id}/analyze`, 'POST').catch(e => null);
+    const ar = await api(`/api/typy-casu/${typId}/dxf/${v.id}/analyze`, 'POST').catch(() => null);
     if (!ar || ar.error) {
       if (statusEl) { statusEl.textContent = '❌ Chyba analýzy: ' + (ar?.error || 'neznámá'); statusEl.style.color = '#dc2626'; }
       return;
     }
     if (statusEl) { statusEl.textContent = ''; }
-  } else if (!v.has_file) {
-    alert('Soubor není k dispozici na disku. Nahrajte DXF znovu přes tlačítko Nahrát a analyzovat.');
-    return;
   }
   // Aktivovat
   await api(`/api/typy-casu/${typId}/dxf/${v.id}/activate`, 'POST');
@@ -11578,7 +11613,11 @@ async function cncDxfActivate(typId, vid, zakId) {
   const hasVrstvy = card ? card.dataset.hasVrstvy === '1' : true;
   const hasFile   = card ? card.dataset.hasFile   === '1' : false;
 
-  if (!hasVrstvy && hasFile) {
+  if (!hasVrstvy) {
+    if (!hasFile) {
+      alert('Soubor není k dispozici. Požádejte CNC operátora o opětovné nahrání.');
+      return;
+    }
     if (statusEl) { statusEl.textContent = '⏳ Analyzuji…'; statusEl.style.display = ''; }
     const ar = await api(`/api/typy-casu/${typId}/dxf/${vid}/analyze`, 'POST').catch(() => null);
     if (!ar || ar.error) {
@@ -11586,9 +11625,6 @@ async function cncDxfActivate(typId, vid, zakId) {
       return;
     }
     if (statusEl) { statusEl.textContent = ''; statusEl.style.display = 'none'; }
-  } else if (!hasVrstvy && !hasFile) {
-    alert('Soubor není k dispozici. Požádejte CNC operátora o opětovné nahrání.');
-    return;
   }
 
   await api(`/api/typy-casu/${typId}/dxf/${vid}/activate`, 'POST');

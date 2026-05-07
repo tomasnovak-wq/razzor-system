@@ -726,6 +726,44 @@ def api_tc_priloha_delete(typ_id, fid):
 DXF_DIR = os.path.join('/data', 'dxf') if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data', 'dxf')
 
 
+@app.route('/api/typy-casu/dxf-cnc-pending', methods=['GET'])
+def api_dxf_cnc_pending():
+    """Vrátí typy casů kde existuje CNC verze DXF novější než aktivní BOM verze."""
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("""
+        SELECT tc.id AS typ_id, tc.hn, tc.nazev,
+               d.id AS vid, d.version_name, d.nazev_souboru, d.nahrano, d.poznamka
+        FROM typy_casu tc
+        JOIN typy_casu_dxf d ON d.typ_casu_id = tc.id
+        WHERE d.source = 'cnc'
+          AND d.is_bom_active = 0
+          AND d.id > (
+              SELECT COALESCE(MAX(d2.id), 0)
+              FROM typy_casu_dxf d2
+              WHERE d2.typ_casu_id = tc.id AND d2.is_bom_active = 1
+          )
+        ORDER BY d.nahrano DESC
+    """)
+    rows = c.fetchall()
+    conn.close()
+    # Seskup per typ_casu_id
+    from collections import OrderedDict
+    result = OrderedDict()
+    for r in rows:
+        tid = r['typ_id']
+        if tid not in result:
+            result[tid] = {'typ_id': tid, 'hn': r['hn'], 'nazev': r['nazev'], 'verze': []}
+        result[tid]['verze'].append({
+            'vid':          r['vid'],
+            'version_name': r['version_name'],
+            'nazev_souboru': r['nazev_souboru'],
+            'nahrano':      r['nahrano'],
+            'poznamka':     r['poznamka'],
+        })
+    return jsonify({'items': list(result.values())})
+
+
 @app.route('/api/typy-casu/<int:typ_id>/dxf', methods=['GET'])
 def api_dxf_get(typ_id):
     import json as _json
@@ -5943,10 +5981,12 @@ def api_cnc():
         dxf_verze = []
         if typ_id:
             c.execute("""
-                SELECT id, nazev_souboru, version_name, source, nahrano, is_bom_active, has_file, poznamka
+                SELECT id, nazev_souboru, version_name, source, nahrano, is_bom_active,
+                       has_file, has_vrstvy, poznamka
                 FROM (
                     SELECT id, nazev_souboru, version_name, source, nahrano, is_bom_active,
                            CASE WHEN filepath IS NOT NULL AND filepath != '' THEN 1 ELSE 0 END AS has_file,
+                           CASE WHEN vrstvy_json IS NOT NULL AND vrstvy_json != '[]' AND vrstvy_json != '' THEN 1 ELSE 0 END AS has_vrstvy,
                            poznamka
                     FROM typy_casu_dxf WHERE typ_casu_id=?
                 ) ORDER BY id DESC
