@@ -4168,6 +4168,11 @@ function layerColor(v) {
   return _3D_COLORS[v.typ] || _3D_COLORS.jine;
 }
 
+function _bu3dTypOpts(cur) {
+  return [['deska','Deska'],['pena','Pěna'],['hw','HW'],['profily','Profily'],['nyty','Nýty'],['jine','Jiné'],['ignorovat','Ignorovat']]
+    .map(([v,l]) => `<option value="${v}" ${cur===v?'selected':''}>${l}</option>`).join('');
+}
+
 // Sestaví HTML pro sekci model-info (badge + tabulka vrstev) — sdílí _buTab3D i _bu3dUpload
 function _bu3dModelInfoHtml(typId, vid, verData, vrstvy) {
   if (!vrstvy || !vrstvy.length) return '<span style="color:#9ca3af;font-size:.83rem">Nahraj ZIP se STL soubory</span>';

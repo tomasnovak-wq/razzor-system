@@ -1,8 +1,8 @@
 {
-  "verze": 85,
-  "popis": "Multi-verzni 3D: tabs Sestava/Polstrovani, prepinani modelu, pill tlacitka",
+  "verze": 86,
+  "popis": "Oprava: chybejici _bu3dTypOpts — karta 3D se opet otevre",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "09:45",
-  "git_commit": "610edb8"
+  "cas": "09:49",
+  "git_commit": "db18e98"
 }
