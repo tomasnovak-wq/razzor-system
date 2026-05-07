@@ -4092,6 +4092,7 @@ let _3dScene = null, _3dCamera = null, _3dRenderer = null, _3dControls = null;
 let _3dAnimFrameId = null;
 let _3dMeshMap = {};   // filename → mesh (pro toggles)
 let _3dCurrentVid = null;  // aktuálně zobrazená verze 3D modelu (vid = DB id)
+let _3dOpacityMap = {};    // typ → opacity (0.25, 0.5, 0.75, 1.0)
 
 function _3dToggleLayer(filename) {
   const mesh = _3dMeshMap[filename];
@@ -4149,6 +4150,25 @@ function _3dMasterSetActive(typ, active) {
     btn.style.opacity = '0.6';
     if (chk) { chk.style.background = '#e5e7eb'; chk.style.borderColor = '#d1d5db'; chk.textContent = ''; }
   }
+}
+
+function _3dSetGroupOpacity(typ, opacity) {
+  _3dOpacityMap[typ] = opacity;
+  Object.values(_3dMeshMap).forEach(m => {
+    if (m.userData?.vrstva?.typ === typ && m.material) {
+      m.material.transparent = opacity < 1.0;
+      m.material.opacity = opacity;
+    }
+  });
+  [0.25, 0.5, 0.75, 1.0].forEach(op => {
+    const id = 'opabtn_' + typ + '_' + op.toString().replace('.','_');
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const isActive = Math.abs(op - opacity) < 0.01;
+    btn.style.background   = isActive ? '#1e40af' : '#f1f5f9';
+    btn.style.color        = isActive ? '#fff'    : '#6b7280';
+    btn.style.borderColor  = isActive ? '#1e40af' : '#e2e8f0';
+  });
 }
 
 // Barva vrstvy — globální, sdílí _buTab3D (seznam) i _bu3dInitViewer (Three.js mesh)
@@ -4423,8 +4443,23 @@ function _bu3dRebuildLegend(typId, vid, vrstvy) {
       ${g.label}
     </button>`;
     const indiv = (byTyp[g.typ] || []).join('');
+    const curOpa = _3dOpacityMap[g.typ] ?? 1.0;
+    const opaStyle = (op) => {
+      const active = Math.abs(op - curOpa) < 0.01;
+      return `id="opabtn_${g.typ}_${op.toString().replace('.','_')}"
+        onclick="_3dSetGroupOpacity('${g.typ}',${op})"
+        style="font-size:.66rem;padding:1px 5px;border-radius:4px;cursor:pointer;border:1px solid;line-height:1.6;
+               background:${active?'#1e40af':'#f1f5f9'};color:${active?'#fff':'#6b7280'};border-color:${active?'#1e40af':'#e2e8f0'}"`;
+    };
+    const opaBtns = `<div style="display:flex;gap:2px;padding-top:2px;flex-shrink:0">
+      <button ${opaStyle(0.25)}>25%</button>
+      <button ${opaStyle(0.5)}>50%</button>
+      <button ${opaStyle(0.75)}>75%</button>
+      <button ${opaStyle(1.0)}>100%</button>
+    </div>`;
     return `<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px">
       <div style="padding-top:1px">${masterBtn}</div>
+      ${opaBtns}
       <div style="display:flex;flex-wrap:wrap;gap:5px;flex:1">${indiv}</div>
     </div>`;
   }).join('');
@@ -4523,6 +4558,7 @@ async function _bu3dInitViewer(typId, vid, vrstvy) {
   if (!wrap || !canvas) return;
 
   _3dMeshMap = {};   // reset při každém novém otevření
+  _3dOpacityMap = {};  // reset průhledností
 
   const THREE = window.THREE;
   const W = wrap.clientWidth, H = wrap.clientHeight;

@@ -1,8 +1,8 @@
 {
-  "verze": 88,
-  "popis": "3D typ_sestavy: multi-select, lze oznacit Sestava i Polstrovani zaroven",
+  "verze": 89,
+  "popis": "3D legenda: tlacitka pruhlednosti 25/50/75/100% pro skupiny vrstev",
   "autor": "Ludek",
   "datum": "07.05.2026",
-  "cas": "09:56",
-  "git_commit": "6276ac4"
+  "cas": "10:00",
+  "git_commit": "eeda2ce"
 }
