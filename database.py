@@ -1161,6 +1161,29 @@ def auto_migrate():
     """)
     log.append("  [OK] barvy_materialu")
 
+    # Seed výchozích barev pro typy materiálů
+    c.execute("SELECT 1 FROM _migrations WHERE name='barvy_materialu_seed_v1'")
+    if not c.fetchone():
+        seed_barvy = [
+            ('DESKA',              '#f0b429'),
+            ('HW GUMOVÁ NOŽIČKA',  '#4b5563'),
+            ('HW KOULE',           '#5b8fd9'),
+            ('HW L ROH',           '#4d8b8b'),
+            ('HW OSTATNÍ',         '#111827'),
+            ('HW PANT',            '#7c1d1d'),
+            ('HW RACK',            '#dc2626'),
+            ('HW RUKOJEŤ',         '#4a1942'),
+            ('HW ZÁMEK',           '#2e7d32'),
+            ('LEPIDLO',            '#f59e0b'),
+            ('PĚNA',               '#d1d5db'),
+            ('PODVOZEK',           '#e57373'),
+            ('PROFIL AL',          '#f59e0b'),
+        ]
+        for typ, barva in seed_barvy:
+            c.execute("INSERT OR IGNORE INTO barvy_materialu (typ, barva) VALUES (?,?)", (typ, barva))
+        c.execute("INSERT INTO _migrations (name) VALUES ('barvy_materialu_seed_v1')")
+        log.append("  [OK] barvy_materialu seed — výchozí barvy typů materiálů")
+
     conn.commit()
     conn.close()
     if log:
