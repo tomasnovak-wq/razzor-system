@@ -5251,54 +5251,126 @@ async function zakazkaDetail(id) {
         const _ovLabel = ov => { const o = _tmpSel.querySelector(`option[value="${ov}"]`); return o ? o.textContent.trim() : ov; };
 
         // Helper: SVG blok pro daný typ ('deska' nebo 'pena'), nadpis
-        // Globální popup pro kóty — definujeme jednou
-        if (!window._dxfDimPopup) {
-          window._dxfDimPopup = function(el, ev, lenStr, label) {
-            ev.stopPropagation();
-            var old = document.getElementById('_dxfpop');
-            if (old) old.remove();
-            // Zvýrazni kliknutý tvar, zbytek ztmaví
-            var svg = el.closest('svg');
-            if (svg) svg.querySelectorAll('path[data-poly]').forEach(function(p) {
-              p.style.opacity = p === el ? '1' : '0.15';
-            });
-            // Délky hran — filtrujeme < 5 mm (oblouky), seskupíme
-            var raw = lenStr ? lenStr.split(',').map(Number).filter(function(l){return l>=5;}) : [];
-            var groups = {}, order = [];
-            raw.forEach(function(l) { if(!groups[l]){groups[l]=0;order.push(l);} groups[l]++; });
-            order.sort(function(a,b){return b-a;});
-            var rows = order.map(function(l,i) {
-              var cnt = groups[l];
-              return '<tr style="line-height:1.7">'
-                + '<td style="color:#94a3b8;padding-right:14px;font-size:.7rem">hrana '+(i+1)+'</td>'
-                + '<td style="font-weight:600;text-align:right;font-variant-numeric:tabular-nums">'+l+' mm</td>'
-                + (cnt>1?'<td style="color:#64748b;padding-left:6px;font-size:.7rem">×'+cnt+'</td>':'<td></td>')
-                + '</tr>';
-            }).join('');
-            if (!rows) rows = '<tr><td colspan="3" style="color:#94a3b8;font-size:.7rem;padding-top:4px">žádné hrany</td></tr>';
-            var pop = document.createElement('div');
-            pop.id = '_dxfpop';
-            pop.style.cssText = 'position:fixed;z-index:9999;background:#1e293b;color:#f1f5f9;padding:9px 13px;border-radius:8px;font-size:.78rem;font-family:system-ui,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:none;min-width:150px';
-            pop.innerHTML = '<div style="font-weight:600;font-size:.67rem;color:#64748b;margin-bottom:5px;white-space:nowrap">'+label+'</div>'
-              + '<table style="border-collapse:collapse;width:100%">'+rows+'</table>';
-            document.body.appendChild(pop);
-            // Pozice poblíž kurzoru
-            var pw = Math.max(pop.offsetWidth, 150), ph = pop.offsetHeight || 80;
-            var px = ev.clientX + 14, py = ev.clientY - 20;
-            if (px + pw > window.innerWidth - 8) px = ev.clientX - pw - 14;
-            if (py + ph > window.innerHeight - 8) py = window.innerHeight - ph - 8;
-            if (py < 8) py = 8;
-            pop.style.left = px + 'px'; pop.style.top = py + 'px';
-            // Zavři při kliknutí mimo
-            var close = function(e) {
-              if (e.target === el) return;
-              pop.remove();
-              if (svg) svg.querySelectorAll('path[data-poly]').forEach(function(p){ p.style.opacity = ''; });
-              document.removeEventListener('click', close, true);
-            };
-            setTimeout(function(){ document.addEventListener('click', close, true); }, 30);
+        // Globální popup pro kóty — mini SVG s tvarem a délkami přímo na hranách
+        window._dxfDimPopup = function(el, ev) {
+          ev.stopPropagation();
+          var old = document.getElementById('_dxfpop');
+          if (old) old.remove();
+          // Zvýrazni kliknutý tvar, zbytek ztmaví
+          var parentSvg = el.closest('svg');
+          if (parentSvg) parentSvg.querySelectorAll('path[data-poly]').forEach(function(p) {
+            p.style.opacity = p === el ? '1' : '0.1';
+          });
+          // Data z atributů
+          var coords, label, fill, strk;
+          try { coords = JSON.parse(el.dataset.coords || '[]'); } catch(e) { coords = []; }
+          label = el.dataset.label || '';
+          fill  = el.dataset.fill  || '#9ca3af';
+          strk  = el.dataset.strk  || '#4b5563';
+          if (!coords.length) return;
+
+          // Bounding box v reálných souřadnicích
+          var rx0=Infinity,ry0=Infinity,rx1=-Infinity,ry1=-Infinity;
+          coords.forEach(function(p){if(p[0]<rx0)rx0=p[0];if(p[0]>rx1)rx1=p[0];if(p[1]<ry0)ry0=p[1];if(p[1]>ry1)ry1=p[1];});
+          var RW=rx1-rx0, RH=ry1-ry0;
+
+          // Měřítko — vejdi do 260×200 px, prostor DS pro kóty
+          var MAXW=260, MAXH=200, DS=30;
+          var scale=Math.min(MAXW/(RW+2*DS), MAXH/(RH+2*DS));
+          if(!isFinite(scale)||scale<=0) scale=1;
+          var vw=(RW+2*DS)*scale, vh=(RH+2*DS)*scale;
+          var tx=function(x){return((x-rx0+DS)*scale)};
+          var ty=function(y){return((RH-y+ry0+DS)*scale)}; // Y překlopen
+          var fmt=function(n){return n.toFixed(1)};
+
+          // Polygon v SVG souřadnicích
+          var svgCoords=coords.map(function(p){return[tx(p[0]),ty(p[1])]});
+          var pathD='M '+svgCoords.map(function(p){return fmt(p[0])+','+fmt(p[1])}).join(' L ')+' Z';
+
+          // Těžiště v SVG souřadnicích (pro určení vnější normály)
+          var n=svgCoords.length;
+          var scx=svgCoords.reduce(function(s,p){return s+p[0]},0)/n;
+          var scy=svgCoords.reduce(function(s,p){return s+p[1]},0)/n;
+
+          // Kóty hran — pro každou unikátní délku anotujeme jednu hranu
+          var OFFS=22; // odsazení kótovací čáry od tvaru (px)
+          var FS=Math.max(7.5, Math.min(11, vw/20));
+          var seen={};
+          var dimSvg='';
+
+          for(var i=0;i<n;i++){
+            var s1=svgCoords[i], s2=svgCoords[(i+1)%n];
+            var r1=coords[i],   r2=coords[(i+1)%n];
+            var realLen=Math.round(Math.sqrt((r2[0]-r1[0])**2+(r2[1]-r1[1])**2));
+            if(realLen<5) continue;          // filtruj oblouky
+            if(seen[realLen]) continue;      // jen první výskyt každé délky
+            seen[realLen]=1;
+
+            var dx=s2[0]-s1[0], dy=s2[1]-s1[1];
+            var svgLen=Math.sqrt(dx*dx+dy*dy);
+            if(svgLen<2) continue;
+
+            var mx=(s1[0]+s2[0])/2, my=(s1[1]+s2[1])/2;
+            // Vnější normála (od těžiště směrem ven)
+            var nx0=-dy/svgLen, ny0=dx/svgLen;
+            var dot=(scx-mx)*nx0+(scy-my)*ny0;
+            var onx=dot>0?-nx0:nx0, ony=dot>0?-ny0:ny0;
+
+            var omx=mx+onx*OFFS, omy=my+ony*OFFS;
+            var dlx1=s1[0]+onx*OFFS, dly1=s1[1]+ony*OFFS;
+            var dlx2=s2[0]+onx*OFFS, dly2=s2[1]+ony*OFFS;
+
+            // Natočení textu podél hrany
+            var angle=Math.atan2(dy,dx)*180/Math.PI;
+            if(angle>90)angle-=180; if(angle<-90)angle+=180;
+
+            var lc='#94a3b8', lw='0.8';
+            // Kótovací linie + spojovací čáry k rohům
+            dimSvg+='<line x1="'+fmt(dlx1)+'" y1="'+fmt(dly1)+'" x2="'+fmt(dlx2)+'" y2="'+fmt(dly2)+'" stroke="'+lc+'" stroke-width="'+lw+'"/>';
+            dimSvg+='<line x1="'+fmt(s1[0])+'" y1="'+fmt(s1[1])+'" x2="'+fmt(dlx1)+'" y2="'+fmt(dly1)+'" stroke="#cbd5e1" stroke-width="0.5"/>';
+            dimSvg+='<line x1="'+fmt(s2[0])+'" y1="'+fmt(s2[1])+'" x2="'+fmt(dlx2)+'" y2="'+fmt(dly2)+'" stroke="#cbd5e1" stroke-width="0.5"/>';
+            // Zarážky (tikmarky) na koncích kótovací čáry
+            var tk=4, px1=dlx1+ony*tk, py1=dly1-onx*tk, px2=dlx1-ony*tk, py2=dly1+onx*tk;
+            var px3=dlx2+ony*tk, py3=dly2-onx*tk, px4=dlx2-ony*tk, py4=dly2+onx*tk;
+            dimSvg+='<line x1="'+fmt(px1)+'" y1="'+fmt(py1)+'" x2="'+fmt(px2)+'" y2="'+fmt(py2)+'" stroke="'+lc+'" stroke-width="'+lw+'"/>';
+            dimSvg+='<line x1="'+fmt(px3)+'" y1="'+fmt(py3)+'" x2="'+fmt(px4)+'" y2="'+fmt(py4)+'" stroke="'+lc+'" stroke-width="'+lw+'"/>';
+            // Text — bílý halo efekt přes paint-order
+            var tstr=realLen+' mm';
+            var tr='rotate('+angle.toFixed(1)+','+fmt(omx)+','+fmt(omy)+')';
+            dimSvg+='<text x="'+fmt(omx)+'" y="'+fmt(omy)+'" text-anchor="middle" dominant-baseline="middle"'
+              +' font-size="'+FS.toFixed(1)+'" font-family="system-ui,sans-serif" font-weight="700" fill="#1e293b"'
+              +' stroke="#f8fafc" stroke-width="3" paint-order="stroke" transform="'+tr+'">'+tstr+'</text>';
+          }
+
+          // Sestav popup SVG
+          var svgHtml='<svg viewBox="0 0 '+fmt(vw)+' '+fmt(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">'
+            +'<rect width="'+fmt(vw)+'" height="'+fmt(vh)+'" fill="#f8fafc" rx="3"/>'
+            +'<path d="'+pathD+'" fill="'+fill+'" fill-opacity="0.65" fill-rule="evenodd" stroke="'+strk+'" stroke-width="1.5"/>'
+            +dimSvg
+            +'</svg>';
+
+          var pop=document.createElement('div');
+          pop.id='_dxfpop';
+          pop.style.cssText='position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;padding:10px;border-radius:10px;'
+            +'font-family:system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.18);min-width:200px;max-width:300px;pointer-events:none';
+          pop.innerHTML='<div style="font-size:.67rem;font-weight:600;color:#94a3b8;margin-bottom:7px;white-space:nowrap">'+label+'</div>'+svgHtml;
+          document.body.appendChild(pop);
+
+          var pw=Math.max(pop.offsetWidth,210), ph=pop.offsetHeight||200;
+          var ppx=ev.clientX+16, ppy=ev.clientY-20;
+          if(ppx+pw>window.innerWidth-8)  ppx=ev.clientX-pw-16;
+          if(ppy+ph>window.innerHeight-8) ppy=window.innerHeight-ph-8;
+          if(ppy<8) ppy=8;
+          pop.style.left=ppx+'px'; pop.style.top=ppy+'px';
+
+          var close=function(e){
+            if(e.target===el) return;
+            pop.remove();
+            if(parentSvg) parentSvg.querySelectorAll('path[data-poly]').forEach(function(p){p.style.opacity=''});
+            document.removeEventListener('click',close,true);
           };
-        }
+          setTimeout(function(){document.addEventListener('click',close,true)},30);
+        };
 
         function _buildDxfBlock(typ, nadpis) {
           const vrstvy = dxfData.vrstvy
@@ -5348,21 +5420,20 @@ async function zakazkaDetail(id) {
           }).join('');
 
           // Klikatelné overlay paths — jeden per polygon (průhledné, pointer-events=all)
+          // Data jsou v data-* atributech; popup je čte přes el.dataset
           const overlayPaths = Object.entries(filtPoly).flatMap(([lname, polys]) => {
-            const label = _ovLabel(ovr[lname] || 'auto').replace(/"/g, '&quot;');
+            const [fill, strk] = layerClr[lname] || ['#9ca3af','#4b5563'];
+            const label = _ovLabel(ovr[lname] || 'auto');
             return polys.map(poly => {
-              // Bounding box tohoto konkrétního polygonu
+              // Bounding box tohoto polygonu (reálné mm)
               let px1=Infinity,py1=Infinity,px2=-Infinity,py2=-Infinity;
               for (const [x,y] of poly) { if(x<px1)px1=x; if(x>px2)px2=x; if(y<py1)py1=y; if(y>py2)py2=y; }
               const bw=Math.round(px2-px1), bh=Math.round(py2-py1);
-              // Délky hran
-              const lens = poly.map(([x,y],i,a) => {
-                const [nx,ny] = a[(i+1)%a.length];
-                return Math.round(Math.sqrt((nx-x)**2+(ny-y)**2));
-              }).filter(l=>l>=5).join(',');
-              const d = 'M '+poly.map(([x,y])=>`${sx(x)},${sy(y)}`).join(' L ')+' Z';
               const popLabel = `${label} — ${bw}×${bh} mm`;
-              return `<path data-poly="1" d="${d}" fill="black" fill-opacity="0.01" stroke="none" style="cursor:pointer" onclick='_dxfDimPopup(this,event,"${lens}","${popLabel}")'><title>${popLabel}</title></path>`;
+              // Souřadnice polygonu jako JSON (čísla → žádné dvojité uvozovky uvnitř)
+              const coordJson = JSON.stringify(poly.map(([x,y])=>[Math.round(x*10)/10, Math.round(y*10)/10]));
+              const d = 'M '+poly.map(([x,y])=>`${sx(x)},${sy(y)}`).join(' L ')+' Z';
+              return `<path data-poly="1" data-coords="${coordJson}" data-label="${popLabel}" data-fill="${fill}" data-strk="${strk}" d="${d}" fill="black" fill-opacity="0.01" stroke="none" style="cursor:pointer" onclick='_dxfDimPopup(this,event)'><title>${popLabel}</title></path>`;
             });
           }).join('');
 
