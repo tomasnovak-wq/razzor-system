@@ -2483,8 +2483,9 @@ function _dxfLayerColors(typ, tloustka_mm, nazev) {
     if (typ === 'pena')  return ['#1f2937','#111827'];
     return ['#e5e7eb','#9ca3af'];
   }
-  // Podrobný mód — dle tloušťky; záloha z názvu vrstvy
-  const mm = (tloustka_mm != null && tloustka_mm > 0) ? tloustka_mm : _dxfMmFromName(nazev);
+  // Podrobný mód — dle tloušťky; záloha z názvu vrstvy (jen pokud mm není explicitně -1 = "ostatní")
+  const mm = (tloustka_mm != null && tloustka_mm > 0) ? tloustka_mm
+           : (tloustka_mm === -1 ? null : _dxfMmFromName(nazev));
   if (typ === 'pena') {
     const key = Object.keys(_DXF_PENA_COLORS).find(k => mm != null && Math.abs(parseFloat(k) - mm) < 0.5);
     return key ? _DXF_PENA_COLORS[key] : _DXF_PENA_DEFAULT;
@@ -2621,7 +2622,11 @@ function _dxfRenderSvg(polygony, vrstvy, overrides) {
       effMap[v.nazev] = { typ: 'ignore', mm: null };
     } else {
       const [typ, th] = ov.split(':');
-      const mm = (th && parseFloat(th) > 0) ? parseFloat(th) : v.tloustka_mm;
+      const mmNum = th ? parseFloat(th) : NaN;
+      // mmNum > 0  → konkrétní tloušťka (10, 20, 999…)
+      // mmNum === 0 → explicitně "ostatní" → uložíme -1 aby se nespustil fallback z názvu vrstvy
+      // NaN       → nečíselný override → použij hodnotu ze serveru
+      const mm = (!isNaN(mmNum) && mmNum > 0) ? mmNum : (mmNum === 0 ? -1 : v.tloustka_mm);
       effMap[v.nazev] = { typ, mm };
     }
   }
@@ -2705,7 +2710,15 @@ function _dxfRenderSvg(polygony, vrstvy, overrides) {
       </svg>
     </div>
     <div id="dxf-preview-legend" style="padding:6px 12px;border-top:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:10px">
-      ${legendItems}
+      ${_dxfDetailMode ? legendItems : `
+        <span style="display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#374151">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#9ca3af;border:1px solid #4b5563"></span>
+          Desky
+        </span>
+        <span style="display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#374151">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#1f2937;border:1px solid #111827"></span>
+          Pěny
+        </span>`}
     </div>
   </div>`;
 }

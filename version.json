@@ -1,8 +1,8 @@
 {
-  "verze": 107,
-  "popis": "DXF: zjednodušený mód — desky šedé, pěny černé",
+  "verze": 109,
+  "popis": "DXF: oprava barvy u Pěna/Deska ostatní – potlačen fallback z názvu vrstvy",
   "autor": "Ludek",
   "datum": "12.05.2026",
-  "cas": "13:59",
-  "git_commit": "c443a04"
+  "cas": "14:05",
+  "git_commit": "b3456e4"
 }
