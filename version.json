@@ -1,8 +1,8 @@
 {
-  "verze": 129,
-  "popis": "v129: DXF popup — mini SVG s tvarem a kótami přímo na hranách",
+  "verze": 130,
+  "popis": "v130: DXF popup — menší, fixní okraj pro kóty, kóty se neořezávají",
   "autor": "Ludek",
   "datum": "12.05.2026",
-  "cas": "15:31",
-  "git_commit": "d854efc"
+  "cas": "15:38",
+  "git_commit": "d9ec3c0"
 }

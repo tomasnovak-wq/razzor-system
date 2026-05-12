@@ -5274,13 +5274,14 @@ async function zakazkaDetail(id) {
           coords.forEach(function(p){if(p[0]<rx0)rx0=p[0];if(p[0]>rx1)rx1=p[0];if(p[1]<ry0)ry0=p[1];if(p[1]>ry1)ry1=p[1];});
           var RW=rx1-rx0, RH=ry1-ry0;
 
-          // Měřítko — vejdi do 260×200 px, prostor DS pro kóty
-          var MAXW=260, MAXH=200, DS=30;
-          var scale=Math.min(MAXW/(RW+2*DS), MAXH/(RH+2*DS));
+          // Měřítko: tvar se vejde do MAXW_C × MAXH_C px, pak přidáme fixní okraj BORDER
+          // (BORDER je vždy stejný v px — nezávislý na škálovacím faktoru → kóty se nikdy neoříznou)
+          var MAXW_C=170, MAXH_C=130, BORDER=30, OFFS=22;
+          var scale=Math.min(MAXW_C/Math.max(RW,0.1), MAXH_C/Math.max(RH,0.1));
           if(!isFinite(scale)||scale<=0) scale=1;
-          var vw=(RW+2*DS)*scale, vh=(RH+2*DS)*scale;
-          var tx=function(x){return((x-rx0+DS)*scale)};
-          var ty=function(y){return((RH-y+ry0+DS)*scale)}; // Y překlopen
+          var vw=RW*scale+2*BORDER, vh=RH*scale+2*BORDER;
+          var tx=function(x){return BORDER+(x-rx0)*scale};
+          var ty=function(y){return BORDER+(RH-y+ry0)*scale}; // Y překlopen
           var fmt=function(n){return n.toFixed(1)};
 
           // Polygon v SVG souřadnicích
@@ -5293,8 +5294,8 @@ async function zakazkaDetail(id) {
           var scy=svgCoords.reduce(function(s,p){return s+p[1]},0)/n;
 
           // Kóty hran — pro každou unikátní délku anotujeme jednu hranu
-          var OFFS=22; // odsazení kótovací čáry od tvaru (px)
-          var FS=Math.max(7.5, Math.min(11, vw/20));
+          // FS přizpůsobený velikosti tvaru, ale max 10 aby byl popup malý
+          var FS=Math.max(7, Math.min(10, Math.min(vw,vh)/12));
           var seen={};
           var dimSvg='';
 
@@ -5343,7 +5344,8 @@ async function zakazkaDetail(id) {
           }
 
           // Sestav popup SVG
-          var svgHtml='<svg viewBox="0 0 '+fmt(vw)+' '+fmt(vh)+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">'
+          var svgHtml='<svg viewBox="0 0 '+fmt(vw)+' '+fmt(vh)+'" xmlns="http://www.w3.org/2000/svg"'
+            +' style="width:100%;display:block" overflow="visible">'
             +'<rect width="'+fmt(vw)+'" height="'+fmt(vh)+'" fill="#f8fafc" rx="3"/>'
             +'<path d="'+pathD+'" fill="'+fill+'" fill-opacity="0.65" fill-rule="evenodd" stroke="'+strk+'" stroke-width="1.5"/>'
             +dimSvg
@@ -5351,12 +5353,12 @@ async function zakazkaDetail(id) {
 
           var pop=document.createElement('div');
           pop.id='_dxfpop';
-          pop.style.cssText='position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;padding:10px;border-radius:10px;'
-            +'font-family:system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.18);min-width:200px;max-width:300px;pointer-events:none';
-          pop.innerHTML='<div style="font-size:.67rem;font-weight:600;color:#94a3b8;margin-bottom:7px;white-space:nowrap">'+label+'</div>'+svgHtml;
+          pop.style.cssText='position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;padding:8px 10px 10px;border-radius:10px;'
+            +'font-family:system-ui,sans-serif;box-shadow:0 6px 22px rgba(0,0,0,.16);max-width:260px;pointer-events:none;overflow:visible';
+          pop.innerHTML='<div style="font-size:.67rem;font-weight:600;color:#94a3b8;margin-bottom:6px;white-space:nowrap">'+label+'</div>'+svgHtml;
           document.body.appendChild(pop);
 
-          var pw=Math.max(pop.offsetWidth,210), ph=pop.offsetHeight||200;
+          var pw=Math.max(pop.offsetWidth,160), ph=pop.offsetHeight||160;
           var ppx=ev.clientX+16, ppy=ev.clientY-20;
           if(ppx+pw>window.innerWidth-8)  ppx=ev.clientX-pw-16;
           if(ppy+ph>window.innerHeight-8) ppy=window.innerHeight-ph-8;
