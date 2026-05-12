@@ -1,8 +1,8 @@
 {
-  "verze": 109,
-  "popis": "DXF: oprava barvy u Pěna/Deska ostatní – potlačen fallback z názvu vrstvy",
+  "verze": 128,
+  "popis": "v128: DXF kótování — popup s délkami hran po kliknutí na jednotlivý tvar",
   "autor": "Ludek",
   "datum": "12.05.2026",
-  "cas": "14:05",
-  "git_commit": "b3456e4"
+  "cas": "15:04",
+  "git_commit": "848be82"
 }
