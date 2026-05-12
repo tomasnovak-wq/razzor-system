@@ -2321,6 +2321,9 @@ function _buTabProfily(typId, profilyData) {
   const allP = profilyData?.profily || [];
   const existL = {};
   const existH = {};
+  const _typKorpus = (_buData?.data?.typ?.typ_korpusu || '').toLowerCase();
+  const _isSliding = _typKorpus.includes('sliding door');
+  const _hLabel  = _isSliding ? 'U profily' : 'H profily (Hybrid)';
   allP.filter(p => p.typ_profilu === 'L').forEach(p => { existL[p.poradi - 1] = p; });
   allP.filter(p => p.typ_profilu === 'H').forEach(p => { existH[p.poradi - 1] = p; });
   const thStyle = 'font-size:.65rem;font-weight:600;color:#6b7280;text-transform:uppercase;padding:4px 8px;text-align:left;border-bottom:1px solid #e5e7eb';
@@ -2341,15 +2344,15 @@ function _buTabProfily(typId, profilyData) {
       <textarea id="pfs-import-text" style="width:100%;height:100px;font-family:monospace;font-size:.75rem;padding:6px;border:1px solid #d1d5db;border-radius:6px;resize:vertical" placeholder="2&#9;163,5&#9;&#10;1&#9;163,5&#9;&#10;4&#9;516,0&#9;"></textarea>
       <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
         <span style="font-size:.75rem;color:#374151;font-weight:600">Vložit do:</span>
-        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="L" checked> L profily (hliníkový)</label>
-        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="H"> H profily (Hybrid)</label>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="L" checked> L profily</label>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="H"> ${_hLabel}</label>
         <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="LH"> Oba — L nejdřív, pak H</label>
         <button onclick="_pfsImportParse()" style="margin-left:auto;padding:5px 14px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer">✔ Zpracovat</button>
       </div>
       <div id="pfs-import-msg" style="display:none;margin-top:6px;font-size:.72rem"></div>
     </div>
   </div>
-  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b2040;margin-bottom:6px">L profily (hliníkový)</p>
+  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b2040;margin-bottom:6px">L profily</p>
   <div style="overflow-x:auto;margin-bottom:20px">
   <table style="width:100%;border-collapse:collapse;font-size:.82rem">
     <thead><tr>
@@ -2361,7 +2364,7 @@ function _buTabProfily(typId, profilyData) {
     <tbody>${_pfsProfilRows('l', existL, L_SLOTS, REZ_TYPES)}</tbody>
   </table>
   </div>
-  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1a3a5c;margin-bottom:6px">H profily (Hybrid)</p>
+  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1a3a5c;margin-bottom:6px">${_hLabel}</p>
   <div style="overflow-x:auto;margin-bottom:20px">
   <table style="width:100%;border-collapse:collapse;font-size:.82rem">
     <thead><tr>
@@ -2438,21 +2441,91 @@ const _DXF_TYP_COLOR = {
   pena:  'background:#d1fae5;color:#065f46;border-color:#a7f3d0',
   jine:  'background:#f1f5f9;color:#475569;border-color:#e2e8f0',
 };
+
+// ── Podrobné barvy dle tloušťky ──────────────────────────────────────────────
+// Pěny: klíč = tloušťka mm → [fill, stroke]
+const _DXF_PENA_COLORS = {
+  10:  ['#fb923c','#c2410c'],  // oranžová
+  15:  ['#a3e635','#65a30d'],  // žlutozelená
+  20:  ['#4ade80','#16a34a'],  // zelená
+  30:  ['#94a3b8','#475569'],  // modro-šedá
+  40:  ['#22d3ee','#0891b2'],  // cyan
+  50:  ['#c084fc','#9333ea'],  // fialová
+};
+const _DXF_PENA_DEFAULT = ['#d1d5db','#6b7280']; // P Ostatní – šedá
+
+// Desky: klíč = tloušťka mm → [fill, stroke]
+const _DXF_DESKA_COLORS = {
+  6.5: ['#fb923c','#c2410c'],  // oranžová
+  6.8: ['#fde047','#a16207'],  // žlutá
+  6.9: ['#4ade80','#15803d'],  // zelená
+  9:   ['#60a5fa','#1d4ed8'],  // modrá
+  12:  ['#22d3ee','#0e7490'],  // cyan
+  18:  ['#f472b6','#be185d'],  // růžová
+};
+const _DXF_DESKA_DEFAULT = ['#374151','#111827']; // D Ostatní – černá
+
+// Stav přepínače podrobných barev (globální)
+let _dxfDetailMode = false;
+
+/** Zkusí vytáhnout tloušťku (mm) z názvu vrstvy jako zálohu (např. "10MM" → 10). */
+function _dxfMmFromName(nazev) {
+  const m = (nazev || '').match(/(\d+(?:[.,]\d+)?)\s*[Mm][Mm]/);
+  return m ? parseFloat(m[1].replace(',', '.')) : null;
+}
+
+/** Vrátí [fill, stroke] pro vrstvu dle aktuálního módu. */
+function _dxfLayerColors(typ, tloustka_mm, nazev) {
+  if (!_dxfDetailMode) {
+    // Zjednodušený mód — jako dosud
+    if (typ === 'deska') return ['#c8986a','#7c4a1e'];
+    if (typ === 'pena')  return ['#86efac','#166534'];
+    return ['#e5e7eb','#9ca3af'];
+  }
+  // Podrobný mód — dle tloušťky; záloha z názvu vrstvy
+  const mm = (tloustka_mm != null && tloustka_mm > 0) ? tloustka_mm : _dxfMmFromName(nazev);
+  if (typ === 'pena') {
+    const key = Object.keys(_DXF_PENA_COLORS).find(k => mm != null && Math.abs(parseFloat(k) - mm) < 0.5);
+    return key ? _DXF_PENA_COLORS[key] : _DXF_PENA_DEFAULT;
+  }
+  if (typ === 'deska') {
+    const key = Object.keys(_DXF_DESKA_COLORS).find(k => mm != null && Math.abs(parseFloat(k) - mm) < 0.3);
+    return key ? _DXF_DESKA_COLORS[key] : _DXF_DESKA_DEFAULT;
+  }
+  return ['#e5e7eb','#9ca3af'];
+}
+
+/** Překreslí SVG po přepnutí módu. */
+function _dxfToggleMode() {
+  _dxfDetailMode = !_dxfDetailMode;
+  const btn = document.getElementById('dxf-mode-btn');
+  if (btn) btn.textContent = _dxfDetailMode ? '🎨 Podrobně (dle tloušťky)' : '⬜ Zjednodušeně';
+  const wrap = document.getElementById('dxf-preview-wrap');
+  if (wrap && _buData?.dxfData?.polygony) {
+    const newSvg = _dxfRenderSvg(_buData.dxfData.polygony, _buData.dxfData.vrstvy || [], _dxfOverrides);
+    if (newSvg) wrap.outerHTML = newSvg;
+  }
+}
 // Dropdown options pro přiřazení vrstvy
 const _DXF_PRIRAZENI_OPTIONS = `
   <option value="auto">— Auto (dle názvu vrstvy) —</option>
   <optgroup label="Deska">
     <option value="deska:6.5">Deska 6,5 mm</option>
+    <option value="deska:6.8">Deska 6,8 mm</option>
+    <option value="deska:6.9">Deska 6,9 mm</option>
     <option value="deska:9">Deska 9 mm</option>
     <option value="deska:12">Deska 12 mm</option>
-    <option value="deska:15">Deska 15 mm</option>
     <option value="deska:18">Deska 18 mm</option>
+    <option value="deska:0">Deska – ostatní</option>
   </optgroup>
   <optgroup label="Pěna">
     <option value="pena:10">Pěna 10 mm</option>
+    <option value="pena:15">Pěna 15 mm</option>
     <option value="pena:20">Pěna 20 mm</option>
     <option value="pena:30">Pěna 30 mm</option>
+    <option value="pena:40">Pěna 40 mm</option>
     <option value="pena:50">Pěna 50 mm</option>
+    <option value="pena:0">Pěna – ostatní</option>
   </optgroup>
   <option value="ignore">Ignorovat</option>`;
 
@@ -2534,24 +2607,27 @@ async function _dxfSaveOverrides(typId) {
 function _dxfRenderSvg(polygony, vrstvy, overrides) {
   if (!polygony || !Object.keys(polygony).length) return '';
 
-  // Barvy dle typu vrstvy — deska=světle hnědá (překližka), pěna=zelená
-  const FILL  = { deska: '#c8986a', pena: '#86efac', jine: '#e5e7eb' };
-  const STRK  = { deska: '#7c4a1e', pena: '#166534', jine: '#9ca3af' };
-  const OPAC  = { deska: '0.80',    pena: '0.75',    jine: '0.35'   };
+  const OPAC  = { deska: '0.85',    pena: '0.80',    jine: '0.35'   };
 
-  // Mapa: layerName → efektivní typ (respektuje overrides)
-  const typMap = {};
+  // Mapa: layerName → { typ, mm } (respektuje overrides včetně tloušťky)
+  const effMap = {};
   for (const v of vrstvy) {
     const ov = overrides[v.nazev];
-    if (!ov || ov === 'auto') typMap[v.nazev] = v.typ;
-    else if (ov === 'ignore')  typMap[v.nazev] = 'ignore';
-    else typMap[v.nazev] = ov.split(':')[0]; // 'deska:9' → 'deska'
+    if (!ov || ov === 'auto') {
+      effMap[v.nazev] = { typ: v.typ, mm: v.tloustka_mm };
+    } else if (ov === 'ignore') {
+      effMap[v.nazev] = { typ: 'ignore', mm: null };
+    } else {
+      const [typ, th] = ov.split(':');
+      const mm = (th && parseFloat(th) > 0) ? parseFloat(th) : v.tloustka_mm;
+      effMap[v.nazev] = { typ, mm };
+    }
   }
 
   // Globální bounding box přes všechny vrstvy
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const [lname, polys] of Object.entries(polygony)) {
-    if (typMap[lname] === 'ignore') continue;
+    if ((effMap[lname] || {}).typ === 'ignore') continue;
     for (const poly of polys)
       for (const [x, y] of poly) {
         if (x < minX) minX = x; if (x > maxX) maxX = x;
@@ -2576,12 +2652,13 @@ function _dxfRenderSvg(polygony, vrstvy, overrides) {
   // Seřaď vrstvy: jiné první (pod ostatními), pak pěna, deska navrch
   const order = { jine: 0, pena: 1, deska: 2 };
   const sortedLayers = Object.keys(polygony).sort(
-    (a, b) => (order[typMap[a]] ?? -1) - (order[typMap[b]] ?? -1)
+    (a, b) => (order[(effMap[a] || {}).typ] ?? -1) - (order[(effMap[b] || {}).typ] ?? -1)
   );
 
   for (const lname of sortedLayers) {
     const polys = polygony[lname];
-    const typ   = typMap[lname];
+    const eff   = effMap[lname] || { typ: null, mm: null };
+    const typ   = eff.typ;
     if (typ === 'ignore') continue;
 
     // Každý polygon → "M x,y L x,y ... Z" subpath (evenodd zpracuje díry)
@@ -2589,8 +2666,7 @@ function _dxfRenderSvg(polygony, vrstvy, overrides) {
       'M ' + poly.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(' L ') + ' Z'
     ).join(' ');
 
-    const fill  = FILL[typ]  || '#ddd';
-    const strk  = STRK[typ]  || '#888';
+    const [fill, strk] = _dxfLayerColors(typ, eff.mm, lname);
     const opac  = OPAC[typ]  || '0.5';
     const sw    = Math.max(0.5, VW / 500); // tloušťka čáry relativní k výkresu
     const dash  = typ === 'jine' ? `stroke-dasharray="${(sw*3).toFixed(1)} ${(sw*2).toFixed(1)}"` : '';
@@ -2600,11 +2676,10 @@ function _dxfRenderSvg(polygony, vrstvy, overrides) {
   }
 
   // Legenda
-  const visibleLayers = vrstvy.filter(v => typMap[v.nazev] !== 'ignore');
+  const visibleLayers = vrstvy.filter(v => (effMap[v.nazev] || {}).typ !== 'ignore');
   const legendItems = visibleLayers.map(v => {
-    const typ = typMap[v.nazev] || v.typ;
-    const col = FILL[typ] || '#ddd';
-    const bdr = STRK[typ] || '#888';
+    const eff = effMap[v.nazev] || { typ: v.typ, mm: v.tloustka_mm };
+    const [col, bdr] = _dxfLayerColors(eff.typ, eff.mm, v.nazev);
     return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:#374151">
       <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${col};border:1px solid ${bdr}"></span>
       ${v.nazev}${v.ks ? ` (${v.ks} ks)` : ''}
@@ -2613,8 +2688,12 @@ function _dxfRenderSvg(polygony, vrstvy, overrides) {
 
   return `
   <div id="dxf-preview-wrap" style="margin-bottom:16px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;background:#f8fafc">
-    <div style="padding:6px 12px;border-bottom:1px solid #e2e8f0;font-size:.75rem;font-weight:600;color:#64748b;letter-spacing:.04em;text-transform:uppercase">
-      Náhled výkresu
+    <div style="padding:6px 12px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:.75rem;font-weight:600;color:#64748b;letter-spacing:.04em;text-transform:uppercase">Náhled výkresu</span>
+      <button id="dxf-mode-btn" onclick="_dxfToggleMode()"
+        style="font-size:.72rem;padding:3px 10px;border-radius:6px;border:1px solid #cbd5e1;background:#f1f5f9;color:#475569;cursor:pointer;font-weight:600">
+        ${_dxfDetailMode ? '🎨 Podrobně (dle tloušťky)' : '⬜ Zjednodušeně'}
+      </button>
     </div>
     <div style="padding:10px;background:#fff">
       <svg viewBox="0 0 ${VW.toFixed(1)} ${VH.toFixed(1)}" xmlns="http://www.w3.org/2000/svg"
@@ -5113,9 +5192,9 @@ async function zakazkaDetail(id) {
   }
 
   const profily_al = bom.filter(b => _sekce(b) === 'profil');
-  const hw         = bom.filter(b => _sekce(b) === 'hw');
-  const desky_peny = bom.filter(b => _sekce(b) === 'deska');
-  const ostatni    = bom.filter(b => _sekce(b) === 'ostatni');
+  const hw         = bom.filter(b => _sekce(b) === 'hw' || _sekce(b) === 'ostatni');
+  const desky      = bom.filter(b => { const t = _normTyp(b.typ); return t === 'DESKA'; });
+  const peny       = bom.filter(b => { const t = _normTyp(b.typ); return t.includes('PENA'); });
 
   // Sloučení duplicitních profilů se stejným rozměrem — sečte ks, zarážky zachová (závisí jen na délce)
   function _dedupProfily(arr) {
@@ -5175,33 +5254,40 @@ async function zakazkaDetail(id) {
     return Math.round((margin + 6 * 128) * 100) / 100;
   }
 
-  function _zarazkaText(label, val) {
+  function _zarazkaVal(val) {
     const v = val != null && val !== '' ? val : '–';
-    return `<div style="display:inline-flex;flex-direction:column;align-items:flex-end;gap:1px;margin:0 6px">
-      <span style="font-size:.6rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.06em">${label}</span>
-      <span style="font-size:.88rem;font-weight:700;color:${v==='–'?'#d1d5db':'#1a3a5c'};min-width:50px;text-align:right">${v}</span>
-    </div>`;
+    return `<span style="font-size:.88rem;font-weight:700;color:${v==='–'?'#d1d5db':'#1a3a5c'}">${v}</span>`;
   }
+
+  const _tdKs  = 'style="padding:4px 6px 4px 8px;text-align:right;font-weight:700;background:#f3f4f6;border-right:1px solid #e5e7eb"';
+  const _tdMm  = 'style="padding:4px 10px 4px 6px;text-align:right;font-weight:700;font-size:.9rem;background:#f3f4f6;border-right:1px solid #e5e7eb"';
+  const _tdRez = 'style="padding:4px 8px;text-align:center;vertical-align:middle;background:#f3f4f6;border-right:1px solid #e5e7eb"';
+  const _tdZar1 = 'style="padding:4px 12px 4px 8px;text-align:right;background:#f3f4f6;border-right:1px solid #e5e7eb"';
+  const _tdZar2 = 'style="padding:4px 12px 4px 8px;text-align:right;background:#f3f4f6"';
 
   function profilLRow(p) {
     const rez = p.rez || '| |';
     const z1val = (p.zarazka != null && p.zarazka !== '') ? p.zarazka : _calcZarazka(p.rozmer_mm);
     const z2val = (p.zarazka_2 != null && p.zarazka_2 !== '') ? p.zarazka_2 : _calcZarazka2(p.rozmer_mm);
-    const z1 = _zarazkaText('Děr. 1', z1val);
-    const z2 = _zarazkaText('Děr. 2', z2val);
-    return `<tr class="border-b border-gray-50">
-      <td class="py-1 text-right font-bold pr-2">${p.ks}×</td>
-      <td class="py-1 text-right font-bold pr-3">${p.rozmer_mm ? fmt(p.rozmer_mm,1) : '–'}</td>
-      <td class="py-1 text-center text-gray-500 font-mono text-xs">${rez}</td>
-      <td class="py-1 text-right" style="white-space:nowrap">${z1}${z2}</td>
+    return `<tr style="border-bottom:1px solid #f3f4f6">
+      <td ${_tdKs}>${p.ks}×</td>
+      <td ${_tdMm}>${p.rozmer_mm ? fmt(p.rozmer_mm,1) : '–'}</td>
+      <td ${_tdRez}>${_rezSvgIcon(rez, false)}</td>
+      <td ${_tdZar1}>${_zarazkaVal(z1val)}</td>
+      <td ${_tdZar2}>${_zarazkaVal(z2val)}</td>
+      <td style="background:#f3f4f6"></td>
     </tr>`;
   }
 
   function profilHRow(p) {
-    return `<tr class="border-b border-gray-50">
-      <td class="py-1 text-right font-bold pr-2">${p.ks}×</td>
-      <td class="py-1 text-right font-bold pr-3">${p.rozmer_mm ? fmt(p.rozmer_mm,1) : '–'}</td>
-      <td class="py-1 text-center text-gray-500 font-mono text-xs">${p.zakonceni||''}</td>
+    const zak = (_REZ_ALIAS[p.zakonceni] || p.zakonceni) || '';
+    return `<tr style="border-bottom:1px solid #f3f4f6">
+      <td ${_tdKs}>${p.ks}×</td>
+      <td ${_tdMm}>${p.rozmer_mm ? fmt(p.rozmer_mm,1) : '–'}</td>
+      <td ${_tdRez}>${zak ? _rezSvgIcon(zak, false) : '–'}</td>
+      <td style="background:#f3f4f6"></td>
+      <td style="background:#f3f4f6"></td>
+      <td style="background:#f3f4f6"></td>
     </tr>`;
   }
 
@@ -5211,7 +5297,7 @@ async function zakazkaDetail(id) {
     .vl-header { background:linear-gradient(135deg,#1a3a5c,#0e2340); color:white; padding:16px 20px; border-radius:8px 8px 0 0; margin:-28px -28px 16px; }
     .vl-section { margin-bottom:16px; }
     .vl-section-title { font-size:.7rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; padding:6px 10px; border-radius:4px; margin-bottom:6px; }
-    .vl-hw { background:#1a3a5c; color:white; }
+    .vl-hw { background:#4b5563; color:white; }
     .vl-profil { background:#6b2040; color:white; }
     .vl-pena { background:#333; color:white; }
     .vl-table { width:100%; font-size:.8rem; border-collapse:collapse; }
@@ -5225,11 +5311,11 @@ async function zakazkaDetail(id) {
       .vl-hw,.vl-profil,.vl-pena { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     }
     .print-only { display:none; }
-    .varna { background:#dc2626; color:white; font-weight:700; font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; text-align:center; padding:5px; margin-bottom:12px; border-radius:4px; }
-    details[open] summary span:last-child { content:'▼ sbalit'; }
-    details[open] summary span:last-child::before { content:'▼ sbalit'; }
+    .varna { background:#dc2626; color:white; font-weight:700; font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; text-align:center; padding:6px 10px; margin-bottom:12px; border-radius:4px; }
     details summary::-webkit-details-marker { display:none; }
-    details[open] summary .desky-arrow { opacity:0; }
+    details summary span.det-lbl { font-size:0; opacity:.7; }
+    details summary span.det-lbl::before { font-size:.8rem; content:'▶ rozbalit'; }
+    details[open] summary span.det-lbl::before { content:'▼ sbalit'; }
   </style>
 
   <div class="vl-header">
@@ -5295,46 +5381,12 @@ async function zakazkaDetail(id) {
   </div>
   <div class="print-only varna">ODCHYLKY KARTY OPROTI SKUTEČNOSTI HLASTE!</div>
 
-  ${profily_al.length ? `
-  <!-- PROFILY AL -->
-  <div class="vl-section">
-    <div class="vl-section-title" style="background:#7c3aed;color:white">Profily AL</div>
-    <table class="vl-table">
-      <thead><tr>
-        <th style="width:18px" class="no-print"></th>
-        <th style="width:70px">Kód</th><th>Název</th>
-        <th class="r" style="width:50px">Mn.</th>
-        <th style="width:60px">Umístění</th>
-        <th style="width:50px" class="no-print">Web</th>
-        <th class="r no-print" style="width:50px">Sklad</th>
-      </tr></thead>
-      <tbody>${profily_al.map(bomRow).join('')}</tbody>
-    </table>
-  </div>` : ''}
-
-  <!-- HARDWARE -->
-  ${hw.length ? `
-  <div class="vl-section">
-    <div class="vl-section-title vl-hw">Hardware</div>
-    <table class="vl-table">
-      <thead><tr>
-        <th style="width:18px" class="no-print"></th>
-        <th style="width:70px">Kód</th><th>Název</th>
-        <th class="r" style="width:50px">Mn.</th>
-        <th style="width:60px">Umístění</th>
-        <th style="width:50px" class="no-print">Web</th>
-        <th class="r no-print" style="width:50px">Sklad</th>
-      </tr></thead>
-      <tbody>${hw.map(bomRow).join('')}</tbody>
-    </table>
-  </div>` : ''}
-
-  <!-- DESKY A PĚNY (sbalené) -->
-  ${desky_peny.length ? `
+  <!-- DESKY (sbalené) -->
+  ${desky.length ? `
   <div class="vl-section no-print">
     <details>
-      <summary style="background:#065f46;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
-        <span>Desky a pěny</span><span style="font-size:.8rem;opacity:.7">▶ rozbalit</span>
+      <summary style="background:#9ca3af;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+        <span>Desky</span><span class="det-lbl"></span>
       </summary>
       <table class="vl-table" style="margin-top:4px">
         <thead><tr>
@@ -5345,12 +5397,12 @@ async function zakazkaDetail(id) {
           <th style="width:50px">Web</th>
           <th class="r" style="width:50px">Sklad</th>
         </tr></thead>
-        <tbody>${desky_peny.map(bomRow).join('')}</tbody>
+        <tbody>${desky.map(bomRow).join('')}</tbody>
       </table>
     </details>
   </div>
   <div class="print-only vl-section">
-    <div class="vl-section-title" style="background:#065f46;color:white">Desky a pěny</div>
+    <div class="vl-section-title" style="background:#9ca3af;color:white">Desky</div>
     <table class="vl-table">
       <thead><tr>
         <th style="width:18px"></th>
@@ -5359,38 +5411,209 @@ async function zakazkaDetail(id) {
         <th style="width:60px">Umístění</th>
         <th class="r" style="width:50px">Sklad</th>
       </tr></thead>
-      <tbody>${desky_peny.map(bomRow).join('')}</tbody>
+      <tbody>${desky.map(bomRow).join('')}</tbody>
     </table>
   </div>` : ''}
 
-  <!-- OSTATNÍ (LOGO, příslušenství atd.) -->
-  ${ostatni.length ? `
-  <div class="vl-section">
-    <div class="vl-section-title bg-gray-400 text-white">Ostatní</div>
-    <table class="vl-table">
+  <!-- PROFILY AL + FORMÁTOVÁNÍ (sloučené, sbalené) -->
+  ${(profily_al.length || profilyL.length || profilyH.length) ? (() => {
+    // ── Seznam materiálů ─────────────────────────────────────────────────────
+    const _matTable = profily_al.length ? `
+    <table class="vl-table" style="margin-top:4px">
       <thead><tr>
-        <th style="width:18px" class="no-print"></th>
+        <th style="width:18px"></th>
         <th style="width:70px">Kód</th><th>Název</th>
         <th class="r" style="width:50px">Mn.</th>
         <th style="width:60px">Umístění</th>
-        <th style="width:50px" class="no-print">Web</th>
-        <th class="r no-print" style="width:50px">Sklad</th>
+        <th style="width:50px">Web</th>
+        <th class="r" style="width:50px">Sklad</th>
       </tr></thead>
-      <tbody>${ostatni.map(bomRow).join('')}</tbody>
-    </table>
-  </div>` : ''}
+      <tbody>${profily_al.map(bomRow).join('')}</tbody>
+    </table>` : '';
 
-  <!-- SPOJOVACÍ MATERIÁL -->
-  ${spojeniky.length ? `
-  <div class="vl-section">
-    <div class="vl-section-title" style="background:#92400e;color:white">Spojovací materiál</div>
+    // ── Formátování ───────────────────────────────────────────────────────────
+    const _isSliding = (z.typ_korpusu||'').toLowerCase().includes('sliding door');
+    const _isFusion  = bom.some(b => b.material_kod === 'Q6506');
+    const _isR1      = !_isFusion
+                     && bom.some(b => (b.material_kod||'').startsWith('NE'))
+                     && (z.typ_korpusu||'').toLowerCase().includes('r1');
+    const _showZar   = !_isFusion && !_isR1;
+    let _hLabel = _isSliding ? 'U profily' : 'H profily (Hybrid)';
+    if (_isR1) _hLabel = 'L profily';
+
+    let _lSubtitle = '', _hSubtitle = '';
+    if (_isFusion) {
+      const q6506 = bom.find(b => b.material_kod === 'Q6506');
+      const q6504 = bom.find(b => b.material_kod === 'Q6504');
+      _lSubtitle = [q6506, q6504].filter(Boolean).map(b => b.nazev).join(' · ');
+      const q6502m = bom.find(b => b.material_kod === 'Q6502M');
+      const q6502f = bom.find(b => b.material_kod === 'Q6502F');
+      _hSubtitle = [q6502m, q6502f].filter(Boolean).map(b => b.nazev).join(' · ');
+    } else if (_isR1) {
+      const _neItems = bom.filter(b => (b.material_kod||'').startsWith('NE'));
+      _lSubtitle = _neItems[0]?.nazev || '';
+      _hSubtitle = _neItems[1]?.nazev || '';
+    } else {
+      const _lItems = bom.filter(b => {
+        const t = _normTyp(b.typ); const d = (b.druh||'').toUpperCase();
+        return t.includes('PROFIL') && (d.includes('L PROFIL') || d === 'L');
+      }).sort((a, b2) => (b2.celkem||0) - (a.celkem||0));
+      _lSubtitle = _lItems[0]?.nazev || '';
+      const _hItems = bom.filter(b => {
+        const t = _normTyp(b.typ); const d = (b.druh||'').toUpperCase();
+        return t.includes('PROFIL') && (d.includes('HYBRID') || d === 'H');
+      });
+      _hSubtitle = _hItems[0]?.nazev || '';
+    }
+
+    const _sub = (txt) => txt
+      ? `<p class="text-xs text-gray-500 mb-2" style="font-style:italic;margin-top:-2px">${txt}</p>`
+      : '';
+    const _colgroup = _showZar
+      ? `<colgroup><col style="width:48px"><col style="width:110px"><col style="width:56px"><col style="width:76px"><col style="width:76px"><col></colgroup>`
+      : `<colgroup><col style="width:48px"><col style="width:110px"><col style="width:56px"><col></colgroup>`;
+    const _lHead = _showZar
+      ? `<th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Ks</th>
+         <th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Rozměr (mm)</th>
+         <th style="text-align:center;background:#e5e7eb;border-right:1px solid #d1d5db">Řez</th>
+         <th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Zar. 1</th>
+         <th class="r" style="background:#e5e7eb;border-right:1px solid #e5e7eb">Zar. 2</th>
+         <th style="background:#e5e7eb"></th>`
+      : `<th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Ks</th>
+         <th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Rozměr (mm)</th>
+         <th style="text-align:center;background:#e5e7eb;border-right:1px solid #e5e7eb">Řez</th>
+         <th style="background:#e5e7eb"></th>`;
+    const _hHead = _showZar
+      ? `<th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Ks</th>
+         <th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Rozměr (mm)</th>
+         <th style="text-align:center;background:#e5e7eb;border-right:1px solid #d1d5db">Řez</th>
+         <th style="background:#e5e7eb"></th><th style="background:#e5e7eb"></th><th style="background:#e5e7eb"></th>`
+      : `<th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Ks</th>
+         <th class="r" style="background:#e5e7eb;border-right:1px solid #d1d5db">Rozměr (mm)</th>
+         <th style="text-align:center;background:#e5e7eb;border-right:1px solid #e5e7eb">Řez</th>
+         <th style="background:#e5e7eb"></th>`;
+    const _lRow = _showZar ? profilLRow : (p) => {
+      const rez = p.rez || '| |';
+      return `<tr style="border-bottom:1px solid #f3f4f6">
+        <td ${_tdKs}>${p.ks}×</td><td ${_tdMm}>${p.rozmer_mm ? fmt(p.rozmer_mm,1) : '–'}</td>
+        <td style="padding:4px 8px;text-align:center;vertical-align:middle;background:#f3f4f6">${_rezSvgIcon(rez, false)}</td>
+        <td style="background:#f3f4f6"></td></tr>`;
+    };
+    const _hRow = _showZar ? profilHRow : (p) => {
+      const zak = (_REZ_ALIAS[p.zakonceni] || p.zakonceni) || '';
+      return `<tr style="border-bottom:1px solid #f3f4f6">
+        <td ${_tdKs}>${p.ks}×</td><td ${_tdMm}>${p.rozmer_mm ? fmt(p.rozmer_mm,1) : '–'}</td>
+        <td style="padding:4px 8px;text-align:center;vertical-align:middle;background:#f3f4f6">${zak ? _rezSvgIcon(zak, false) : '–'}</td>
+        <td style="background:#f3f4f6"></td></tr>`;
+    };
+
+    const _formatTables = (profilyL.length || profilyH.length) ? `
+    <div style="border-top:1px solid #e5e7eb;margin-top:10px;padding-top:8px">
+      <p class="text-xs font-semibold" style="color:#6b2040;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Formátování</p>
+      ${profilyL.length ? `
+      <p class="text-xs font-semibold text-gray-600 mb-1 mt-2" style="text-transform:uppercase;letter-spacing:.05em">L profily</p>
+      ${_sub(_lSubtitle)}
+      <table class="vl-table" style="table-layout:fixed;width:100%">
+        ${_colgroup}<thead><tr>${_lHead}</tr></thead>
+        <tbody>${profilyLDedup.map(_lRow).join('')}</tbody>
+      </table>` : ''}
+      ${profilyH.length ? `
+      <p class="text-xs font-semibold text-gray-600 mb-1 mt-3" style="text-transform:uppercase;letter-spacing:.05em">${_hLabel}</p>
+      ${_sub(_hSubtitle)}
+      <table class="vl-table" style="table-layout:fixed;width:100%">
+        ${_colgroup}<thead><tr>${_hHead}</tr></thead>
+        <tbody>${profilyHDedup.map(_hRow).join('')}</tbody>
+      </table>` : ''}
+    </div>` : '';
+
+    const _allContent = _matTable + _formatTables;
+    return `
+  <div class="vl-section no-print">
+    <details>
+      <summary style="background:#6b7280;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+        <span>Profily AL</span><span class="det-lbl"></span>
+      </summary>
+      ${_allContent}
+    </details>
+  </div>
+  <div class="print-only vl-section">
+    <div class="vl-section-title" style="background:#6b7280;color:white">Profily AL</div>
+    ${_allContent}
+  </div>`;
+  })() : ''}
+
+  <!-- HARDWARE (rozbalený, ale sbalitelný) -->
+  ${hw.length ? `
+  <div class="vl-section no-print">
+    <details>
+      <summary style="background:#4b5563;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+        <span>Hardware</span><span class="det-lbl"></span>
+      </summary>
+      <table class="vl-table" style="margin-top:4px">
+        <thead><tr>
+          <th style="width:18px"></th>
+          <th style="width:70px">Kód</th><th>Název</th>
+          <th class="r" style="width:50px">Mn.</th>
+          <th style="width:60px">Umístění</th>
+          <th style="width:50px">Web</th>
+          <th class="r" style="width:50px">Sklad</th>
+        </tr></thead>
+        <tbody>${hw.map(bomRow).join('')}</tbody>
+      </table>
+    </details>
+  </div>
+  <div class="print-only vl-section">
+    <div class="vl-section-title vl-hw">Hardware</div>
     <table class="vl-table">
       <thead><tr>
-        <th style="width:18px" class="no-print"></th>
+        <th style="width:18px"></th>
         <th style="width:70px">Kód</th><th>Název</th>
         <th class="r" style="width:50px">Mn.</th>
         <th style="width:60px">Umístění</th>
-        <th class="r no-print" style="width:50px">Sklad</th>
+        <th class="r" style="width:50px">Sklad</th>
+      </tr></thead>
+      <tbody>${hw.map(bomRow).join('')}</tbody>
+    </table>
+  </div>` : ''}
+
+  <!-- SPOJOVACÍ MATERIÁL (sbalený) -->
+  ${spojeniky.length ? `
+  <div class="vl-section no-print">
+    <details>
+      <summary style="background:#374151;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+        <span>Spojovací materiál</span><span class="det-lbl"></span>
+      </summary>
+      <table class="vl-table" style="margin-top:4px">
+        <thead><tr>
+          <th style="width:18px"></th>
+          <th style="width:70px">Kód</th><th>Název</th>
+          <th class="r" style="width:50px">Mn.</th>
+          <th style="width:60px">Umístění</th>
+          <th class="r" style="width:50px">Sklad</th>
+        </tr></thead>
+        <tbody>${spojeniky.map(s => {
+          const fav = s.oblibeny == 1;
+          return `<tr class="border-b border-gray-100${fav ? ' bg-amber-50' : ''}">
+            <td class="py-1 text-center text-amber-400 text-sm">${fav ? '★' : ''}</td>
+            <td class="py-1 px-2 font-mono text-xs text-blue-700">${s.material_kod}</td>
+            <td class="py-1"><p class="font-medium text-sm">${s.nazev}</p></td>
+            <td class="py-1 text-right font-bold">${s.celkem % 1 === 0 ? s.celkem : fmt(s.celkem,2)}</td>
+            <td class="py-1 text-xs text-gray-500">${s.umisteni||''}</td>
+            <td class="py-1 text-right text-xs ${s.stav_skladu < s.celkem ? 'text-red-500 font-bold' : 'text-green-600'}">${fmt(s.stav_skladu,1)}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </details>
+  </div>
+  <div class="print-only vl-section">
+    <div class="vl-section-title" style="background:#374151;color:white">Spojovací materiál</div>
+    <table class="vl-table">
+      <thead><tr>
+        <th style="width:18px"></th>
+        <th style="width:70px">Kód</th><th>Název</th>
+        <th class="r" style="width:50px">Mn.</th>
+        <th style="width:60px">Umístění</th>
+        <th class="r" style="width:50px">Sklad</th>
       </tr></thead>
       <tbody>${spojeniky.map(s => {
         const fav = s.oblibeny == 1;
@@ -5400,35 +5623,45 @@ async function zakazkaDetail(id) {
           <td class="py-1"><p class="font-medium text-sm">${s.nazev}</p></td>
           <td class="py-1 text-right font-bold">${s.celkem % 1 === 0 ? s.celkem : fmt(s.celkem,2)}</td>
           <td class="py-1 text-xs text-gray-500">${s.umisteni||''}</td>
-          <td class="py-1 text-right text-xs no-print ${s.stav_skladu < s.celkem ? 'text-red-500 font-bold' : 'text-green-600'}">${fmt(s.stav_skladu,1)}</td>
+          <td class="py-1 text-right text-xs ${s.stav_skladu < s.celkem ? 'text-red-500 font-bold' : 'text-green-600'}">${fmt(s.stav_skladu,1)}</td>
         </tr>`;
       }).join('')}</tbody>
     </table>
   </div>` : ''}
 
-  <!-- PROFILY – FORMÁTOVÁNÍ -->
-  ${profilyL.length || profilyH.length ? `
-  <div class="vl-section">
-    <div class="vl-section-title vl-profil">Profily – formátování</div>
-    ${profilyL.length ? `
-    <p class="text-xs font-semibold text-gray-600 mb-1 mt-2">Hliníkový 'L' profil</p>
+  <!-- PĚNY (sbalené) -->
+  ${peny.length ? `
+  <div class="vl-section no-print">
+    <details>
+      <summary style="background:#111827;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+        <span>Pěny</span><span class="det-lbl"></span>
+      </summary>
+      <table class="vl-table" style="margin-top:4px">
+        <thead><tr>
+          <th style="width:18px"></th>
+          <th style="width:70px">Kód</th><th>Název</th>
+          <th class="r" style="width:50px">Mn.</th>
+          <th style="width:60px">Umístění</th>
+          <th style="width:50px">Web</th>
+          <th class="r" style="width:50px">Sklad</th>
+        </tr></thead>
+        <tbody>${peny.map(bomRow).join('')}</tbody>
+      </table>
+    </details>
+  </div>
+  <div class="print-only vl-section">
+    <div class="vl-section-title" style="background:#111827;color:white">Pěny</div>
     <table class="vl-table">
       <thead><tr>
-        <th class="r">Ks</th><th class="r">Rozměr (mm)</th><th style="text-align:center">Řez</th>
-        <th class="r">Zarážky děrovačky</th>
+        <th style="width:18px"></th>
+        <th style="width:70px">Kód</th><th>Název</th>
+        <th class="r" style="width:50px">Mn.</th>
+        <th style="width:60px">Umístění</th>
+        <th class="r" style="width:50px">Sklad</th>
       </tr></thead>
-      <tbody>${profilyLDedup.map(profilLRow).join('')}</tbody>
-    </table>` : ''}
-    ${profilyH.length ? `
-    <p class="text-xs font-semibold text-gray-600 mb-1 mt-3">Hybrid / H profil</p>
-    <table class="vl-table">
-      <thead><tr>
-        <th class="r">Ks</th><th class="r">Rozměr (mm)</th><th style="text-align:center">Zakončení</th>
-      </tr></thead>
-      <tbody>${profilyHDedup.map(profilHRow).join('')}</tbody>
-    </table>` : ''}
+      <tbody>${peny.map(bomRow).join('')}</tbody>
+    </table>
   </div>` : ''}
-
 
   `, true);
   } catch(renderErr) {
@@ -5461,19 +5694,43 @@ async function _resetZarazky(zakId) {
 const L_SLOTS = 10;
 const H_SLOTS = 15;
 
+// SVG ikony typů řezu – klíč = val z REZ_TYPES/ZAKONCENI_TYPES
+// Viewbox 34×16, profil y=3..13, x=4..30, šikmina offset 10 px (= 45°)
+const REZ_SVG_PATHS = {
+  '| |':  'M4,3 H30 V13 H4 Z',
+  '/ |':  'M4,13 L14,3 H30 V13 Z',
+  '| \\': 'M4,3 H20 L30,13 H4 Z',
+  '/ \\': 'M4,13 L14,3 H20 L30,13 Z',
+  '\\ |': 'M4,13 L14,3 H30 V13 Z',   // alias → stejný tvar jako / |
+  '\\ /': 'M4,13 L14,3 H20 L30,13 Z', // alias → stejný tvar jako / \
+};
+
+// Normalizace starých hodnot z DB na kanonické (pro active-state detekci)
+const _REZ_ALIAS = { '\\ |': '/ |', '\\ /': '/ \\' };
+
+function _rezSvgIcon(val, active) {
+  const d      = REZ_SVG_PATHS[val] || 'M4,3 H30 V13 H4 Z';
+  const fill   = active ? '#6b2040' : '#cbd5e1';
+  const stroke = active ? '#4c1030' : '#94a3b8';
+  return `<svg width="34" height="16" viewBox="0 0 34 16" style="display:block;pointer-events:none">
+    <path d="${d}" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>`;
+}
+
 // Výběr ŘEZ/ZAKONČENÍ – uložen v DOM přes data-active
 function _pfsRezBtns(typeKey, idx, current, typeList) {
+  const normCurrent = _REZ_ALIAS[current] || current;
   return typeList.map(t => {
-    const active = current === t.val;
+    const active = normCurrent === t.val;
     return `<button
       class="pfs-rez-btn"
       data-type="${typeKey}" data-idx="${idx}" data-val="${t.val.replace(/\\/g,'\\\\')}"
       data-active="${active?'1':''}"
       title="${t.title}"
       onclick="_pfsSetRez('${typeKey}',${idx},'${t.val.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}',this)"
-      style="padding:2px 7px;font-size:.78rem;border-radius:4px;border:1px solid #d1d5db;cursor:pointer;font-family:monospace;
-        background:${active?'#6b2040':'#f9fafb'};color:${active?'white':'#374151'};margin:1px">
-      ${t.lbl}
+      style="padding:3px 5px;border-radius:6px;border:1px solid ${active?'#6b2040':'#d1d5db'};cursor:pointer;
+        background:${active?'#fdf2f5':'#f9fafb'};margin:1px;line-height:0;vertical-align:middle">
+      ${_rezSvgIcon(t.val, active)}
     </button>`;
   }).join('');
 }
@@ -5483,12 +5740,16 @@ function _pfsSetRez(typeKey, idx, val, clickedBtn) {
   document.querySelectorAll(`.pfs-rez-btn[data-type="${typeKey}"][data-idx="${idx}"]`).forEach(b => {
     b.dataset.active = '';
     b.style.background = '#f9fafb';
-    b.style.color = '#374151';
+    b.style.borderColor = '#d1d5db';
+    const p = b.querySelector('path');
+    if (p) { p.setAttribute('fill','#cbd5e1'); p.setAttribute('stroke','#94a3b8'); }
   });
   // Aktivuj kliknuté
   clickedBtn.dataset.active = '1';
-  clickedBtn.style.background = '#6b2040';
-  clickedBtn.style.color = 'white';
+  clickedBtn.style.background = '#fdf2f5';
+  clickedBtn.style.borderColor = '#6b2040';
+  const ap = clickedBtn.querySelector('path');
+  if (ap) { ap.setAttribute('fill','#6b2040'); ap.setAttribute('stroke','#4c1030'); }
 }
 
 function _pfsPasteDistribute(event, typeKey, field, startIdx) {
@@ -5532,6 +5793,10 @@ async function editProfilyPlan(typId) {
   const data = await api(`/api/typy-casu/${typId}/profily-plan`);
   if (data.error) { alert('Chyba: ' + data.error); return; }
 
+  const _epKorpus = ((_cache.typy_casu || []).find(t => t.id === typId)?.typ_korpusu || '').toLowerCase();
+  const _epIsSliding = _epKorpus.includes('sliding door');
+  const _epHLabel = _epIsSliding ? 'U profily' : 'H profily (Hybrid)';
+
   const allP = data.profily || [];
   const existL = {};
   const existH = {};
@@ -5562,8 +5827,8 @@ async function editProfilyPlan(typId) {
       <textarea id="pfs-import-text" style="width:100%;height:100px;font-family:monospace;font-size:.75rem;padding:6px;border:1px solid #d1d5db;border-radius:6px;resize:vertical" placeholder="2&#9;163,5&#9;&#10;1&#9;163,5&#9;&#10;4&#9;516,0&#9;"></textarea>
       <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
         <span style="font-size:.75rem;color:#374151;font-weight:600">Vložit do:</span>
-        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="L" checked> L profily (hliníkový)</label>
-        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="H"> H profily (Hybrid)</label>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="L" checked> L profily</label>
+        <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="H"> ${_epHLabel}</label>
         <label style="font-size:.75rem;display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="pfs-import-typ" value="LH"> Oba — L nejdřív, pak H</label>
         <button onclick="_pfsImportParse()" style="margin-left:auto;padding:5px 14px;background:#1d4ed8;color:#fff;border:none;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer">✔ Zpracovat</button>
       </div>
@@ -5571,7 +5836,7 @@ async function editProfilyPlan(typId) {
     </div>
   </div>
 
-  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b2040;margin-bottom:6px">L profily (hliníkový)</p>
+  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b2040;margin-bottom:6px">L profily</p>
   <div style="overflow-x:auto;margin-bottom:20px">
   <table style="width:100%;border-collapse:collapse;font-size:.82rem">
     <thead><tr>
@@ -5584,7 +5849,7 @@ async function editProfilyPlan(typId) {
   </table>
   </div>
 
-  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1a3a5c;margin-bottom:6px">H profily (Hybrid)</p>
+  <p style="font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1a3a5c;margin-bottom:6px">${_epHLabel}</p>
   <div style="overflow-x:auto;margin-bottom:20px">
   <table style="width:100%;border-collapse:collapse;font-size:.82rem">
     <thead><tr>
@@ -6312,23 +6577,26 @@ const REZ_TYPES = [
 ];
 
 // Piktogramy zakončení H profilu
+// Poznámka: '\ |' a '\ /' jsou aliasy '/ |' resp. '/ \' — v DB mohou existovat jako legacy hodnoty,
+// normalizují se přes _REZ_ALIAS, ale jako tlačítka se nezobrazují (jsou vizuálně totožné)
 const ZAKONCENI_TYPES = [
-  { val: '/ |', lbl: '⟋ |', title: '/ |' },
-  { val: '| \\', lbl: '| ⟍', title: '| \\' },
-  { val: '| |', lbl: '| |', title: '| |' },
-  { val: '\\ |', lbl: '⟍ |', title: '\\ |' },
-  { val: '/ \\', lbl: '⟋ ⟍', title: '/ \\' },
-  { val: '\\ /', lbl: '⟍ ⟋', title: '\\ /' },
+  { val: '/ |',  lbl: '⟋ |',  title: 'Levý šikmý, pravý rovný' },
+  { val: '| \\', lbl: '| ⟍',  title: 'Levý rovný, pravý šikmý' },
+  { val: '| |',  lbl: '| |',   title: 'Rovné oba konce' },
+  { val: '/ \\', lbl: '⟋ ⟍',  title: 'Oba šikmé' },
 ];
 
 function _rezBtn(rowId, current, typeList, field) {
-  return typeList.map(t => `
-    <button title="${t.title}"
-      style="padding:2px 6px;font-size:.75rem;border-radius:4px;border:1px solid #d1d5db;cursor:pointer;font-family:monospace;
-        background:${current===t.val?'#6b2040':'#f9fafb'};color:${current===t.val?'white':'#374151'}"
+  const normCurrent = _REZ_ALIAS[current] || current;
+  return typeList.map(t => {
+    const active = normCurrent === t.val;
+    return `<button title="${t.title}"
+      style="padding:3px 5px;border-radius:6px;border:1px solid ${active?'#6b2040':'#d1d5db'};cursor:pointer;
+        background:${active?'#fdf2f5':'#f9fafb'};margin:1px;line-height:0;vertical-align:middle"
       onclick="_pruvodkaSetField(${rowId},'${field}','${t.val.replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')">
-      ${t.lbl}
-    </button>`).join('');
+      ${_rezSvgIcon(t.val, active)}
+    </button>`;
+  }).join('');
 }
 
 function _drillPassesHtml(passes) {

@@ -1,8 +1,8 @@
 {
-  "verze": 103,
-  "popis": "BOM: mazani verzi DXF a 3D modelu (krizek v karte)",
+  "verze": 104,
+  "popis": "DXF: oprava barev vrstev dle tloušťky (effMap místo typMap)",
   "autor": "Ludek",
-  "datum": "07.05.2026",
-  "cas": "14:43",
-  "git_commit": "3f2c7cc"
+  "datum": "12.05.2026",
+  "cas": "13:40",
+  "git_commit": "8a8ec14"
 }
