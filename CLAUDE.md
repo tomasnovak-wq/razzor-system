@@ -219,6 +219,7 @@ Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Sloupce: ★ | HN/Typ | Název | 
 - Poznámka pro Dílnu (`poznamka_dilna`) se zobrazuje bez emoji kladívka
 - **Profily – formátování**: duplicitní řádky se stejným `rozmer_mm` jsou sloučeny (sečtou se ks) přes funkci `_dedupProfily()` ve frontendu
 - **Zarážky děrovačky** jsou zobrazeny jako prostý text (ne editovatelná pole). Pokud backend nemá hodnotu (NULL), frontend ji dopočítá z délky profilu funkcemi `_calcZarazka(mm)` a `_calcZarazka2(mm)` (rozteč 128 mm, druhý průchod od 7+ otvorů). Profily kratší než 128 mm zarážky nemají záměrně.
+- **DXF vizualizace v sekci Desky a Pěny**: pokud má typ casu nahraný DXF, zobrazí se pod BOM tabulkou SVG náhled příslušných tvarů s legendou a kótovacím popupem. Implementováno přes funkci `_buildDxfBlock(typ, nadpis)` (viz níže).
 
 ### Docházka — modul (dochazka sekce)
 
@@ -303,6 +304,80 @@ onchange="_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})"
 **Barvy v UI:**
 - Badge v tabulce (`_DXF_TYP_COLOR`): deska = `background:#e8c9a0;color:#7c4a1e`, pěna = `background:#d1fae5;color:#065f46`
 - SVG náhled (`FILL` v `_dxfRenderSvg`): deska = `#c8986a`, pěna = `#86efac`, jiné = `#e5e7eb`
+
+**DXF barevný systém (podrobný/zjednodušený mód):**
+
+Globální přepínač `_dxfDetailMode` (bool) řídí, zda se použijí barvy dle tloušťky nebo uniformní.
+
+`_dxfLayerColors(typ, mm, nazev)` — vrátí `[fill, stroke]`:
+- **Zjednodušený mód** (`_dxfDetailMode = false`): deska=`#9ca3af`/`#4b5563`, pěna=`#1f2937`/`#111827`
+- **Podrobný mód** (`_dxfDetailMode = true`): barva dle tloušťky z map:
+
+```javascript
+_DXF_PENA_COLORS = {
+  5:   ['#fec93f','#b38200'],  // P 5mm
+  10:  ['#b34015','#7c2d12'],  // P 10mm
+  20:  ['#66b06c','#2d6b33'],  // P 20mm
+  30:  ['#668fb1','#2e547a'],  // P 30mm
+  40:  ['#1896f8','#0f5ca3'],  // P 40mm
+  50:  ['#ca46f7','#7e22ce'],  // P 50mm
+  999: ['#454f5f','#1e2d3d'],  // Baldachýn
+};
+_DXF_PENA_DEFAULT = ['#374151','#111827'];  // Pěna ostatní (černá)
+
+_DXF_DESKA_COLORS = {
+  6.5: ['#fd351c','#b91c0d'],
+  6.8: ['#d94e1c','#a33510'],  // Premium
+  6.9: ['#caf94c','#6b9117'],  // Plast
+  9:   ['#13f648','#0a9e2e'],
+  9.4: ['#86efac','#15803d'],  // Premium
+  12:  ['#1ffbfe','#0a8f91'],
+  18:  ['#fe4ef8','#a21caf'],
+};
+_DXF_DESKA_DEFAULT = ['#d1d5db','#6b7280'];  // Deska ostatní (šedá)
+```
+
+**Kritické detaily implementace:**
+- Tolerance pro matching tloušťky desek: `Math.abs(k - mm) < 0.05` — nutné, jinak 6.5 vs 6.8 kolide (rozdíl 0.3 < 0.3 způsoboval záměnu barev)
+- Sentinel hodnota `mm = -1` pro override `"deska:0"` / `"pena:0"` (Ostatní) — zabraňuje falešnému vyčtení tloušťky z názvu vrstvy přes `_dxfMmFromName()`
+- `effMap` v `_dxfRenderSvg`: pro každou vrstvu uchovává `{typ, mm}` s ohledem na override string `"deska:6.8"` — bez effMap se tloušťka z overridu ztrácela
+- `_dxfBadgeStyle(typ, mm, nazev)` — mode-aware badge: v zjednodušeném módu uniformní, v podrobném dle barvy tloušťky + luminance check pro barvu textu
+
+**DXF vizualizace v detailu zakázky (Dílna) — `_buildDxfBlock`:**
+
+Funkce `_buildDxfBlock(typ, nadpis)` je definována uvnitř `zakazkaDetail` (async funkce). Volá se dvakrát:
+```javascript
+dxfDeskyHtml = _buildDxfBlock('deska', 'DXF – plochy desek');
+dxfPenyHtml  = _buildDxfBlock('pena',  'DXF – plochy pěn');
+```
+
+Data čte z `dxfData` (odpověď `/api/typy-casu/<id>/dxf`, klíč `dxf`) a `ovr` (overrides). Zobrazí jen polygony příslušného typu, vždy v podrobném barevném módu (dočasně nastaví `_dxfDetailMode = true`).
+
+Struktura SVG: vizuální `<path>` elementy per-vrstva (s `fill-rule="evenodd"` pro správné díry, `pointer-events="none"`) + průhledné overlay `<path>` elementy per-polygon (jeden polygon = jeden klikatelný prvek) s `data-coords`, `data-label`, `data-fill`, `data-strk` atributy.
+
+Výsledné HTML se vkládá: v sekci Desky pod `</table>` před `</details>` (screen) a za `</table>` v print-only divu, totéž pro sekci Pěny.
+
+**DXF kótovací popup — `window._dxfDimPopup`:**
+
+Globální funkce definovaná (přepsána) při každém otevření `zakazkaDetail`. Spustí se kliknutím na overlay path v SVG bloku.
+
+Vstup: `el` (kliknutý path), `ev` (MouseEvent). Data z `el.dataset`:
+- `coords` — JSON pole `[[x,y],...]` v reálných mm (zaokrouhleno na 1 desetinné místo)
+- `label` — text záhlaví (např. „Pěna 20 mm — 318×60 mm")
+- `fill`, `strk` — barvy vrstvy
+
+Výstup: bílý plovoucí popup s mini SVG technickým výkresem:
+- Tvar nakreslen ve správné barvě (`fill-opacity: 0.65`)
+- Pro každou unikátní délku hrany (≥ 5 mm) nakreslena kótovací čára odsazená `OFFS=20 px` od hrany s tikmarky, spojovacími čárami k rohům a textem `realLen mm` (font 9 px, bílý halo via `paint-order="stroke"`)
+- Normála hrany určena z těžiště polygonu (outward = pryč od těžiště)
+- Popup se adaptivně zvětšuje dle poměru stran (AR):
+  - AR > 8×: MAXW\_C=300, MAXH\_C=220
+  - AR > 4×: 240/190
+  - AR > 2×: 190/160
+  - Normální: 160/130
+- `BORDER=30 px` je vždy fixní v pixelech (nezávislý na scale) → kóty se nikdy neoříznou
+- SVG má `overflow="visible"` pro krajní případy
+- Popup se zavře kliknutím mimo; ostatní tvary v SVG se ztmaví na `opacity: 0.1`
 
 ### Soubory — záložka v BOM editoru
 

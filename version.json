@@ -1,8 +1,8 @@
 {
-  "verze": 130,
-  "popis": "v130: DXF popup — menší, fixní okraj pro kóty, kóty se neořezávají",
+  "verze": 132,
+  "popis": "v132: CLAUDE.md aktualizace — DXF barvy, _buildDxfBlock, kótovací popup",
   "autor": "Ludek",
   "datum": "12.05.2026",
-  "cas": "15:38",
-  "git_commit": "d9ec3c0"
+  "cas": "15:44",
+  "git_commit": "02e0bc5"
 }

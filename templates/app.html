@@ -5275,8 +5275,11 @@ async function zakazkaDetail(id) {
           var RW=rx1-rx0, RH=ry1-ry0;
 
           // Měřítko: tvar se vejde do MAXW_C × MAXH_C px, pak přidáme fixní okraj BORDER
-          // (BORDER je vždy stejný v px — nezávislý na škálovacím faktoru → kóty se nikdy neoříznou)
-          var MAXW_C=170, MAXH_C=130, BORDER=30, OFFS=22;
+          // Pro extrémní poměry stran povolíme větší popup
+          var AR=Math.max(RW,RH)/Math.max(Math.min(RW,RH),0.1);
+          var MAXW_C = AR>8 ? 300 : AR>4 ? 240 : AR>2 ? 190 : 160;
+          var MAXH_C = AR>8 ? 220 : AR>4 ? 190 : AR>2 ? 160 : 130;
+          var BORDER=30, OFFS=20;
           var scale=Math.min(MAXW_C/Math.max(RW,0.1), MAXH_C/Math.max(RH,0.1));
           if(!isFinite(scale)||scale<=0) scale=1;
           var vw=RW*scale+2*BORDER, vh=RH*scale+2*BORDER;
@@ -5293,9 +5296,8 @@ async function zakazkaDetail(id) {
           var scx=svgCoords.reduce(function(s,p){return s+p[0]},0)/n;
           var scy=svgCoords.reduce(function(s,p){return s+p[1]},0)/n;
 
-          // Kóty hran — pro každou unikátní délku anotujeme jednu hranu
-          // FS přizpůsobený velikosti tvaru, ale max 10 aby byl popup malý
-          var FS=Math.max(7, Math.min(10, Math.min(vw,vh)/12));
+          // Kóty — FS fixní 9px (vždy čitelné, vždy se vejde do BORDER=30px)
+          var FS=9;
           var seen={};
           var dimSvg='';
 
@@ -5353,8 +5355,9 @@ async function zakazkaDetail(id) {
 
           var pop=document.createElement('div');
           pop.id='_dxfpop';
+          var popMaxW = Math.round(vw + 20) + 'px'; // SVG + padding, bez pevného capu
           pop.style.cssText='position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;padding:8px 10px 10px;border-radius:10px;'
-            +'font-family:system-ui,sans-serif;box-shadow:0 6px 22px rgba(0,0,0,.16);max-width:260px;pointer-events:none;overflow:visible';
+            +'font-family:system-ui,sans-serif;box-shadow:0 6px 22px rgba(0,0,0,.16);max-width:'+popMaxW+';pointer-events:none;overflow:visible';
           pop.innerHTML='<div style="font-size:.67rem;font-weight:600;color:#94a3b8;margin-bottom:6px;white-space:nowrap">'+label+'</div>'+svgHtml;
           document.body.appendChild(pop);
 
