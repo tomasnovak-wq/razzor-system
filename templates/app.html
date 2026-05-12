@@ -11679,6 +11679,30 @@ async function novaFaktura() {
       </div>
     </div>` : prazdnyText}
 
+    <!-- VLASTNÍ POLOŽKY -->
+    <div class="mb-3">
+      <div class="flex items-center justify-between mb-2">
+        <p class="text-sm font-semibold text-gray-700">Vlastní položky:</p>
+        <button class="btn btn-secondary" style="padding:3px 10px;font-size:.8rem" onclick="_fakAddVlastniPolozka()">+ Přidat položku</button>
+      </div>
+      <div id="fak-vlastni-wrap">
+        <table class="w-full text-sm" id="fak-vlastni-tbl">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="text-left py-1 px-2" style="min-width:180px">Popis</th>
+              <th class="text-center py-1 px-2" style="width:60px">KS</th>
+              <th class="text-right py-1 px-2" style="width:120px">Cena/MJ bez DPH</th>
+              <th class="text-right py-1 px-2" style="width:100px">Základ</th>
+              <th class="text-right py-1 px-2" style="width:100px">S DPH</th>
+              <th style="width:32px"></th>
+            </tr>
+          </thead>
+          <tbody id="fak-vlastni-tbody"></tbody>
+        </table>
+        <p id="fak-vlastni-empty" class="text-xs text-gray-400 text-center py-2">Žádné vlastní položky. Klikněte „+ Přidat položku".</p>
+      </div>
+    </div>
+
     <!-- SOUČTY -->
     <div class="border-t pt-3 mb-3">
       <div class="flex justify-between text-sm mb-1">
@@ -11757,10 +11781,49 @@ function _fakRecalcRow(idx) {
   _fakUpdateSouhrn();
 }
 
+let _fakVlastniIdx = 0;
+
+function _fakAddVlastniPolozka() {
+  const tbody = document.getElementById('fak-vlastni-tbody');
+  const empty = document.getElementById('fak-vlastni-empty');
+  if (!tbody) return;
+  const i = _fakVlastniIdx++;
+  const tr = document.createElement('tr');
+  tr.id = `fak-vr-${i}`;
+  tr.className = 'fak-vlastni-row';
+  tr.innerHTML = `
+    <td class="py-1 px-1"><input type="text" class="input fak-v-nazev" style="width:100%;min-width:140px;padding:3px 6px;font-size:.85rem" placeholder="Popis položky…" oninput="_fakUpdateSouhrn()"></td>
+    <td class="py-1 px-1 text-center"><input type="number" class="input fak-v-ks" style="width:54px;padding:3px 4px;text-align:right;font-size:.85rem" value="1" min="1" oninput="_fakVlastniRecalcRow(${i});_fakUpdateSouhrn()"></td>
+    <td class="py-1 px-1"><input type="number" class="input fak-v-cena" style="width:110px;padding:3px 6px;text-align:right;font-size:.85rem" placeholder="0,00" step="0.01" min="0" oninput="_fakVlastniRecalcRow(${i});_fakUpdateSouhrn()"></td>
+    <td class="text-right text-sm py-1 px-2 font-mono" id="fak-vz-${i}">0,00 Kč</td>
+    <td class="text-right text-sm py-1 px-2 font-mono font-semibold" id="fak-vc-${i}">0,00 Kč</td>
+    <td class="py-1 px-1 text-center"><button onclick="document.getElementById('fak-vr-${i}').remove();_fakUpdateSouhrn()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:1rem;line-height:1" title="Odstranit">✕</button></td>
+  `;
+  tbody.appendChild(tr);
+  if (empty) empty.style.display = 'none';
+  // Focus na nový popis
+  tr.querySelector('.fak-v-nazev')?.focus();
+  _fakUpdateSouhrn();
+}
+
+function _fakVlastniRecalcRow(i) {
+  const tr = document.getElementById(`fak-vr-${i}`);
+  if (!tr) return;
+  const ks   = parseFloat(tr.querySelector('.fak-v-ks')?.value || 1) || 0;
+  const cena = parseFloat(tr.querySelector('.fak-v-cena')?.value || 0) || 0;
+  const zak  = cena * ks;
+  const cel  = zak * 1.21;
+  const ze = document.getElementById(`fak-vz-${i}`);
+  const ce = document.getElementById(`fak-vc-${i}`);
+  if (ze) ze.textContent = fmt(zak) + ' Kč';
+  if (ce) ce.textContent = fmt(cel) + ' Kč';
+}
+
 function _fakUpdateSouhrn() {
-  const rows = document.querySelectorAll('.fak-chk');
   let bezDph = 0, dphSuma = 0, sCelkem = 0;
-  rows.forEach(chk => {
+
+  // Zakázkové položky
+  document.querySelectorAll('.fak-chk').forEach(chk => {
     if (!chk.checked) return;
     const idx = chk.dataset.idx;
     const ksEl = document.getElementById(`fak-ks-${idx}`);
@@ -11774,10 +11837,26 @@ function _fakUpdateSouhrn() {
     dphSuma += dph;
     sCelkem += zak + dph;
   });
+
+  // Vlastní položky
+  document.querySelectorAll('.fak-vlastni-row').forEach(tr => {
+    const ks   = parseFloat(tr.querySelector('.fak-v-ks')?.value || 1) || 0;
+    const cena = parseFloat(tr.querySelector('.fak-v-cena')?.value || 0) || 0;
+    const zak  = cena * ks;
+    const dph  = zak * 0.21;
+    bezDph  += zak;
+    dphSuma += dph;
+    sCelkem += zak + dph;
+  });
+
   const el = id => document.getElementById(id);
   if (el('fak-s-bezDph')) el('fak-s-bezDph').textContent = fmt(bezDph) + ' Kč';
   if (el('fak-s-dph'))    el('fak-s-dph').textContent    = fmt(dphSuma) + ' Kč';
   if (el('fak-s-celkem')) el('fak-s-celkem').textContent = fmt(sCelkem) + ' Kč';
+
+  // Zobraz/skryj "prázdná" zpráva vlastních položek
+  const empty = document.getElementById('fak-vlastni-empty');
+  if (empty) empty.style.display = document.querySelectorAll('.fak-vlastni-row').length ? 'none' : '';
 }
 
 async function _odesliFakturu() {
@@ -11796,7 +11875,25 @@ async function _odesliFakturu() {
       cena_vyroby: parseFloat(ksEl?.dataset.cena_vyroby || 0),
     });
   });
-  if (polozky.length === 0) return alert('Vyberte alespoň jednu zakázku.');
+
+  // Vlastní položky (bez zakázky)
+  document.querySelectorAll('.fak-vlastni-row').forEach(tr => {
+    const nazev = tr.querySelector('.fak-v-nazev')?.value?.trim() || '';
+    const ks    = parseInt(tr.querySelector('.fak-v-ks')?.value || 1) || 1;
+    const cena  = parseFloat(tr.querySelector('.fak-v-cena')?.value || 0) || 0;
+    if (!nazev && cena === 0) return; // přeskoč prázdné řádky
+    polozky.push({
+      zakazka_id:  null,
+      hn_cislo:    '',
+      nazev:       nazev || '(bez popisu)',
+      ks:          ks,
+      cena_dilu:   0,
+      cena_vyroby: 0,
+      cena_za_mj:  cena,  // přímá cena bez DPH, bez marže
+    });
+  });
+
+  if (polozky.length === 0) return alert('Přidejte alespoň jednu zakázku nebo vlastní položku.');
   const poznamka = document.getElementById('fak-poznamka')?.value || '';
   const odberatel = {
     nazev: document.getElementById('fak-odb-nazev')?.value || '',

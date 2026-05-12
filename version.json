@@ -1,8 +1,8 @@
 {
-  "verze": 132,
-  "popis": "v132: CLAUDE.md aktualizace — DXF barvy, _buildDxfBlock, kótovací popup",
+  "verze": 133,
+  "popis": "Fakturace: vlastní položky bez zakázky",
   "autor": "Ludek",
   "datum": "12.05.2026",
-  "cas": "15:44",
-  "git_commit": "02e0bc5"
+  "cas": "15:56",
+  "git_commit": "4aca103"
 }

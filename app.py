@@ -3597,7 +3597,11 @@ def api_faktura_create():
         cena_dilu = float(p.get('cena_dilu', 0))
         cena_vyroby = float(p.get('cena_vyroby', 0))
 
-        cena_za_mj = round((cena_dilu + cena_vyroby) * MARZE, 4)
+        # Vlastní položka: cena_za_mj zadána přímo (bez výpočtu přes marži)
+        if p.get('cena_za_mj') is not None and not zak_id:
+            cena_za_mj = round(float(p['cena_za_mj']), 4)
+        else:
+            cena_za_mj = round((cena_dilu + cena_vyroby) * MARZE, 4)
         zaklad     = round(cena_za_mj * ks, 4)
         dph_cast   = round(zaklad * (DPH - 1), 4)
         celkem_pol = round(zaklad + dph_cast, 4)
