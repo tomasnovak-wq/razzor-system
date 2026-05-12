@@ -1,8 +1,8 @@
 {
-  "verze": 104,
-  "popis": "DXF: oprava barev vrstev dle tloušťky (effMap místo typMap)",
+  "verze": 106,
+  "popis": "DXF: přesné barvy z Photoshopu, P5mm, Baldachýn, odebrání P15mm",
   "autor": "Ludek",
   "datum": "12.05.2026",
-  "cas": "13:40",
-  "git_commit": "8a8ec14"
+  "cas": "13:56",
+  "git_commit": "9b24dc2"
 }

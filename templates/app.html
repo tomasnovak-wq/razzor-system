@@ -2445,23 +2445,24 @@ const _DXF_TYP_COLOR = {
 // ── Podrobné barvy dle tloušťky ──────────────────────────────────────────────
 // Pěny: klíč = tloušťka mm → [fill, stroke]
 const _DXF_PENA_COLORS = {
-  10:  ['#fb923c','#c2410c'],  // oranžová
-  15:  ['#a3e635','#65a30d'],  // žlutozelená
-  20:  ['#4ade80','#16a34a'],  // zelená
-  30:  ['#94a3b8','#475569'],  // modro-šedá
-  40:  ['#22d3ee','#0891b2'],  // cyan
-  50:  ['#c084fc','#9333ea'],  // fialová
+  5:   ['#fec93f','#b38200'],  // P 5mm – zlatožlutá
+  10:  ['#b34015','#7c2d12'],  // P 10mm – cihlová
+  20:  ['#66b06c','#2d6b33'],  // P 20mm – zelená
+  30:  ['#668fb1','#2e547a'],  // P 30mm – ocelová modrá
+  40:  ['#1896f8','#0f5ca3'],  // P 40mm – jasná modrá
+  50:  ['#ca46f7','#7e22ce'],  // P 50mm – fialová
+  999: ['#454f5f','#1e2d3d'],  // Baldachýn – tmavě šedá
 };
 const _DXF_PENA_DEFAULT = ['#d1d5db','#6b7280']; // P Ostatní – šedá
 
 // Desky: klíč = tloušťka mm → [fill, stroke]
 const _DXF_DESKA_COLORS = {
-  6.5: ['#fb923c','#c2410c'],  // oranžová
-  6.8: ['#fde047','#a16207'],  // žlutá
-  6.9: ['#4ade80','#15803d'],  // zelená
-  9:   ['#60a5fa','#1d4ed8'],  // modrá
-  12:  ['#22d3ee','#0e7490'],  // cyan
-  18:  ['#f472b6','#be185d'],  // růžová
+  6.5: ['#fd351c','#b91c0d'],  // D 6.5mm – červená
+  6.8: ['#fe5d23','#c2400e'],  // D 6.8mm – oranžová
+  6.9: ['#caf94c','#6b9117'],  // D 6.9mm – limetková
+  9:   ['#caf94c','#6b9117'],  // D 9mm – limetková (stejná jako 6.9)
+  12:  ['#1ffbfe','#0a8f91'],  // D 12mm – cyan
+  18:  ['#fe4ef8','#a21caf'],  // D 18mm – magenta
 };
 const _DXF_DESKA_DEFAULT = ['#374151','#111827']; // D Ostatní – černá
 
@@ -2519,12 +2520,13 @@ const _DXF_PRIRAZENI_OPTIONS = `
     <option value="deska:0">Deska – ostatní</option>
   </optgroup>
   <optgroup label="Pěna">
+    <option value="pena:5">Pěna 5 mm</option>
     <option value="pena:10">Pěna 10 mm</option>
-    <option value="pena:15">Pěna 15 mm</option>
     <option value="pena:20">Pěna 20 mm</option>
     <option value="pena:30">Pěna 30 mm</option>
     <option value="pena:40">Pěna 40 mm</option>
     <option value="pena:50">Pěna 50 mm</option>
+    <option value="pena:999">Pěna – Baldachýn</option>
     <option value="pena:0">Pěna – ostatní</option>
   </optgroup>
   <option value="ignore">Ignorovat</option>`;
