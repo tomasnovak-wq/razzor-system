@@ -2478,9 +2478,9 @@ function _dxfMmFromName(nazev) {
 /** Vrátí [fill, stroke] pro vrstvu dle aktuálního módu. */
 function _dxfLayerColors(typ, tloustka_mm, nazev) {
   if (!_dxfDetailMode) {
-    // Zjednodušený mód — jako dosud
-    if (typ === 'deska') return ['#c8986a','#7c4a1e'];
-    if (typ === 'pena')  return ['#86efac','#166534'];
+    // Zjednodušený mód — desky šedé, pěny černé
+    if (typ === 'deska') return ['#9ca3af','#4b5563'];
+    if (typ === 'pena')  return ['#1f2937','#111827'];
     return ['#e5e7eb','#9ca3af'];
   }
   // Podrobný mód — dle tloušťky; záloha z názvu vrstvy

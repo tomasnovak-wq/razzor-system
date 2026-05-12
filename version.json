@@ -1,8 +1,8 @@
 {
-  "verze": 106,
-  "popis": "DXF: přesné barvy z Photoshopu, P5mm, Baldachýn, odebrání P15mm",
+  "verze": 107,
+  "popis": "DXF: zjednodušený mód — desky šedé, pěny černé",
   "autor": "Ludek",
   "datum": "12.05.2026",
-  "cas": "13:56",
-  "git_commit": "9b24dc2"
+  "cas": "13:59",
+  "git_commit": "c443a04"
 }
