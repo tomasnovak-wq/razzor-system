@@ -1,8 +1,8 @@
 {
-  "verze": 136,
-  "popis": "CNC: polstrovani popup + DXF export; tri-state checklist; tlacitko Peny jen pro vybrane typy; DXF nahledy podrobny mod",
+  "verze": 137,
+  "popis": "3D viewer: registry pattern - izolované instance, prepinani verzi, tlacitko Peny jen pro vybrane typy, DXF nahledy podrobny mod",
   "autor": "Ludek",
   "datum": "13.05.2026",
-  "cas": "12:45",
-  "git_commit": "efb1297"
+  "cas": "13:13",
+  "git_commit": "2a9e26b"
 }
