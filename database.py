@@ -606,6 +606,7 @@ def auto_migrate():
     add_column('typy_casu', 'spravna_mc',        'REAL DEFAULT 0')  # Správná maloobchodní cena (z importu)
     add_column('typy_casu', 'viceprace_kompletace_s', 'INTEGER DEFAULT 0')  # Vícepráce – kompletace (empirická korekce)
     add_column('typy_casu', 'viceprace_peny_s',       'INTEGER DEFAULT 0')  # Vícepráce – pěny (empirická korekce)
+    add_column('typy_casu', 'delici_rovina',          'INTEGER')            # Dělící rovina (DR) v mm — výška spodní části case
 
     # materialy – web odkaz
     add_column('materialy', 'web_url', 'TEXT')
@@ -1195,6 +1196,30 @@ def auto_migrate():
             c.execute("INSERT OR IGNORE INTO barvy_materialu (typ, barva) VALUES (?,?)", (typ, barva))
         c.execute("INSERT INTO _migrations (name) VALUES ('barvy_materialu_seed_v1')")
         log.append("  [OK] barvy_materialu seed — výchozí barvy typů materiálů")
+
+    # Přetagování odkazů 'Viz výkres polstrování' → kategorie vykres_polstrovani
+    c.execute("SELECT 1 FROM _migrations WHERE name='links_polstrovani_retag_v1'")
+    if not c.fetchone():
+        c.execute("""
+            UPDATE typy_casu_links
+            SET typ_json = '["vykres_polstrovani"]'
+            WHERE nazev = 'Viz výkres polstrování'
+              AND typ_json = '["ostatni"]'
+        """)
+        c.execute("INSERT INTO _migrations (name) VALUES ('links_polstrovani_retag_v1')")
+        log.append(f"  [OK] links_polstrovani_retag_v1: přetagováno {c.rowcount} odkazů → vykres_polstrovani")
+
+    # Přetagování odkazů 'Bez polstrování' → kategorie vykres_sestavy
+    c.execute("SELECT 1 FROM _migrations WHERE name='links_bez_polstrovani_retag_v1'")
+    if not c.fetchone():
+        c.execute("""
+            UPDATE typy_casu_links
+            SET typ_json = '["vykres_sestavy"]'
+            WHERE nazev = 'Bez polstrování'
+              AND typ_json = '["ostatni"]'
+        """)
+        c.execute("INSERT INTO _migrations (name) VALUES ('links_bez_polstrovani_retag_v1')")
+        log.append(f"  [OK] links_bez_polstrovani_retag_v1: přetagováno {c.rowcount} odkazů → vykres_sestavy")
 
     conn.commit()
     conn.close()

@@ -2482,7 +2482,7 @@ const _DXF_DESKA_COLORS = {
 const _DXF_DESKA_DEFAULT = ['#d1d5db','#6b7280']; // D Ostatní – šedá
 
 // Stav přepínače podrobných barev (globální)
-let _dxfDetailMode = false;
+let _dxfDetailMode = true;
 
 /** Zkusí vytáhnout tloušťku (mm) z názvu vrstvy jako zálohu (např. "10MM" → 10). */
 function _dxfMmFromName(nazev) {
@@ -4308,7 +4308,7 @@ const _3D_COLORS = {
   deska:   0xc8986a,   // hnědá fallback (když tloušťka není v mapě)
   pena:    0x86efac,   // zelená fallback
   hw:      0x94a3b8,   // šedá — hardware (závěsy, zámky, nožičky…)
-  profily: 0xfbbf24,   // zlatá — hliníkové profily
+  profily: 0x9ca3af,   // šedá — hliníkové profily
   nyty:    0xd4d4d8,   // světle stříbrná — nýty
   jine:    0xe2e8f0,   // světle šedá — nezařazené
 };
@@ -4702,15 +4702,15 @@ async function _3dSetLayerType(typId, vid, filename, newTyp) {
     alert('Chyba sítě');
   }
 }
-function _bu3dRebuildLegend(typId, vid, vrstvy) {
-  const legend = document.getElementById('3d-layer-legend');
+function _bu3dRebuildLegend(typId, vid, vrstvy, sfx='') {
+  const legend = document.getElementById('3d-layer-legend' + sfx);
   if (!legend || !_3dMeshMap) return;
 
   const GROUP_DEF = [
     { typ:'deska',   label:'Deska',   color:'#c8986a' },
     { typ:'pena',    label:'Pěna',    color:'#86efac' },
     { typ:'hw',      label:'HW',      color:'#94a3b8' },
-    { typ:'profily', label:'Profily', color:'#fbbf24' },
+    { typ:'profily', label:'Profily', color:'#9ca3af' },
     { typ:'nyty',    label:'Nýty',    color:'#d4d4d8' },
     { typ:'jine',    label:'Jiné',    color:'#e2e8f0' },
   ];
@@ -4867,10 +4867,10 @@ function _bu3dLoadThree() {
   });
 }
 
-async function _bu3dInitViewer(typId, vid, vrstvy) {
-  const wrap   = document.getElementById('3d-viewer-wrap');
-  const canvas = document.getElementById('3d-viewer-canvas');
-  const legend = document.getElementById('3d-layer-legend');
+async function _bu3dInitViewer(typId, vid, vrstvy, sfx='') {
+  const wrap   = document.getElementById('3d-viewer-wrap'   + sfx);
+  const canvas = document.getElementById('3d-viewer-canvas' + sfx);
+  const legend = document.getElementById('3d-layer-legend'  + sfx);
   if (!wrap || !canvas) return;
 
   _3dMeshMap = {};   // reset při každém novém otevření
@@ -5013,7 +5013,7 @@ async function _bu3dInitViewer(typId, vid, vrstvy) {
   }
 
   // Legenda vrstev — deleguj na _bu3dRebuildLegend (sdílená logika)
-  _bu3dRebuildLegend(typId, vid, vrstvy);
+  _bu3dRebuildLegend(typId, vid, vrstvy, sfx);
 
   // Animační smyčka
   if (_3dAnimFrameId) cancelAnimationFrame(_3dAnimFrameId);
@@ -5208,11 +5208,30 @@ async function zakazkaDetail(id) {
     return;
   }
   const z = data.zakazka;
+  // Počet kusů stejného HN čísla, které aktuálně čekají / jsou ve výrobě v Dílně
+  const dilaFronta = ((_cache.dilna || []).filter(d =>
+    d.hn_cislo && d.hn_cislo === z.hn_cislo &&
+    ['Čeká','CNC hotovo','Výroba','Hotovo'].includes(d.stav)
+  )).length;
   const bom = data.bom || [];
   const profilyL = data.profily_l || [];
   const profilyH = data.profily_h || [];
   const spojeniky = data.spojeniky || [];
   const links = data.links || [];
+  // Filtrování odkazů podle kategorie z typ_json
+  function _lnkHasTyp(lnk, typ) {
+    try { return JSON.parse(lnk.typ_json || '["ostatni"]').includes(typ); } catch(e) { return false; }
+  }
+  const linksNahore   = links.filter(l => _lnkHasTyp(l,'obrazek') || _lnkHasTyp(l,'ostatni'));
+  const linksSestava  = links.filter(l => _lnkHasTyp(l,'vykres_sestavy'));
+  const linksPolstrov = links.filter(l => _lnkHasTyp(l,'vykres_polstrovani'));
+  // Helper: renderuje jeden odkaz + řadu odkazů
+  const _lnkItem = lnk => `<a href="${lnk.url}" target="_blank"
+    style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:5px;border:1px solid #a5b4fc;background:white;color:#3730a3;font-size:.78rem;font-weight:600;text-decoration:none"
+    onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='white'">
+    ${lnk.zdroj==='priloha'?'📎':'📄'} ${lnk.nazev}
+  </a>`;
+  const _lnkBar = arr => arr.length ? `<div style="display:flex;flex-wrap:wrap;gap:5px;padding:5px 4px 2px">${arr.map(_lnkItem).join('')}</div>` : '';
 
   // Normalizace diakritiky pro porovnání typů (PÉNA = PĚNA = PENA atd.)
   function _normTyp(s) {
@@ -5458,8 +5477,8 @@ async function zakazkaDetail(id) {
           }).join('');
 
           return `
-            <div style="margin-top:10px;border-top:1px solid #e5e7eb;padding-top:8px">
-              <div style="font-size:.68rem;font-weight:700;color:#9ca3af;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">${nadpis}</div>
+            <div style="margin-top:${nadpis?'10px':'4px'};${nadpis?'border-top:1px solid #e5e7eb;padding-top:8px':''}">
+              ${nadpis ? `<div style="font-size:.68rem;font-weight:700;color:#9ca3af;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">${nadpis}</div>` : ''}
               <div style="border:1px solid #e2e8f0;border-radius:6px;overflow:hidden">
                 <div style="padding:8px;background:#fff">
                   <svg viewBox="0 0 ${VW.toFixed(1)} ${VH.toFixed(1)}" xmlns="http://www.w3.org/2000/svg"
@@ -5478,10 +5497,54 @@ async function zakazkaDetail(id) {
         }
 
         dxfDeskyHtml = _buildDxfBlock('deska', 'DXF – plochy desek');
-        dxfPenyHtml  = _buildDxfBlock('pena',  'DXF – plochy pěn');
+        dxfPenyHtml  = _buildDxfBlock('pena',  '');
       }
     } catch(e) { /* DXF nedostupné — ignoruj */ }
   }
+
+  // 3D modely — načti verze (Polstrování → PĚNY, Sestava → DESKY)
+  let dil3DPolstrovani = [], dil3DSestava = [];
+  if (z.typ_casu_id) {
+    try {
+      const resp3d = await api(`/api/typy-casu/${z.typ_casu_id}/3d`);
+      const versions = resp3d?.versions || [];
+      dil3DPolstrovani = versions.filter(v =>
+        (v.typ_sestavy || 'sestava').split(',').map(s => s.trim()).includes('polstrovani')
+      );
+      dil3DSestava = versions.filter(v =>
+        (v.typ_sestavy || 'sestava').split(',').map(s => s.trim()).includes('sestava')
+      );
+    } catch(e) { /* 3D nedostupné */ }
+  }
+  // Lazy init funkce — volá se z ontoggle, inicializuje viewer jen jednou
+  window._vlInit3DPena = (function(typId, ver) {
+    let done = false;
+    return function() {
+      if (done || !ver) return; done = true;
+      const vrstvy = Array.isArray(ver.vrstvy) ? ver.vrstvy : JSON.parse(ver.vrstvy || '[]');
+      _bu3dLoadThree().then(async () => {
+        await _bu3dInitViewer(typId, ver.id, vrstvy, '');
+        // Výchozí nastavení pro pohled na pěny: ostatní skupiny zprůhledni, nýty schovej
+        ['deska', 'hw', 'profily', 'jine'].forEach(t => _3dSetGroupOpacity(t, 0.05));
+        // Schovat nýty — po init jsou všechny viditelné, toggle = skrytí
+        const nytyMeshes = Object.values(_3dMeshMap || {}).filter(m => m.userData?.vrstva?.typ === 'nyty');
+        nytyMeshes.forEach(m => {
+          m.visible = false;
+          const pill = document.getElementById('pill3d_' + m.userData.vrstva.filename.replace(/[^a-zA-Z0-9]/g, '_'));
+          if (pill) _3dPillSetActive(pill, false);
+        });
+        _3dMasterSetActive('nyty', false);
+      });
+    };
+  })(z.typ_casu_id, dil3DPolstrovani[0] || null);
+  window._vlInit3DDesky = (function(typId, ver) {
+    let done = false;
+    return function() {
+      if (done || !ver) return; done = true;
+      const vrstvy = Array.isArray(ver.vrstvy) ? ver.vrstvy : JSON.parse(ver.vrstvy || '[]');
+      _bu3dLoadThree().then(() => _bu3dInitViewer(typId, ver.id, vrstvy, '-d'));
+    };
+  })(z.typ_casu_id, dil3DSestava[0] || null);
 
   // Sloučení duplicitních profilů se stejným rozměrem — sečte ks, zarážky zachová (závisí jen na délce)
   function _dedupProfily(arr) {
@@ -5600,61 +5663,65 @@ async function zakazkaDetail(id) {
     .print-only { display:none; }
     .varna { background:#dc2626; color:white; font-weight:700; font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; text-align:center; padding:6px 10px; margin-bottom:12px; border-radius:4px; }
     details summary::-webkit-details-marker { display:none; }
-    details summary span.det-lbl { font-size:0; opacity:.7; }
-    details summary span.det-lbl::before { font-size:.8rem; content:'▶ rozbalit'; }
+    details summary span.det-lbl { font-size:0; opacity:.5; }
+    details summary span.det-lbl::before { font-size:.7rem; font-weight:400; letter-spacing:.03em; content:'▶ rozbalit'; }
     details[open] summary span.det-lbl::before { content:'▼ sbalit'; }
   </style>
 
   <div class="vl-header">
-    <div class="flex items-start justify-between">
-      <div>
-        <p class="text-xs opacity-60 font-mono">${z.hn_cislo||''} · Zakázka #${z.id} &nbsp;${badge(z.stav)}</p>
-        <h2 class="text-xl font-bold mt-0.5">${z.case_nazev||z.nazev||'–'}</h2>
-        <p class="text-sm opacity-70 mt-0.5">${z.typ_korpusu||''}</p>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+      <!-- Levá část: název + rozměry -->
+      <div style="flex:1;min-width:0">
+        <p style="font-size:.72rem;opacity:.6;font-family:monospace;margin-bottom:2px">${z.hn_cislo||''} · Zakázka #${z.id} &nbsp;${badge(z.stav)}</p>
+        <h2 style="font-size:1.2rem;font-weight:700;margin:0 0 2px">${z.case_nazev||z.nazev||'–'}</h2>
+        <p style="font-size:.82rem;opacity:.65;margin:0 0 6px">${z.typ_korpusu||''}</p>
+        ${rozmerStr !== '–' ? `<p style="font-size:.78rem;opacity:.8;font-family:monospace;letter-spacing:.04em;background:rgba(255,255,255,.1);display:inline-block;padding:2px 8px;border-radius:4px">${rozmerStr} mm</p>` : ''}
       </div>
-      <div class="text-right">
-        <p class="text-xs opacity-60">Čas výroby</p>
-        <p class="text-2xl font-bold">${casStr}</p>
-        <button onclick="closeModal()" class="mt-1 text-xs opacity-50 hover:opacity-100 no-print">✕ zavřít</button>
+      <!-- Pravá část: LID + čas výroby + zavřít -->
+      <div style="display:flex;align-items:stretch;gap:10px;flex-shrink:0">
+        ${z.orientace_lid ? `
+          <img src="/static/lid_orientace/${z.orientace_lid}.png"
+               style="width:116px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,.12);padding:5px;display:block;align-self:stretch"
+               onerror="this.style.display='none'"
+               alt="Orientace LID: ${z.orientace_lid}"/>` : ''}
+        <div style="display:flex;flex-direction:column;align-items:flex-end;justify-content:space-between">
+          <div style="text-align:right">
+            <p style="font-size:.68rem;opacity:.6;margin-bottom:1px">Čas výroby</p>
+            <p style="font-size:1.7rem;font-weight:700;line-height:1">${casStr}</p>
+            <button onclick="window.print()" class="no-print" style="margin-top:5px;font-size:.7rem;font-weight:600;opacity:.6;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);color:white;cursor:pointer;padding:2px 8px;border-radius:4px;letter-spacing:.04em" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='.6'">PDF</button>
+          </div>
+          <button onclick="closeModal()" class="no-print" style="font-size:.72rem;opacity:.5;background:none;border:none;color:white;cursor:pointer;padding:0">✕ zavřít</button>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- Akční tlačítka -->
-  <div class="flex gap-2 mb-4 no-print flex-wrap">
-    <button class="btn btn-primary text-xs" onclick="window.print()">🖨 Tisk výrobního listu</button>
+  ${linksNahore.length ? `
+  <!-- PRACOVNÍ POSTUPY – obrázky + ostatní -->
+  <div class="no-print" style="margin-bottom:10px;padding:7px 12px;border-radius:7px;border:1px solid #c7d2fe;background:#eef2ff">
+    <p style="font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4338ca;margin-bottom:4px">📎 Soubory</p>
+    ${_lnkBar(linksNahore)}
   </div>
-
-  ${links.length ? `
-  <!-- PRACOVNÍ POSTUPY -->
-  <div class="no-print" style="margin-bottom:14px;padding:10px 14px;border-radius:8px;border:1px solid #c7d2fe;background:#eef2ff">
-    <p style="font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4338ca;margin-bottom:7px">📎 Pracovní postupy</p>
-    <div style="display:flex;flex-wrap:wrap;gap:6px">
-      ${links.map(lnk => `<a href="${lnk.url}" target="_blank"
-        style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:6px;border:1px solid #a5b4fc;background:white;color:#3730a3;font-size:.82rem;font-weight:600;text-decoration:none"
-        onmouseover="this.style.background='#e0e7ff'" onmouseout="this.style.background='white'">
-        📄 ${lnk.nazev}
-      </a>`).join('')}
-    </div>
-  </div>
-  <div class="print-only" style="margin-bottom:14px;padding:8px 12px;border:1px solid #c7d2fe;border-radius:6px">
-    <p style="font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4338ca;margin-bottom:5px">PRACOVNÍ POSTUPY</p>
-    ${links.map(lnk => `<p style="font-size:.8rem;color:#374151;margin:2px 0">📄 ${lnk.nazev}: <span style="color:#1d4ed8">${lnk.url}</span></p>`).join('')}
+  <div class="print-only" style="margin-bottom:10px;padding:6px 10px;border:1px solid #c7d2fe;border-radius:6px">
+    <p style="font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4338ca;margin-bottom:4px">SOUBORY</p>
+    ${linksNahore.map(lnk => `<p style="font-size:.78rem;color:#374151;margin:2px 0">📎 ${lnk.nazev}: <span style="color:#1d4ed8">${lnk.url}</span></p>`).join('')}
   </div>` : ''}
 
   <!-- SPECIFIKACE -->
   <div class="vl-section">
     <div class="grid grid-cols-2 gap-3 text-sm mb-3">
-      <div class="bg-gray-50 rounded p-3">
-        <p class="text-xs text-gray-400 mb-1">Vnitřní rozměry (Š×V×H)</p>
-        <p class="font-bold text-base">${rozmerStr}</p>
-        ${z.orientace_lid ? `<p class="text-xs text-gray-500 mt-1">Orientace LID: <strong>${z.orientace_lid}</strong></p>` : ''}
+      <!-- Termín -->
+      <div class="bg-gray-50 rounded p-3" style="display:flex;flex-direction:column;justify-content:center">
+        <p class="text-xs text-gray-400 mb-1">Termín</p>
+        <p style="font-size:1.35rem;font-weight:700;line-height:1.15;color:#111">${z.termin ? _fmtDate(z.termin) : '—'}</p>
+        ${dilaFronta > 1 ? `<p style="margin-top:6px"><span style="display:inline-flex;align-items:center;gap:4px;background:#dbeafe;color:#1e40af;font-size:.72rem;font-weight:700;padding:3px 8px;border-radius:20px">📦 ${dilaFronta} ks stejného HN ve výrobě</span></p>` : ''}
       </div>
+      <!-- Zákazník -->
       <div class="bg-gray-50 rounded p-3">
-        <p class="text-xs text-gray-400 mb-1">Zakázka</p>
-        <p class="text-sm"><strong>${z.zakaznik||'–'}</strong></p>
-        <p class="text-xs text-gray-500">Termín: ${z.termin||'–'} · ${z.pocet_ks} ks · ${z.pracovnik||'–'}</p>
-        ${z.sn_cislo ? `<p class="text-xs text-gray-500">S/N: ${z.sn_cislo}</p>` : ''}
+        <p class="text-xs text-gray-400 mb-1">Zákazník</p>
+        <p class="text-sm font-semibold">${z.zakaznik||'–'}</p>
+        <p class="text-xs text-gray-500 mt-1">${z.pocet_ks} ks · ${z.pracovnik||'–'}</p>
+        ${z.sn_cislo ? `<p class="text-xs text-gray-500 mt-0.5">S/N: <strong>${z.sn_cislo}</strong></p>` : ''}
       </div>
     </div>
     ${z.poznamka_dilna ? `<div class="bg-yellow-50 border border-yellow-200 rounded p-2 mb-2 text-sm"><strong>Dílna:</strong> ${z.poznamka_dilna}</div>` : ''}
@@ -5668,25 +5735,59 @@ async function zakazkaDetail(id) {
   </div>
   <div class="print-only varna">ODCHYLKY KARTY OPROTI SKUTEČNOSTI HLASTE!</div>
 
-  <!-- DESKY (sbalené) -->
+  <!-- DESKY (sbalené, s podsekceemi) -->
   ${desky.length ? `
   <div class="vl-section no-print">
     <details>
       <summary style="background:#9ca3af;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
         <span>Desky</span><span class="det-lbl"></span>
       </summary>
-      <table class="vl-table" style="margin-top:4px">
-        <thead><tr>
-          <th style="width:18px"></th>
-          <th style="width:70px">Kód</th><th>Název</th>
-          <th class="r" style="width:50px">Mn.</th>
-          <th style="width:60px">Umístění</th>
-          <th style="width:50px">Web</th>
-          <th class="r" style="width:50px">Sklad</th>
-        </tr></thead>
-        <tbody>${desky.map(bomRow).join('')}</tbody>
-      </table>
-      ${dxfDeskyHtml}
+      <div style="padding:4px 0 2px 14px;border-left:3px solid #6b7280;margin-left:4px;margin-top:4px">
+        <!-- Podsekce: Materiál -->
+        <details style="margin-top:3px" open>
+          <summary style="background:#6b7280;color:white;font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span>Materiál</span><span class="det-lbl"></span>
+          </summary>
+          <table class="vl-table" style="margin-top:4px">
+            <thead><tr>
+              <th style="width:18px"></th>
+              <th style="width:70px">Kód</th><th>Název</th>
+              <th class="r" style="width:50px">Mn.</th>
+              <th style="width:60px">Umístění</th>
+              <th style="width:50px">Web</th>
+              <th class="r" style="width:50px">Sklad</th>
+            </tr></thead>
+            <tbody>${desky.map(bomRow).join('')}</tbody>
+          </table>
+        </details>
+        <!-- Podsekce: DXF (jen pokud existuje) -->
+        ${dxfDeskyHtml ? `
+        <details style="margin-top:3px" open>
+          <summary style="background:#6b7280;color:white;font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span>DXF – plochy desek</span><span class="det-lbl"></span>
+          </summary>
+          ${dxfDeskyHtml}
+        </details>` : ''}
+        <!-- Podsekce: Soubory (jen pokud existuje) -->
+        ${linksSestava.length ? `
+        <details style="margin-top:3px" open>
+          <summary style="background:#6b7280;color:white;font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span>Soubory</span><span class="det-lbl"></span>
+          </summary>
+          ${_lnkBar(linksSestava)}
+        </details>` : ''}
+        <!-- Podsekce: 3D model sestavy (jen pokud existuje) -->
+        ${dil3DSestava.length ? `
+        <details style="margin-top:3px" ontoggle="if(this.open) window._vlInit3DDesky()">
+          <summary style="background:#6b7280;color:white;font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span>3D – sestava</span><span class="det-lbl"></span>
+          </summary>
+          <div id="3d-viewer-wrap-d" style="height:460px;border-radius:6px;overflow:hidden;margin-top:4px;background:#1e293b">
+            <canvas id="3d-viewer-canvas-d" style="width:100%;height:100%;display:block"></canvas>
+          </div>
+          <div id="3d-layer-legend-d" style="margin-top:4px"></div>
+        </details>` : ''}
+      </div>
     </details>
   </div>
   <div class="print-only vl-section">
@@ -5702,6 +5803,7 @@ async function zakazkaDetail(id) {
       <tbody>${desky.map(bomRow).join('')}</tbody>
     </table>
     ${dxfDeskyHtml}
+    ${_lnkBar(linksSestava)}
   </div>` : ''}
 
   <!-- PROFILY AL + FORMÁTOVÁNÍ (sloučené, sbalené) -->
@@ -5918,25 +6020,59 @@ async function zakazkaDetail(id) {
     </table>
   </div>` : ''}
 
-  <!-- PĚNY (sbalené) -->
+  <!-- PĚNY (sbalené, s podsekceemi) -->
   ${peny.length ? `
   <div class="vl-section no-print">
     <details>
       <summary style="background:#111827;color:white;font-size:.7rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
         <span>Pěny</span><span class="det-lbl"></span>
       </summary>
-      <table class="vl-table" style="margin-top:4px">
-        <thead><tr>
-          <th style="width:18px"></th>
-          <th style="width:70px">Kód</th><th>Název</th>
-          <th class="r" style="width:50px">Mn.</th>
-          <th style="width:60px">Umístění</th>
-          <th style="width:50px">Web</th>
-          <th class="r" style="width:50px">Sklad</th>
-        </tr></thead>
-        <tbody>${peny.map(bomRow).join('')}</tbody>
-      </table>
-      ${dxfPenyHtml}
+      <div style="padding:4px 0 2px 14px;border-left:3px solid #374151;margin-left:4px;margin-top:4px">
+        <!-- Podsekce: Materiál -->
+        <details style="margin-top:3px" open>
+          <summary style="background:#374151;color:white;font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span>Materiál</span><span class="det-lbl"></span>
+          </summary>
+          <table class="vl-table" style="margin-top:4px">
+            <thead><tr>
+              <th style="width:18px"></th>
+              <th style="width:70px">Kód</th><th>Název</th>
+              <th class="r" style="width:50px">Mn.</th>
+              <th style="width:60px">Umístění</th>
+              <th style="width:50px">Web</th>
+              <th class="r" style="width:50px">Sklad</th>
+            </tr></thead>
+            <tbody>${peny.map(bomRow).join('')}</tbody>
+          </table>
+        </details>
+        <!-- Podsekce: DXF (jen pokud existuje) -->
+        ${dxfPenyHtml ? `
+        <details style="margin-top:3px" open>
+          <summary style="background:#374151;color:white;font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span>DXF – plochy pěn</span><span class="det-lbl"></span>
+          </summary>
+          ${dxfPenyHtml}
+        </details>` : ''}
+        <!-- Podsekce: Soubory (jen pokud existuje) -->
+        ${linksPolstrov.length ? `
+        <details style="margin-top:3px" open>
+          <summary style="background:#374151;color:white;font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span>Soubory</span><span class="det-lbl"></span>
+          </summary>
+          ${_lnkBar(linksPolstrov)}
+        </details>` : ''}
+        <!-- Podsekce: 3D model polstrování (jen pokud existuje) -->
+        ${dil3DPolstrovani.length ? `
+        <details style="margin-top:3px" ontoggle="if(this.open) window._vlInit3DPena()">
+          <summary style="background:#374151;color:white;font-size:.63rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 10px;border-radius:4px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center">
+            <span>3D – polstrování</span><span class="det-lbl"></span>
+          </summary>
+          <div id="3d-viewer-wrap" style="height:460px;border-radius:6px;overflow:hidden;margin-top:4px;background:#1e293b">
+            <canvas id="3d-viewer-canvas" style="width:100%;height:100%;display:block"></canvas>
+          </div>
+          <div id="3d-layer-legend" style="margin-top:4px"></div>
+        </details>` : ''}
+      </div>
     </details>
   </div>
   <div class="print-only vl-section">
@@ -5952,6 +6088,7 @@ async function zakazkaDetail(id) {
       <tbody>${peny.map(bomRow).join('')}</tbody>
     </table>
     ${dxfPenyHtml}
+    ${_lnkBar(linksPolstrov)}
   </div>` : ''}
 
   `, true);
@@ -12069,6 +12206,9 @@ function _bomDetailClose() {
 let _cncStavFiltr = 'Čeká';
 let _cncMuzeSeRezat = false;
 
+// Typy korpusu, pro které se zobrazuje tlačítko ✂ Pěny
+const _CNC_POLSTROVANI_TYPY = new Set(['Hlava / kombo', 'Accessory case', 'Pedalboard', 'Mixpult']);
+
 async function cnc() {
   setContent('<div class="text-center py-16 text-gray-400">⏳ Načítám CNC přehled...</div>');
 
@@ -12153,35 +12293,36 @@ async function _cncLoad() {
     const terminClass = z.termin && z.termin < dnes && !['Hotovo','Expedováno'].includes(z.stav)
       ? 'text-red-600 font-bold' : 'text-gray-500';
 
-    // Materiály – informativní seznam (jen desky a pěny, bez zaškrtávání)
-    const deskyChips = (z.desky_mats||[]).map(n => '<span style="' + _cncMatStyle(n) + ';font-size:.72rem;padding:2px 7px;border-radius:4px;font-weight:500">' + n + '</span>');
-    const penyChips  = (z.peny_mats  ||[]).map(n => '<span style="' + _cncMatStyle(n) + ';font-size:.72rem;padding:2px 7px;border-radius:4px;font-weight:500">' + n + '</span>');
-    const allChips = [...deskyChips, ...penyChips];
-    const matInfo = allChips.length === 0
+    // Materiály s třístavovým togglem (0=neřezáno, 1=rozpracováno, 2=hotovo)
+    function _cncChipHtml(mat, zakId) {
+      const s = mat.stav || 0;
+      const dot  = s === 0 ? '⬤' : s === 1 ? '⬤' : '✓';
+      const dotC = s === 0 ? '#9ca3af' : s === 1 ? '#f59e0b' : '#16a34a';
+      // Syntetický chip Podvozky — barva jako fenol deska
+      const base = mat.kod === '_PODVOZKY_' ? 'background:#f5dfc0;color:#7c2d12' : _cncMatStyle(mat.nazev);
+      const overlay = s === 2 ? 'text-decoration:line-through;opacity:.7' : '';
+      const bg2 = s === 2 ? 'filter:brightness(1.08)' : '';
+      const kodSafe = mat.kod.replace(/[^a-zA-Z0-9]/g,'_');
+      const nextStav = (s + 1) % 3;
+      return '<span id="cnc-chip-' + zakId + '-' + kodSafe + '" ' +
+        'onclick="cncToggleMat(' + zakId + ',\'' + mat.kod.replace(/'/g,"\\'") + '\',' + s + ')" ' +
+        'title="Kliknutím změnit stav" ' +
+        'style="' + base + ';' + bg2 + ';font-size:.72rem;padding:2px 7px 2px 5px;border-radius:4px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:4px;user-select:none">' +
+        '<span style="color:' + dotC + ';font-size:.65rem;line-height:1">' + dot + '</span>' +
+        '<span style="' + overlay + '">' + mat.nazev + '</span>' +
+      '</span>';
+    }
+    // Podvozky: zobraz syntetický chip jen pokud v deskách ještě není 12mm deska
+    const has12mmDeska = (z.desky_mats||[]).some(m => /12\s*mm/i.test(m.nazev));
+    const podvozkyShow = has12mmDeska ? [] : (z.podvozky_mats||[]);
+    const allMats = [...(z.desky_mats||[]), ...podvozkyShow, ...(z.peny_mats||[])];
+    const matInfo = allMats.length === 0
       ? '<span class="text-xs text-gray-400 italic">BOM nenastaven</span>'
-      : '<div class="flex flex-wrap gap-1">' + allChips.join('') + '</div>';
+      : '<div class="flex flex-wrap gap-1">' + allMats.map(m => _cncChipHtml(m, z.id)).join('') + '</div>';
 
-    // Checklist – 3 podmíněné položky (Desky / Podvozky / Pěny)
-    const cl = z.checklist || {};
-    const checkItems = [];
-    if (z.has_desky)    checkItems.push({ label: 'Desky',    key: '_DESKY_',    val: cl.desky });
-    if (z.has_podvozky) checkItems.push({ label: 'Podvozky', key: '_PODVOZKY_', val: cl.podvozky });
-    if (z.has_peny)     checkItems.push({ label: 'Pěny',     key: '_PENY_',     val: cl.peny });
-
-    const checklistHtml = checkItems.length === 0
-      ? '<span class="text-xs text-gray-400 italic">–</span>'
-      : checkItems.map(item => {
-          const chk = item.val ? 'checked' : '';
-          const lbl = item.val ? 'line-through text-gray-400' : 'text-gray-700';
-          return '<label class="flex items-center gap-1.5 cursor-pointer select-none">' +
-            '<input type="checkbox" ' + chk + ' onchange="cncToggle(' + z.id + ',\'' + item.key + '\',this.checked)">' +
-            '<span class="text-sm ' + lbl + '">' + item.label + '</span>' +
-          '</label>';
-        }).join('');
-
-    // Progress (jen pro logiku tlačítka — nezobrazuje se jako sloupec)
-    const celkem = z.cnc_celkem;
-    const hotovo = z.cnc_hotovo;
+    // Progress — všechny materiály na stav 2 = povolí CNC hotovo
+    const celkem  = z.cnc_celkem;
+    const hotovo  = z.cnc_hotovo;
     const allDone = celkem > 0 && hotovo === celkem;
     const noBom   = celkem === 0;
 
@@ -12230,15 +12371,21 @@ async function _cncLoad() {
       '<td style="min-width:150px">' + poznamkaTa + '</td>' +
       '<td class="text-xs ' + terminClass + '">' + (z.termin||'–') + '</td>' +
       '<td class="max-w-xs">' + matInfo + '</td>' +
-      '<td><div class="flex flex-col gap-1.5 py-0.5">' + checklistHtml + '</div></td>' +
       '<td style="min-width:150px"><textarea rows="2" placeholder="Co ještě chybí nařezat…" ' +
         'onblur="cncSavePoznamkaOperator(' + z.id + ',this.value)" ' +
         'style="width:100%;font-size:.72rem;padding:4px 6px;border-radius:6px;border:1.5px solid #e2e8f0;resize:vertical;background:white">' +
         (z.poznamka_cnc_operator || '') + '</textarea></td>' +
-      '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + dxfBtn + btnCncHotovo + '</div></td>' +
+      '<td class="text-right"><div class="flex gap-1 justify-end flex-wrap">' + dxfBtn +
+        (_CNC_POLSTROVANI_TYPY.has(z.typ_korpusu||'')
+          ? '<button class="btn text-xs py-1 px-2" style="background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7" ' +
+            'onclick="cncPolstrovaniPopup(' + z.id + ')" title="Výpočet polstrování">✂ Pěny</button>'
+          : '') +
+        '<button class="btn text-xs py-1 px-2" style="background:#f1f5f9;color:#374151;border:1px solid #e2e8f0" ' +
+        'onclick="zakazkaDetail(' + z.id + ')" title="Výrobní karta">🗂 Karta</button>' +
+        btnCncHotovo + '</div></td>' +
     '</tr>' +
     '<tr id="' + dxfPanelId + '" style="display:none">' +
-      '<td colspan="8" style="padding:0;background:#fafafa;border-top:1px solid #e2e8f0">' +
+      '<td colspan="7" style="padding:0;background:#fafafa;border-top:1px solid #e2e8f0">' +
         '<div style="padding:12px 16px">' + dxfPanelHtml + '</div>' +
       '</td>' +
     '</tr>';
@@ -12254,8 +12401,8 @@ async function _cncLoad() {
       <table class="w-full">
         <thead><tr>
           <th>HN</th><th>Název / Zákazník</th><th>Poznámka (z kanceláře)</th>
-          <th>Termín</th><th>Materiály (info)</th>
-          <th>Checklist</th><th>Poznámka operátora</th><th class="text-right">Akce</th>
+          <th>Termín</th><th>Materiály / Stav řezání</th>
+          <th>Poznámka operátora</th><th class="text-right">Akce</th>
         </tr></thead>
         <tbody>${rows.join('')}</tbody>
       </table>
@@ -12267,7 +12414,26 @@ async function _cncLoad() {
 }
 
 async function cncToggle(zakId, matKod, rezano) {
-  await api('/api/cnc/' + zakId + '/toggle', 'POST', { material_kod: matKod, rezano: rezano ? 1 : 0 });
+  // backward compat — boolean → stav 2 nebo 0
+  await api('/api/cnc/' + zakId + '/toggle', 'POST', { material_kod: matKod, stav: rezano ? 2 : 0 });
+  await _cncLoad();
+}
+
+async function cncToggleMat(zakId, matKod, currentStav) {
+  const nextStav = (currentStav + 1) % 3;
+  // Optimistická aktualizace chipu
+  const kodSafe = matKod.replace(/[^a-zA-Z0-9]/g,'_');
+  const chip = document.getElementById('cnc-chip-' + zakId + '-' + kodSafe);
+  if (chip) {
+    const dot  = nextStav === 0 ? '⬤' : nextStav === 1 ? '⬤' : '✓';
+    const dotC = nextStav === 0 ? '#9ca3af' : nextStav === 1 ? '#f59e0b' : '#16a34a';
+    const over = nextStav === 2 ? 'text-decoration:line-through;opacity:.7' : '';
+    chip.querySelector('span:first-child').style.color = dotC;
+    chip.querySelector('span:first-child').textContent = dot;
+    chip.querySelector('span:last-child').style.cssText = over;
+    chip.setAttribute('onclick', 'cncToggleMat(' + zakId + ',\'' + matKod.replace(/'/g,"\\'") + '\',' + nextStav + ')');
+  }
+  await api('/api/cnc/' + zakId + '/toggle', 'POST', { material_kod: matKod, stav: nextStav });
   await _cncLoad();
 }
 
@@ -12409,6 +12575,203 @@ async function cncZmenaStavu(zakId, novyStav) {
     return;
   }
   await _cncLoad();
+}
+
+// ── POLSTROVÁNÍ — popup výpočtu + DXF ────────────────────────────────────────
+
+async function cncPolstrovaniPopup(zakId) {
+  // Načti data zakázky
+  const data = await api('/api/zakazky/' + zakId + '/vyrobni-list');
+  if (!data || data.error) { alert('Nepodařilo se načíst data zakázky'); return; }
+  const z = data.zakazka;
+  const t = z; // alias — typ_casu data jsou v zakazka (join)
+
+  // Vstupy
+  const s  = parseFloat(t.vnitrni_sirka  || 0);
+  const v  = parseFloat(t.vnitrni_vyska  || 0);
+  const h  = parseFloat(t.vnitrni_hloubka || 0);
+  const orientace = (t.orientace_lid || 'MV').toUpperCase();
+
+  // Typ case: KOMBO nebo TRUHLA dle typ_korpusu
+  function _polstTyp(korpus) {
+    const k = (korpus || '').toLowerCase();
+    if (k.includes('klávesy') || k.includes('klavesy') || k.includes('accessory')) return 'TRUHLA';
+    return 'KOMBO';
+  }
+  const typCase = _polstTyp(t.typ_korpusu);
+
+  // Hlavní tloušťka pěny z BOM — vezmeme nejčastěji se vyskytující
+  const bom = data.bom || [];
+  const penyBom = bom.filter(b => {
+    const nt = (b.typ || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    return nt.includes('PEN') || nt.includes('FOAM') || nt.includes('BALDACHIN') || nt.includes('BALDACYN');
+  });
+  // Extrahuj tloušťku z názvu (např. "Pěna 20mm" → 20)
+  function _extractMm(nazev) {
+    const m = (nazev || '').match(/(\d+)\s*mm/i);
+    return m ? parseInt(m[1]) : 0;
+  }
+  // Nejběžnější tloušťka (modus)
+  const mmCounts = {};
+  penyBom.forEach(b => { const mm = _extractMm(b.nazev); if (mm > 0) mmCounts[mm] = (mmCounts[mm]||0) + (b.celkem||1); });
+  const defaultMm = Object.keys(mmCounts).length
+    ? parseInt(Object.entries(mmCounts).sort((a,b)=>b[1]-a[1])[0][0]) : 10;
+
+  // Výpočet kusů
+  function _vypoctiKusy(dr, foam_mm) {
+    const key = typCase + orientace;
+    const TOP = {KOMBOMV:v-dr, KOMBOVV:v-dr+2, TRUHLAVV:dr-7, TRUHLAMV:dr-9, KOMBOF:v-dr+2, TRUHLAF:dr-11};
+    const BOT = {KOMBOMV:dr-7, KOMBOVV:dr-9,   TRUHLAVV:v-dr, TRUHLAMV:v-dr+2,KOMBOF:dr-11, TRUHLAF:v-dr+2};
+    const tH = TOP[key] ?? (v-dr);
+    const bH = BOT[key] ?? (dr-7);
+    return [
+      {nazev:'Strop + dno',         w: s-2*foam_mm, l: h-2*foam_mm, ks:2},
+      {nazev:'Vrchní přední+zadní', w: s,           l: tH,          ks:2},
+      {nazev:'Vrchní boky',         w: h-2*foam_mm, l: tH,          ks:2},
+      {nazev:'Spodní přední+zadní', w: s,           l: bH,          ks:2},
+      {nazev:'Spodní boky',         w: h-2*foam_mm, l: bH,          ks:2},
+    ];
+  }
+
+  function _renderTabulka(dr, foam_mm) {
+    const kusy = _vypoctiKusy(dr, foam_mm);
+    const rows = kusy.map(k => {
+      const ok = k.w > 0 && k.l > 0;
+      const style = ok ? '' : 'color:#ef4444;font-style:italic';
+      return `<tr style="${style}">
+        <td style="padding:5px 10px;font-size:.82rem">${k.nazev}</td>
+        <td style="padding:5px 10px;font-size:.82rem;font-family:monospace;font-weight:600;text-align:right">
+          ${ok ? Math.round(k.w)+'&thinsp;×&thinsp;'+Math.round(k.l)+' mm' : '–– chybí DR ––'}
+        </td>
+        <td style="padding:5px 10px;font-size:.82rem;text-align:center">${k.ks}×</td>
+      </tr>`;
+    }).join('');
+    return `<table style="width:100%;border-collapse:collapse;background:#f9fafb;border-radius:6px;overflow:hidden">
+      <thead><tr style="background:#e5e7eb">
+        <th style="padding:5px 10px;font-size:.72rem;text-align:left">Kus</th>
+        <th style="padding:5px 10px;font-size:.72rem;text-align:right">Rozměr</th>
+        <th style="padding:5px 10px;font-size:.72rem;text-align:center">Ks</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  function _rerender() {
+    const dr  = parseFloat(document.getElementById('polst-dr').value)  || 0;
+    const mm  = parseFloat(document.getElementById('polst-mm').value)  || defaultMm;
+    document.getElementById('polst-tabulka').innerHTML = _renderTabulka(dr, mm);
+    // Aktualizuj info řádek
+  }
+
+  async function _stahnoutDxf() {
+    const dr  = parseFloat(document.getElementById('polst-dr').value)  || 0;
+    const mm  = parseFloat(document.getElementById('polst-mm').value)  || defaultMm;
+    const btn = document.getElementById('polst-dxf-btn');
+    btn.disabled = true; btn.textContent = '⏳ Generuji…';
+    try {
+      const resp = await fetch('/api/typy-casu/' + (z.typ_casu_id||0) + '/polstrovani/dxf', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          dr, sirka:s, vyska:v, hloubka:h, tloustka:mm,
+          orientace, typ_case:typCase, hn:z.hn_cislo, nazev:z.case_nazev||z.nazev
+        })
+      });
+      if (!resp.ok) { alert('Chyba při generování DXF'); return; }
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = 'polstrovani_' + (z.hn_cislo||'export') + '.dxf';
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      btn.disabled = false; btn.textContent = '📐 Stáhnout DXF';
+    }
+  }
+
+  window._polstRerender   = _rerender;
+  window._polstDxf        = _stahnoutDxf;
+
+  const drDB = z.delici_rovina ? parseInt(z.delici_rovina) : null;
+
+  async function _saveDR() {
+    const dr = parseFloat(document.getElementById('polst-dr').value);
+    if (isNaN(dr)) return;
+    await api('/api/typy-casu/' + z.typ_casu_id, 'PUT', { delici_rovina: dr });
+    const lbl = document.getElementById('polst-dr-saved');
+    if (lbl) { lbl.textContent = '✓ uloženo'; setTimeout(() => { if(lbl) lbl.textContent=''; }, 2000); }
+  }
+  window._polstSaveDR = _saveDR;
+
+  const hasDims = s > 0 && v > 0 && h > 0;
+  const warningDims = hasDims ? '' :
+    '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:8px 12px;font-size:.78rem;color:#991b1b;margin-bottom:10px">⚠ Typ casu nemá vyplněné vnitřní rozměry.</div>';
+
+  openModal(`
+    <div style="padding:4px 0">
+      <p style="font-size:.72rem;opacity:.5;font-family:monospace;margin-bottom:2px">${z.hn_cislo||''} · Zakázka #${z.id}</p>
+      <h2 style="font-size:1.1rem;font-weight:700;margin:0 0 12px">${z.case_nazev||z.nazev||'–'} — Výpočet polstrování</h2>
+
+      ${warningDims}
+
+      <!-- Vstupní parametry -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:8px;margin-bottom:14px">
+        <div>
+          <p style="font-size:.68rem;color:#6b7280;margin-bottom:2px">Šířka (š)</p>
+          <p style="font-family:monospace;font-weight:600">${s || '–'} mm</p>
+        </div>
+        <div>
+          <p style="font-size:.68rem;color:#6b7280;margin-bottom:2px">Výška (v)</p>
+          <p style="font-family:monospace;font-weight:600">${v || '–'} mm</p>
+        </div>
+        <div>
+          <p style="font-size:.68rem;color:#6b7280;margin-bottom:2px">Hloubka (h)</p>
+          <p style="font-family:monospace;font-weight:600">${h || '–'} mm</p>
+        </div>
+      </div>
+
+      <!-- Editovatelné vstupy -->
+      <div style="display:flex;gap:14px;align-items:flex-end;margin-bottom:14px">
+        <div>
+          <label style="font-size:.72rem;font-weight:600;color:#374151;display:block;margin-bottom:3px">
+            Dělící rovina DR (mm)
+          </label>
+          <div style="display:flex;align-items:center;gap:6px">
+            <input id="polst-dr" type="number" min="0" max="${v}" step="1"
+              value="${drDB !== null ? drDB : ''}" placeholder="zadej mm"
+              oninput="window._polstRerender()"
+              style="width:110px;padding:5px 8px;border:1.5px solid #6ee7b7;border-radius:6px;font-size:.9rem;font-family:monospace;font-weight:600">
+            <button onclick="window._polstSaveDR()" title="Uložit DR k typu casu"
+              style="padding:4px 8px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:5px;font-size:.72rem;color:#065f46;cursor:pointer">💾</button>
+            <span id="polst-dr-saved" style="font-size:.72rem;color:#16a34a"></span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:.72rem;font-weight:600;color:#374151;display:block;margin-bottom:3px">
+            Tloušťka pěny (mm)
+          </label>
+          <input id="polst-mm" type="number" min="1" max="100" step="1" value="${defaultMm}"
+            oninput="window._polstRerender()"
+            style="width:100px;padding:5px 8px;border:1.5px solid #d1d5db;border-radius:6px;font-size:.9rem;font-family:monospace;font-weight:600">
+        </div>
+      </div>
+
+      <!-- Tabulka kusů -->
+      <div id="polst-tabulka" style="margin-bottom:14px">
+        ${_renderTabulka(drDB || 0, defaultMm)}
+      </div>
+
+      <!-- Akce -->
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="closeModal()" class="btn btn-secondary text-sm">Zavřít</button>
+        <button id="polst-dxf-btn" onclick="window._polstDxf()"
+          style="padding:7px 16px;background:#059669;color:white;border:none;border-radius:6px;font-weight:600;font-size:.85rem;cursor:pointer">
+          📐 Stáhnout DXF
+        </button>
+      </div>
+    </div>
+  `);
 }
 
 // ── NÁKUPY ────────────────────────────────────────────────────────────────

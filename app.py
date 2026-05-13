@@ -521,7 +521,8 @@ def api_typ_casu_update(typ_id):
     conn = get_db()
     c = conn.cursor()
     fields = ['nazev','typ_korpusu','vnitrni_sirka','vnitrni_vyska','vnitrni_hloubka',
-              'cena_vyroby','cas_narocnost','hmotnost','prodej_ap_bez_dph','spravna_mc','aktivni','poznamka']
+              'cena_vyroby','cas_narocnost','hmotnost','prodej_ap_bez_dph','spravna_mc','aktivni','poznamka',
+              'orientace_lid','delici_rovina']
     updates = ', '.join(f"{f}=?" for f in fields if f in data)
     vals = [data[f] for f in fields if f in data]
     if updates:
@@ -1359,6 +1360,84 @@ def api_dxf_delete(typ_id, vid):
     return jsonify({'ok': True})
 
 
+# ── POLSTROVÁNÍ — výpočet + DXF ───────────────────────────────────────────────
+
+@app.route('/api/typy-casu/<int:typ_id>/polstrovani/dxf', methods=['POST'])
+def api_polstrovani_dxf(typ_id):
+    """Vygeneruje DXF s kusy polstrování. Body: {dr, sirka, vyska, hloubka, tloustka, orientace, typ_case, hn, nazev}"""
+    try:
+        import ezdxf
+    except ImportError:
+        return jsonify({'error': 'ezdxf není nainstalováno na serveru'}), 500
+
+    data   = request.json or {}
+    dr     = float(data.get('dr', 0))
+    s      = float(data.get('sirka', 0))
+    v      = float(data.get('vyska', 0))
+    h      = float(data.get('hloubka', 0))
+    t      = float(data.get('tloustka', 10))
+    orient = (data.get('orientace') or 'MV').upper()
+    typ    = (data.get('typ_case') or 'KOMBO').upper()
+    hn     = data.get('hn', '')
+    nazev  = data.get('nazev', '')
+
+    key = typ + orient  # např. KOMBOMV
+
+    # Výšky vrchní / spodní části podle klíče
+    TOP = {'KOMBOMV': v-dr,   'KOMBOVV': v-dr+2, 'TRUHLAVV': dr-7,
+           'TRUHLAMV': dr-9,  'KOMBOF':  v-dr+2, 'TRUHLAF':  dr-11}
+    BOT = {'KOMBOMV': dr-7,   'KOMBOVV': dr-9,   'TRUHLAVV': v-dr,
+           'TRUHLAMV': v-dr+2,'KOMBOF':  dr-11,  'TRUHLAF':  v-dr+2}
+    top_h = TOP.get(key, v - dr)
+    bot_h = BOT.get(key, dr - 7)
+
+    pieces = [
+        {'nazev': 'Strop + dno',          'w': s - 2*t, 'l': h - 2*t, 'ks': 2},
+        {'nazev': 'Vrchní přední+zadní',   'w': s,       'l': top_h,   'ks': 2},
+        {'nazev': 'Vrchní boky',           'w': h - 2*t, 'l': top_h,   'ks': 2},
+        {'nazev': 'Spodní přední+zadní',   'w': s,       'l': bot_h,   'ks': 2},
+        {'nazev': 'Spodní boky',           'w': h - 2*t, 'l': bot_h,   'ks': 2},
+    ]
+
+    # ── DXF ────────────────────────────────────────────────────────────────────
+    doc = ezdxf.new('R2010')
+    doc.units = ezdxf.units.MM
+    msp = doc.modelspace()
+
+    layer_name = f'P {round(t)}mm pěna'
+    doc.layers.add(layer_name, color=1)
+
+    GAP = 20
+    x0  = 0.0
+
+    for p in pieces:
+        w, l, ks = p['w'], p['l'], p['ks']
+        if w <= 0 or l <= 0:
+            continue
+        for i in range(ks):
+            x1, y1 = x0, 0.0
+            x2, y2 = x0 + w, l
+            msp.add_lwpolyline(
+                [(x1, y1), (x2, y1), (x2, y2), (x1, y2)],
+                close=True,
+                dxfattribs={'layer': layer_name}
+            )
+            x0 += w + GAP
+        x0 += GAP
+
+    sbuf = io.StringIO()
+    doc.write(sbuf)
+    bbuf = io.BytesIO(sbuf.getvalue().encode('utf-8'))
+
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', hn or f'typ{typ_id}')
+    return send_file(
+        bbuf,
+        mimetype='application/dxf',
+        as_attachment=True,
+        download_name=f'polstrovani_{safe_name}.dxf'
+    )
+
+
 # ── 3D MODELY (STL po vrstvách) ────────────────────────────────────────────────
 
 STL_3D_DIR = os.path.join('/data', '3d_modely') if os.path.isdir('/data') else os.path.join(os.path.dirname(__file__), 'data', '3d_modely')
@@ -2065,7 +2144,8 @@ def api_vyrobni_list(zak_id):
                t.vnitrni_sirka, t.vnitrni_vyska, t.vnitrni_hloubka,
                t.cas_narocnost, t.poznamka as typ_poznamka,
                t.orientace_lid, t.pena_poznamka, t.pena_odkaz,
-               t.prisl_1, t.prisl_2, t.prisl_3, t.prisl_4
+               t.prisl_1, t.prisl_2, t.prisl_3, t.prisl_4,
+               t.delici_rovina
         FROM zakazky z
         LEFT JOIN typy_casu t ON t.id = z.typ_casu_id
         WHERE z.id=?
@@ -2171,13 +2251,25 @@ def api_vyrobni_list(zak_id):
 
             # H profily – zarážky nepoužíváme, nepřidáváme pid ani zarazka
 
-    # Pracovní postupy – odkazy
+    # Pracovní postupy – URL odkazy + nahrané přílohy (obojí s typ_json)
     links = []
     if zak['typ_casu_id']:
+        # URL odkazy
         _lnk_tbl = c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='typy_casu_links'").fetchone()
         if _lnk_tbl:
-            c.execute("SELECT nazev, url FROM typy_casu_links WHERE typ_casu_id=? ORDER BY poradi, id", (zak['typ_casu_id'],))
-            links = [dict(r) for r in c.fetchall()]
+            # zjisti zda typ_json sloupec existuje
+            _lnk_cols = {row[1] for row in c.execute("PRAGMA table_info(typy_casu_links)")}
+            _tj = 'typ_json' if 'typ_json' in _lnk_cols else "'[\"ostatni\"]'"
+            c.execute(f"SELECT nazev, url, {_tj} as typ_json, 'url' as zdroj FROM typy_casu_links WHERE typ_casu_id=? AND url IS NOT NULL AND url != '' ORDER BY poradi, id", (zak['typ_casu_id'],))
+            links += [dict(r) for r in c.fetchall()]
+        # Nahrané přílohy (soubory)
+        _pril_tbl = c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='typy_casu_prilohy'").fetchone()
+        if _pril_tbl:
+            c.execute("SELECT id, filename as nazev, typ_json, 'priloha' as zdroj FROM typy_casu_prilohy WHERE typ_casu_id=? ORDER BY id", (zak['typ_casu_id'],))
+            for r in c.fetchall():
+                row = dict(r)
+                row['url'] = f"/api/typy-casu/{zak['typ_casu_id']}/prilohy/{row['id']}/view"
+                links.append(row)
 
     conn.close()
     return jsonify({
@@ -5958,7 +6050,8 @@ def api_cnc():
         SELECT z.id, z.hn_cislo, z.nazev, z.stav, z.pocet_ks, z.termin,
                z.zakaznik, z.prioritni, z.poznamka_cnc, z.typ_casu_id,
                z.odeslano_do_vyroby,
-               t.nazev AS case_nazev, t.vnitrni_sirka, t.vnitrni_vyska, t.vnitrni_hloubka
+               t.nazev AS case_nazev, t.vnitrni_sirka, t.vnitrni_vyska, t.vnitrni_hloubka,
+               t.typ_korpusu
         FROM zakazky z
         LEFT JOIN typy_casu t ON t.id = z.typ_casu_id
         WHERE z.stav IN ({placeholders})
@@ -5992,20 +6085,27 @@ def api_cnc():
         has_podvozky = len(podvozky_mats) > 0
         has_peny     = len(peny_mats) > 0
 
-        # CNC checklist (kategorie jako klíče: _DESKY_, _PODVOZKY_, _PENY_)
+        # CNC stav řezání — per-materiál (stav 0=neřezáno, 1=rozpracováno, 2=hotovo)
         c.execute("SELECT material_kod, rezano FROM cnc_rezani WHERE zakazka_id=?", (zak_id,))
         rezani = {r['material_kod']: r['rezano'] for r in c.fetchall()}
 
-        checklist = {
-            'desky':    rezani.get('_DESKY_', 0) if has_desky else None,
-            'podvozky': rezani.get('_PODVOZKY_', 0) if has_podvozky else None,
-            'peny':     rezani.get('_PENY_', 0) if has_peny else None,
-        }
+        def _enrich(mats):
+            return [{'kod': m['material_kod'], 'nazev': m['nazev'],
+                     'stav': min(2, max(0, int(rezani.get(m['material_kod'], 0))))} for m in mats]
 
-        # Počet splněných/celkových checkboxů
-        aktivni = [v for v in checklist.values() if v is not None]
-        cnc_celkem = len(aktivni)
-        cnc_hotovo = sum(1 for v in aktivni if v)
+        desky_mats_r = _enrich(desky_mats)
+        peny_mats_r  = _enrich(peny_mats)
+        # Podvozky: syntetický chip '_PODVOZKY_' — kolečka sama se neřežou,
+        # ale signalizují potřebu řezat podvozkovou desku
+        if has_podvozky:
+            podvozky_mats_r = [{'kod': '_PODVOZKY_', 'nazev': 'Podvozky',
+                                 'stav': min(2, max(0, int(rezani.get('_PODVOZKY_', 0))))}]
+        else:
+            podvozky_mats_r = []
+        all_mats_r = desky_mats_r + podvozky_mats_r + peny_mats_r
+
+        cnc_celkem = len(all_mats_r)
+        cnc_hotovo = sum(1 for m in all_mats_r if m['stav'] == 2)
 
         # DXF verze pro tento typ casu
         dxf_verze = []
@@ -6025,13 +6125,12 @@ def api_cnc():
 
         result.append({
             **dict(zak),
-            'desky_mats':    [m['nazev'] for m in desky_mats],
-            'podvozky_mats': [m['nazev'] for m in podvozky_mats],
-            'peny_mats':     [m['nazev'] for m in peny_mats],
+            'desky_mats':    desky_mats_r,
+            'podvozky_mats': podvozky_mats_r,
+            'peny_mats':     peny_mats_r,
             'has_desky':    has_desky,
             'has_podvozky': has_podvozky,
             'has_peny':     has_peny,
-            'checklist':    checklist,
             'cnc_celkem':   cnc_celkem,
             'cnc_hotovo':   cnc_hotovo,
             'dxf_verze':    dxf_verze,
@@ -6043,22 +6142,26 @@ def api_cnc():
 
 @app.route('/api/cnc/<int:zak_id>/toggle', methods=['POST'])
 def api_cnc_toggle(zak_id):
-    """Přepnout stav vyřezání materiálu. Body: {material_kod, rezano}"""
+    """Nastavit stav řezání materiálu. Body: {material_kod, stav} kde stav = 0/1/2"""
     data = request.json
     mat_kod = data.get('material_kod')
-    rezano = int(data.get('rezano', 1))
+    # stav: 0=neřezáno, 1=rozpracováno, 2=hotovo; backward compat: rezano=True → 2
+    stav = data.get('stav')
+    if stav is None:
+        stav = 2 if data.get('rezano') else 0
+    stav = min(2, max(0, int(stav)))
     if not mat_kod:
         return jsonify({'error': 'material_kod required'}), 400
 
     conn = get_db()
     c = conn.cursor()
-    if rezano:
+    if stav == 0:
+        c.execute("DELETE FROM cnc_rezani WHERE zakazka_id=? AND material_kod=?", (zak_id, mat_kod))
+    else:
         c.execute("""
             INSERT OR REPLACE INTO cnc_rezani (zakazka_id, material_kod, rezano, updated_at)
-            VALUES (?, ?, 1, datetime('now'))
-        """, (zak_id, mat_kod))
-    else:
-        c.execute("DELETE FROM cnc_rezani WHERE zakazka_id=? AND material_kod=?", (zak_id, mat_kod))
+            VALUES (?, ?, ?, datetime('now'))
+        """, (zak_id, mat_kod, stav))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

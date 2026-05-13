@@ -165,11 +165,53 @@ Zobrazuje **všechny zakázky** ve stavech `Čeká`, `CNC hotovo`, `Výroba` —
 
 **Badge „Může se řezat"** — zelený badge (`background:#dcfce7;color:#15803d`) pod názvem casu (na novém řádku přes `<br>`, `white-space:nowrap`), zobrazí se pouze když `odeslano_do_vyroby == 1`.
 
-Sloupce: HN+badge | Název/Zákazník + badge „Může se řezat" | Poznámka z kanceláře (`poznamka_cnc`, read-only) | Termín | Materiály | Checklist | Poznámka operátora (`poznamka_cnc_operator`, editovatelná) | Akce
+Sloupce: HN+badge | Název/Zákazník + badge „Může se řezat" | Poznámka z kanceláře (`poznamka_cnc`, read-only) | Termín | Materiály | Poznámka operátora (`poznamka_cnc_operator`, editovatelná) | Akce
 
 Barevné kódování materiálových chipů (funkce `_cncMatStyle`): prémiové=červená, natural=žluto-oranžová, plast=žlutá, fenol=hnědá, pěna=šedá, ostatní=modrá.
 
-Tlačítko „⚙ CNC hotovo" je aktivní pouze pokud jsou zaškrtnuty všechny položky checklistu (desky, podvozky, pěny) — nebo pokud zakázka nemá žádné BOM položky pro CNC.
+Tlačítko „⚙ CNC hotovo" je aktivní pouze pokud jsou všechny materiálové chipy ve stavu 2 (hotovo) — nebo pokud zakázka nemá žádné BOM položky pro CNC.
+
+**Tri-state checklist materiálů** — každý materiál (deska, pěna) má tři stavy:
+- `0` = neřezáno (šedá tečka)
+- `1` = rozpracováno (oranžová tečka)
+- `2` = hotovo (zelená fajfka, přeškrtnutý text)
+
+Kliknutím na chip se stav cyklicky přepíná 0→1→2→0. Stav se ukládá do tabulky `cnc_rezani` (sloupec `rezano` jako INTEGER 0/1/2). Funkce `_cncChipHtml(mat, zakId)` generuje HTML chipu, `cncToggleMat(zakId, kod, stavNyni)` provede optimistický update v DOM a uloží na server.
+
+**Podvozky — syntetický chip `_PODVOZKY_`:** Kolečka (podvozky) nejsou řezána CNC, ale signalizují potřebu řezat podvozkovou desku. Místo zobrazení jednotlivých koleček jako chipů se zobrazí jediný chip „Podvozky" s kódem `_PODVOZKY_`. Chip se nezobrazí, pokud desky_mats již obsahují 12mm desku (podvozková deska je pak pokryta chipem desky).
+
+**Tlačítko 🗂 Karta** — otevře výrobní kartu zakázky (funkce `zakazkaDetail(zakId)`), stejnou jako v Dílně.
+
+**Tlačítko ✂ Pěny** — otevře popup pro výpočet polstrování (funkce `cncPolstrovaniPopup(zakId)`). Zobrazuje se **pouze pro typy korpusu**: `Hlava / kombo`, `Accessory case`, `Pedalboard`, `Mixpult`. Filtruje se pomocí konstanty:
+```javascript
+const _CNC_POLSTROVANI_TYPY = new Set(['Hlava / kombo', 'Accessory case', 'Pedalboard', 'Mixpult']);
+```
+Podmínka: `_CNC_POLSTROVANI_TYPY.has(z.typ_korpusu||'')`. Pole `typ_korpusu` je nově součástí response `/api/cnc` (JOIN s `typy_casu`).
+
+### Výpočet polstrování — popup a DXF export
+
+Popup `cncPolstrovaniPopup(zakId)` zobrazí výpočet 5 kusů polstrovacích pěn pro case. Vstupní data: rozměry z BOM (`vnitrni_sirka`, `vnitrni_vyska`, `vnitrni_hloubka`), tloušťka pěny z hlavního pěnového materiálu, dělící rovina (`delici_rovina`) z `typy_casu`.
+
+**Pole `delici_rovina`** (INTEGER) — výška spodní části case v mm. Přidáno do `typy_casu` přes `auto_migrate()`. Editovatelné přímo v popupu (uloží se přes `PUT /api/typy-casu/<id>` s `delici_rovina`). Endpoint `api_typ_casu_update()` má `delici_rovina` na whitelistu.
+
+**Výpočet pěn** — klíč `typCase + orientace` (např. `KOMBOMV`):
+```python
+TOP = {'KOMBOMV': v-dr,   'KOMBOVV': v-dr+2, 'TRUHLAVV': dr-7,
+       'TRUHLAMV': dr-9,  'KOMBOF':  v-dr+2, 'TRUHLAF':  dr-11}
+BOT = {'KOMBOMV': dr-7,   'KOMBOVV': dr-9,   'TRUHLAVV': v-dr,
+       'TRUHLAMV': v-dr+2,'KOMBOF':  dr-11,  'TRUHLAF':  v-dr+2}
+```
+5 kusů × 2 ks každý: Strop+dno (`s-2t` × `h-2t`), Vrchní přední+zadní (`s` × `top_h`), Vrchní boky (`h-2t` × `top_h`), Spodní přední+zadní (`s` × `bot_h`), Spodní boky (`h-2t` × `bot_h`).
+
+**Endpoint `POST /api/typy-casu/<typ_id>/polstrovani/dxf`** — generuje DXF soubor se všemi obdélníky polstrování. Body: `{dr, sirka, vyska, hloubka, tloustka, orientace, typ_case, hn, nazev}`. Vrátí DXF jako attachment ke stažení.
+
+Implementace DXF (ezdxf knihovna):
+- Vrstva pojmenována `P {round(t)}mm pěna` — kompatibilní s DXF parserem v BOM editoru
+- Obdélníky jako `LWPOLYLINE` (close=True)
+- Mezi kusy mezera `GAP = 20 mm`, mezi skupinami dvojnásobná mezera
+- **Bez textu** — pouze obdélníky, žádné popisky
+- `io.StringIO()` → encode → `io.BytesIO()` (ezdxf `doc.write()` vyžaduje text stream, ne bytes)
+- Závislost `ezdxf>=1.0` je v `requirements.txt`
 
 ### Karta Příprava výroby (priprava-vyroby sekce)
 
@@ -214,12 +256,37 @@ Zobrazuje zakázky s `odeslano_do_vyroby = 1`. Sloupce: ★ | HN/Typ | Název | 
 
 **Detail modal v Dílně** (funkce `zakazkaDetail`):
 - Stav zakázky je zobrazen jako badge přímo v záhlaví (tmavý pruh) vedle HN čísla
-- Tlačítka „Změnit stav" a „Zrušit zakázku" jsou odstraněna — zobrazuje se pouze „Tisk výrobního listu"
-- Sekce **Desky a pěny** je sbalená (`<details>/<summary>`) — kliknutím se rozbalí; při tisku se zobrazí standardně
+- Tlačítko „Tisk výrobního listu" (PDF) přesunuto do záhlaví jako malý text-link „PDF"
+- Tlačítka „Změnit stav" a „Zrušit zakázku" jsou odstraněna
+- Sekce **DESKY** i **PĚNY** jsou sbalené (`<details>/<summary>`) — kliknutím se rozbalí; při tisku se zobrazí standardně
 - Poznámka pro Dílnu (`poznamka_dilna`) se zobrazuje bez emoji kladívka
 - **Profily – formátování**: duplicitní řádky se stejným `rozmer_mm` jsou sloučeny (sečtou se ks) přes funkci `_dedupProfily()` ve frontendu
 - **Zarážky děrovačky** jsou zobrazeny jako prostý text (ne editovatelná pole). Pokud backend nemá hodnotu (NULL), frontend ji dopočítá z délky profilu funkcemi `_calcZarazka(mm)` a `_calcZarazka2(mm)` (rozteč 128 mm, druhý průchod od 7+ otvorů). Profily kratší než 128 mm zarážky nemají záměrně.
 - **DXF vizualizace v sekci Desky a Pěny**: pokud má typ casu nahraný DXF, zobrazí se pod BOM tabulkou SVG náhled příslušných tvarů s legendou a kótovacím popupem. Implementováno přes funkci `_buildDxfBlock(typ, nadpis)` (viz níže).
+
+**Sub-sekce v DESKY a PĚNY:** Každá sekce má čtyři rozbalovací pod-sekce (`<details open>`), rozbalené při otevření nadřazené sekce (kromě 3D):
+- **Materiál** — BOM tabulka desek/pěn
+- **DXF** — SVG náhled vrstev z DXF výkresu
+- **Soubory** — přílohy a odkazy kategorie `vykres_sestavy` / `vykres_polstrovani`
+- **3D sestava** / **3D polstrování** — Three.js viewer (lazy init přes `ontoggle`, bez atributu `open`, protože `clientWidth=0` při zavřeném `<details>` způsobuje nulový canvas)
+
+Sub-sekce mají levý barevný pruh `border-left: 3px solid #6b7280` a tmavě šedé záhlaví. Label záhlaví je nenápadný (`font-size:.7rem; font-weight:400; opacity:.5`, CSS třída `det-lbl`).
+
+**Duální 3D viewer v detailu zakázky** — DESKY a PĚNY mají každý svůj Three.js viewer. Aby nedocházelo ke kolizi DOM ID, používá se suffix:
+- DESKY viewer: suffix `'-d'` (IDs: `3d-viewer-wrap-d`, `3d-viewer-canvas-d`, `3d-layer-legend-d`)
+- PĚNY viewer: suffix `''` (původní IDs bez suffixu)
+
+Funkce `_bu3dInitViewer` a `_bu3dRebuildLegend` mají volitelný čtvrtý parametr `sfx=''`:
+```javascript
+async function _bu3dInitViewer(typId, vid, vrstvy, sfx='')
+function _bu3dRebuildLegend(typId, vid, vrstvy, sfx='')
+```
+
+**PĚNY 3D viewer — výchozí opacity:** Po inicializaci se automaticky nastaví:
+- Deska, HW, Profily, Jiné → opacity 5 % (`_3dSetGroupOpacity(t, 0.05)`)
+- Nýty → skryté (`m.visible = false`, `_3dMasterSetActive('nyty', false)`)
+
+Implementováno v `_vlInit3DPena` volaném přes `ontoggle` na `<details>` sekci PĚNY 3D.
 
 ### Docházka — modul (dochazka sekce)
 
@@ -307,7 +374,7 @@ onchange="_dxfOverrideChange(this, ${JSON.stringify(v.nazev)})"
 
 **DXF barevný systém (podrobný/zjednodušený mód):**
 
-Globální přepínač `_dxfDetailMode` (bool) řídí, zda se použijí barvy dle tloušťky nebo uniformní.
+Globální přepínač `_dxfDetailMode` (bool) řídí, zda se použijí barvy dle tloušťky nebo uniformní. **Výchozí hodnota je `true`** (podrobný mód dle tloušťky) — tlačítko v BOM editoru zobrazuje „🎨 Podrobně (dle tloušťky)" při otevření.
 
 `_dxfLayerColors(typ, mm, nazev)` — vrátí `[fill, stroke]`:
 - **Zjednodušený mód** (`_dxfDetailMode = false`): deska=`#9ca3af`/`#4b5563`, pěna=`#1f2937`/`#111827`
@@ -490,7 +557,8 @@ Globální proměnné a konstanty (všechny na module level, ne uvnitř funkcí)
 - `GROUP_DEF`: deska=`#c8986a`, pěna=`#86efac`, hw=`#94a3b8`, profily=`#fbbf24`, nýty=`#d4d4d8`, jiné=`#e2e8f0`
 - Zobrazují se jen skupiny přítomné v modelu (`presentTypes`)
 
-Funkce `_bu3dInitViewer(typId, vid, vrstvy)`:
+Funkce `_bu3dInitViewer(typId, vid, vrstvy, sfx='')`:
+- Volitelný parametr `sfx` — suffix pro DOM ID elementů (canvas, wrap, legend); prázdný řetězec = původní chování
 - Three.js r128, STLLoader, OrbitControls (CDN: cdn.jsdelivr.net/npm/three@0.128.0)
 - STL URL: `/api/typy-casu/${typId}/3d/${vid}/stl/${filename}`
 - **Rotace**: `geometry.applyMatrix4(makeRotationX(-Math.PI/2))` — AutoCAD Z-up → Three.js Y-up

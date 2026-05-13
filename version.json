@@ -1,8 +1,8 @@
 {
-  "verze": 133,
-  "popis": "Fakturace: vlastní položky bez zakázky",
+  "verze": 136,
+  "popis": "CNC: polstrovani popup + DXF export; tri-state checklist; tlacitko Peny jen pro vybrane typy; DXF nahledy podrobny mod",
   "autor": "Ludek",
-  "datum": "12.05.2026",
-  "cas": "15:56",
-  "git_commit": "4aca103"
+  "datum": "13.05.2026",
+  "cas": "12:45",
+  "git_commit": "efb1297"
 }
