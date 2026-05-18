@@ -7000,11 +7000,20 @@ function _dilnaPopupGoBack(id, stepIdx) {
 async function _dilnaPotvrdGoBack(id, stepIdx) {
   const STAVMAP = ['Čeká', 'Výroba', 'Hotovo', 'Zkontrolováno', 'Expedováno'];
   const stavCil = STAVMAP[stepIdx];
+  // Zpět před Výrobu (krok 0) → smaž pracovníka i kontrolora
+  // Zpět před Zkontrolováno (krok < 3) → smaž jen kontrolora
+  const payload = { stav: stavCil };
+  if (stepIdx < 1) { payload.pracovnik = ''; payload.zkontroloval = ''; }
+  else if (stepIdx < 3) { payload.zkontroloval = ''; }
   closeModal();
-  await api(`/api/zakazky/${id}`, 'PUT', { stav: stavCil });
+  await api(`/api/zakazky/${id}`, 'PUT', payload);
   const zak = (_cache.dilna || []).find(z => z.id === id);
-  if (zak) { zak.stav = stavCil; _dilnaFilter(); }
-  else { _cache.dilna = null; dilna(); }
+  if (zak) {
+    zak.stav = stavCil;
+    if (payload.pracovnik !== undefined)    zak.pracovnik    = '';
+    if (payload.zkontroloval !== undefined) zak.zkontroloval = '';
+    _dilnaFilter();
+  } else { _cache.dilna = null; dilna(); }
 }
 
 // Zachováno pro zpětnou kompatibilitu (volají jiné části systému)

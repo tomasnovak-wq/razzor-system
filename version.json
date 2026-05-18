@@ -1,8 +1,8 @@
 {
-  "verze": 142,
-  "popis": "Dilna stepper: kliknutí na hotový krok otevře potvrzení pro vrácení stavu zpět",
+  "verze": 143,
+  "popis": "Dilna goback: při vrácení stavu zpět se maže pracovník/kontrolor",
   "autor": "Ludek",
   "datum": "18.05.2026",
-  "cas": "08:47",
-  "git_commit": "6966b68"
+  "cas": "08:49",
+  "git_commit": "7d7e1fb"
 }
