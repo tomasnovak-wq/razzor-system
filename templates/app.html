@@ -6780,7 +6780,7 @@ function _dilnaStepperHtml(z) {
   ];
   const pills = steps.map((step, i) => {
     if (i < curIdx)
-      return `<span style="font-size:12px;padding:6px 10px;border-radius:6px;background:#dcfce7;color:#15803d;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px">✓ ${step.label}</span>`;
+      return `<button onclick="event.stopPropagation();_dilnaPopupGoBack(${z.id},${i})" title="Vrátit zpět na: ${step.label}" style="font-size:12px;padding:6px 10px;border-radius:6px;background:#dcfce7;color:#15803d;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;border:none;cursor:pointer;opacity:.85">✓ ${step.label}</button>`;
     if (i === curIdx)
       return `<span style="font-size:13px;padding:6px 12px;border-radius:6px;background:#dbeafe;color:#1d4ed8;font-weight:700;white-space:nowrap;border:2px solid #93c5fd;display:inline-flex;align-items:center">${step.label}</span>`;
     if (i === curIdx + 1 && step.fn)
@@ -6976,6 +6976,35 @@ async function _dilnaStepExpedovat(id) {
   await api(`/api/zakazky/${id}`, 'PUT', { stav: 'Expedováno' });
   _cache.dilna = (_cache.dilna || []).filter(z => z.id !== id);
   _dilnaFilter();
+}
+
+function _dilnaPopupGoBack(id, stepIdx) {
+  const STAVMAP = ['Čeká', 'Výroba', 'Hotovo', 'Zkontrolováno', 'Expedováno'];
+  const stavCil = STAVMAP[stepIdx];
+  const z = (_cache.dilna || []).find(z => z.id === id);
+  if (!z) return;
+  openModal(`
+    <div class="py-2">
+      <h3 class="text-lg font-bold mb-1">Vrátit zakázku zpět?</h3>
+      <p class="text-xs text-gray-400 mb-4">${z.hn_cislo||'–'} — ${z.case_nazev||z.nazev||''}</p>
+      <p class="text-sm text-gray-600 mb-1">Stav se změní zpět na:</p>
+      <p class="text-base font-semibold text-gray-800 mb-5">${stavCil}</p>
+      <div class="flex gap-3 mt-2">
+        <button class="btn btn-secondary flex-1 py-3 text-base" onclick="closeModal()">Zrušit</button>
+        <button class="btn flex-1 py-3 text-base font-semibold" style="background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer" onclick="_dilnaPotvrdGoBack(${id},${stepIdx})">Vrátit zpět</button>
+      </div>
+    </div>
+  `);
+}
+
+async function _dilnaPotvrdGoBack(id, stepIdx) {
+  const STAVMAP = ['Čeká', 'Výroba', 'Hotovo', 'Zkontrolováno', 'Expedováno'];
+  const stavCil = STAVMAP[stepIdx];
+  closeModal();
+  await api(`/api/zakazky/${id}`, 'PUT', { stav: stavCil });
+  const zak = (_cache.dilna || []).find(z => z.id === id);
+  if (zak) { zak.stav = stavCil; _dilnaFilter(); }
+  else { _cache.dilna = null; dilna(); }
 }
 
 // Zachováno pro zpětnou kompatibilitu (volají jiné části systému)

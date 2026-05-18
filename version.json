@@ -1,8 +1,8 @@
 {
-  "verze": 141,
-  "popis": "Dilna: poznamka pod nazev, zakaznik/sklad pod HN - sloučení 4 sloupců do 2",
+  "verze": 142,
+  "popis": "Dilna stepper: kliknutí na hotový krok otevře potvrzení pro vrácení stavu zpět",
   "autor": "Ludek",
   "datum": "18.05.2026",
-  "cas": "08:42",
-  "git_commit": "815a6e3"
+  "cas": "08:47",
+  "git_commit": "6966b68"
 }
