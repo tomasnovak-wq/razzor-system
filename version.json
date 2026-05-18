@@ -1,8 +1,8 @@
 {
-  "verze": 138,
-  "popis": "Dilna: stepper nahradil dropdown stavu + sloupec Pracovnik; popup pri zahajeni vyroby (kdo dela) a kontrole (kdo kontroloval), ukladaji se do zakazky",
+  "verze": 140,
+  "popis": "Dilna stepper: vetsi touch targety pro tablet (14px button, 40px min-height)",
   "autor": "Ludek",
   "datum": "18.05.2026",
-  "cas": "08:34",
-  "git_commit": "4a98af4"
+  "cas": "08:40",
+  "git_commit": "00bf9b2"
 }

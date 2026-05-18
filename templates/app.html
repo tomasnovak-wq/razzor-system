@@ -6780,23 +6780,23 @@ function _dilnaStepperHtml(z) {
   ];
   const pills = steps.map((step, i) => {
     if (i < curIdx)
-      return `<span style="font-size:.62rem;padding:2px 5px;border-radius:4px;background:#dcfce7;color:#15803d;font-weight:600;white-space:nowrap">✓ ${step.label}</span>`;
+      return `<span style="font-size:12px;padding:6px 10px;border-radius:6px;background:#dcfce7;color:#15803d;font-weight:600;white-space:nowrap;display:inline-flex;align-items:center;gap:4px">✓ ${step.label}</span>`;
     if (i === curIdx)
-      return `<span style="font-size:.62rem;padding:2px 5px;border-radius:4px;background:#dbeafe;color:#1d4ed8;font-weight:700;white-space:nowrap;border:1.5px solid #93c5fd">${step.label}</span>`;
+      return `<span style="font-size:13px;padding:6px 12px;border-radius:6px;background:#dbeafe;color:#1d4ed8;font-weight:700;white-space:nowrap;border:2px solid #93c5fd;display:inline-flex;align-items:center">${step.label}</span>`;
     if (i === curIdx + 1 && step.fn)
-      return `<button onclick="event.stopPropagation();${step.fn}" style="font-size:.62rem;padding:2px 6px;border-radius:4px;background:#1d4ed8;color:white;font-weight:600;border:none;cursor:pointer;white-space:nowrap">→ ${step.label}</button>`;
-    return `<span style="font-size:.6rem;padding:1px 4px;color:#d1d5db;white-space:nowrap">${step.label}</span>`;
-  }).join('<span style="color:#e5e7eb;font-size:.6rem;padding:0 1px">›</span>');
+      return `<button onclick="event.stopPropagation();${step.fn}" style="font-size:14px;padding:8px 18px;border-radius:8px;background:#1d4ed8;color:white;font-weight:700;border:none;cursor:pointer;white-space:nowrap;min-height:40px;display:inline-flex;align-items:center;gap:6px">→ ${step.label}</button>`;
+    return `<span style="font-size:11px;padding:4px 8px;color:#9ca3af;white-space:nowrap">${step.label}</span>`;
+  }).join('<span style="color:#d1d5db;font-size:11px;padding:0 2px">›</span>');
   const workerLine = [];
-  if (z.pracovnik)    workerLine.push(`<span style="font-size:.65rem;color:#6b7280">👤 ${z.pracovnik}</span>`);
-  if (z.zkontroloval) workerLine.push(`<span style="font-size:.65rem;color:#15803d">✓ ${z.zkontroloval}</span>`);
+  if (z.pracovnik)    workerLine.push(`<span style="font-size:12px;color:#6b7280">👤 ${z.pracovnik}</span>`);
+  if (z.zkontroloval) workerLine.push(`<span style="font-size:12px;color:#15803d">✓ ${z.zkontroloval}</span>`);
   const destBadge = z.stav === 'Zkontrolováno'
     ? (z.foceni
-        ? '<div style="font-size:.62rem;color:#1e40af;background:#dbeafe;border:1px solid #bfdbfe;border-radius:3px;padding:1px 5px;margin-top:3px;font-weight:700;white-space:nowrap">📷 Odneste na focení</div>'
-        : '<div style="font-size:.62rem;color:#15803d;background:#dcfce7;border:1px solid #bbf7d0;border-radius:3px;padding:1px 5px;margin-top:3px;font-weight:700;white-space:nowrap">📦 Odneste na přejímku</div>')
+        ? '<div style="font-size:12px;color:#1e40af;background:#dbeafe;border:1px solid #bfdbfe;border-radius:5px;padding:4px 10px;margin-top:5px;font-weight:700;white-space:nowrap;display:inline-block">📷 Odneste na focení</div>'
+        : '<div style="font-size:12px;color:#15803d;background:#dcfce7;border:1px solid #bbf7d0;border-radius:5px;padding:4px 10px;margin-top:5px;font-weight:700;white-space:nowrap;display:inline-block">📦 Odneste na přejímku</div>')
     : '';
-  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px">${pills}</div>`
-    + (workerLine.length ? `<div style="margin-top:3px">${workerLine.join('&nbsp; ')}</div>` : '')
+  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px">${pills}</div>`
+    + (workerLine.length ? `<div style="margin-top:5px;display:flex;gap:10px">${workerLine.join('')}</div>` : '')
     + destBadge;
 }
 
@@ -6860,12 +6860,6 @@ function _dilnaRow(z) {
     <td onclick="event.stopPropagation()" style="min-width:270px">
       ${_dilnaStepperHtml(z)}
     </td>
-    <td onclick="event.stopPropagation()">
-      <div class="flex gap-1 flex-wrap">
-        <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
-        <button class="btn btn-secondary py-1 px-2 text-xs" onclick="event.stopPropagation();tiskVyrobniListZakazka(${z.id})">🖨</button>
-      </div>
-    </td>
   </tr>`;
   return mainRow;
 }
@@ -6888,7 +6882,7 @@ function _dilnaFilter() {
   });
   const tbody   = document.getElementById('dilna-tbody');
   const counter = document.getElementById('dilna-count');
-  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="9" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="8" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
   if (counter) counter.textContent = filtered.length;
 }
 
@@ -6924,9 +6918,9 @@ function _dilnaPopupVyroba(id) {
       <p class="text-xs text-gray-400 mb-4">${z.hn_cislo||'–'} — ${z.case_nazev||z.nazev||''}</p>
       <label class="text-xs text-gray-500 font-medium block mb-1">Kdo bude na case pracovat?</label>
       <select id="dp-vyroba-prac" class="select w-full">${opts}</select>
-      <div class="flex gap-2 mt-5 justify-end">
-        <button class="btn btn-secondary px-4" onclick="closeModal()">Zpět</button>
-        <button class="btn btn-primary px-4" onclick="_dilnaPotvrdVyroba(${id})">Zahájit výrobu</button>
+      <div class="flex gap-3 mt-6">
+        <button class="btn btn-secondary flex-1 py-3 text-base" onclick="closeModal()">Zpět</button>
+        <button class="btn btn-primary flex-1 py-3 text-base font-semibold" onclick="_dilnaPotvrdVyroba(${id})">Zahájit výrobu</button>
       </div>
     </div>
   `);
@@ -6957,19 +6951,15 @@ function _dilnaPopupKontrola(id) {
   const users = _cache.dilnaUsers || [];
   const opts = `<option value="">— Nepřiřazeno —</option>` +
     users.map(u => `<option value="${u.jmeno}" ${z.zkontroloval===u.jmeno?'selected':''}>${u.jmeno}</option>`).join('');
-  const smer = z.foceni
-    ? `<div style="background:#1e3a5f;color:white;border-radius:8px;padding:8px 16px;font-weight:800;font-size:.9rem;letter-spacing:.06em;display:inline-block">📷 ODNESTE NA FOCENÍ</div>`
-    : `<div style="background:#14532d;color:white;border-radius:8px;padding:8px 16px;font-weight:800;font-size:.9rem;letter-spacing:.06em;display:inline-block">📦 ODNESTE NA PŘEJÍMKU</div>`;
   openModal(`
     <div class="py-2">
       <h3 class="text-lg font-bold mb-1">Zkontrolovat case</h3>
-      <p class="text-xs text-gray-400 mb-3">${z.hn_cislo||'–'} — ${z.case_nazev||z.nazev||''}</p>
-      <div class="text-center mb-4">${smer}</div>
+      <p class="text-xs text-gray-400 mb-4">${z.hn_cislo||'–'} — ${z.case_nazev||z.nazev||''}</p>
       <label class="text-xs text-gray-500 font-medium block mb-1">Kdo kontroloval?</label>
       <select id="dp-kontr-prac" class="select w-full">${opts}</select>
-      <div class="flex gap-2 mt-5 justify-end">
-        <button class="btn btn-secondary px-4" onclick="closeModal()">Zpět</button>
-        <button class="btn btn-primary px-4" onclick="_dilnaPotvrdKontrola(${id})">Zkontrolováno</button>
+      <div class="flex gap-3 mt-6">
+        <button class="btn btn-secondary flex-1 py-3 text-base" onclick="closeModal()">Zpět</button>
+        <button class="btn btn-primary flex-1 py-3 text-base font-semibold" onclick="_dilnaPotvrdKontrola(${id})">Zkontrolováno</button>
       </div>
     </div>
   `);
@@ -7057,7 +7047,6 @@ async function dilna() {
         <th class="text-center">CNC</th>
         <th>Termín</th>
         <th class="no-sort">Průběh výroby</th>
-        <th class="no-sort">Akce</th>
       </tr></thead>
       <tbody id="dilna-tbody"></tbody>
     </table>
