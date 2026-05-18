@@ -1,8 +1,8 @@
 {
-  "verze": 140,
-  "popis": "Dilna stepper: vetsi touch targety pro tablet (14px button, 40px min-height)",
+  "verze": 141,
+  "popis": "Dilna: poznamka pod nazev, zakaznik/sklad pod HN - sloučení 4 sloupců do 2",
   "autor": "Ludek",
   "datum": "18.05.2026",
-  "cas": "08:40",
-  "git_commit": "00bf9b2"
+  "cas": "08:42",
+  "git_commit": "815a6e3"
 }

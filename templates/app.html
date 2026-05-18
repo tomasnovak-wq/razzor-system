@@ -6846,14 +6846,12 @@ function _dilnaRow(z) {
     <td style="${textMuted}">
       <p class="font-mono text-xs text-blue-600 font-semibold">${z.hn_cislo||'–'}</p>
       <p class="text-xs text-gray-400">${z.typ_korpusu||''}</p>
-    </td>
-    <td class="text-gray-700 text-sm font-medium" style="${textMuted}">${z.case_nazev||z.nazev||'–'}</td>
-    <td style="min-width:160px;${textMuted}">
-      <span style="font-size:.75rem;color:#374151;white-space:pre-wrap;line-height:1.4">${z.poznamka_dilna||'<span style="color:#9ca3af">–</span>'}</span>
+      ${(() => { const d = z.destinace||'Zákazník'; return `<span style="font-size:.7rem;padding:1px 7px;border-radius:999px;font-weight:600;margin-top:3px;display:inline-block;${d==='Sklad'?'background:#dbeafe;color:#1d4ed8':'background:#dcfce7;color:#15803d'}">${d}</span>`; })()}
+      ${z.zakaznik ? `<p class="text-xs text-gray-400 mt-0.5">${z.zakaznik}</p>` : ''}
     </td>
     <td style="${textMuted}">
-      ${(() => { const d = z.destinace||'Zákazník'; return `<span style="font-size:.7rem;padding:1px 7px;border-radius:999px;font-weight:600;${d==='Sklad'?'background:#dbeafe;color:#1d4ed8':'background:#dcfce7;color:#15803d'}">${d}</span>`; })()}
-      ${z.zakaznik ? `<p class="text-xs text-gray-400 mt-0.5">${z.zakaznik}</p>` : ''}
+      <p class="text-gray-700 text-sm font-medium">${z.case_nazev||z.nazev||'–'}</p>
+      ${z.poznamka_dilna ? `<p style="font-size:.75rem;color:#374151;white-space:pre-wrap;line-height:1.4;margin-top:3px">${z.poznamka_dilna}</p>` : ''}
     </td>
     <td class="text-center" style="${textMuted}">${cncBadge}</td>
     <td class="text-xs" style="${terminCls};${textMuted}">${z.termin||'–'}</td>
@@ -6882,7 +6880,7 @@ function _dilnaFilter() {
   });
   const tbody   = document.getElementById('dilna-tbody');
   const counter = document.getElementById('dilna-count');
-  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="8" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="6" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
   if (counter) counter.textContent = filtered.length;
 }
 
@@ -7041,9 +7039,7 @@ async function dilna() {
       <thead><tr>
         <th class="no-sort w-8" title="Priorita">★</th>
         <th>HN / Typ</th>
-        <th>Název</th>
-        <th class="no-sort">Poznámka (z kanceláře)</th>
-        <th>Zákazník/Sklad</th>
+        <th>Název / Poznámka</th>
         <th class="text-center">CNC</th>
         <th>Termín</th>
         <th class="no-sort">Průběh výroby</th>
