@@ -1,8 +1,8 @@
 {
-  "verze": 137,
-  "popis": "3D viewer: registry pattern - izolované instance, prepinani verzi, tlacitko Peny jen pro vybrane typy, DXF nahledy podrobny mod",
+  "verze": 138,
+  "popis": "Dilna: stepper nahradil dropdown stavu + sloupec Pracovnik; popup pri zahajeni vyroby (kdo dela) a kontrole (kdo kontroloval), ukladaji se do zakazky",
   "autor": "Ludek",
-  "datum": "13.05.2026",
-  "cas": "13:13",
-  "git_commit": "2a9e26b"
+  "datum": "18.05.2026",
+  "cas": "08:34",
+  "git_commit": "4a98af4"
 }

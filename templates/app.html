@@ -6765,6 +6765,41 @@ async function pripravaVyroby() {
 
 // ── DÍLNA ─────────────────────────────────────────────────────────────────
 
+function _dilnaStepperHtml(z) {
+  const curIdx = z.stav === 'Expedováno' ? 4
+    : z.stav === 'Zkontrolováno' ? 3
+    : z.stav === 'Hotovo' ? 2
+    : (z.stav === 'Výroba' || z.stav === 'CNC hotovo') ? 1
+    : 0;
+  const steps = [
+    { label: 'Čeká',         fn: null },
+    { label: 'Výroba',       fn: `_dilnaPopupVyroba(${z.id})` },
+    { label: 'Hotovo',       fn: `_dilnaStepHotovo(${z.id})` },
+    { label: 'Zkontrolovat', fn: `_dilnaPopupKontrola(${z.id})` },
+    { label: 'Expedovat',    fn: `_dilnaStepExpedovat(${z.id})` },
+  ];
+  const pills = steps.map((step, i) => {
+    if (i < curIdx)
+      return `<span style="font-size:.62rem;padding:2px 5px;border-radius:4px;background:#dcfce7;color:#15803d;font-weight:600;white-space:nowrap">✓ ${step.label}</span>`;
+    if (i === curIdx)
+      return `<span style="font-size:.62rem;padding:2px 5px;border-radius:4px;background:#dbeafe;color:#1d4ed8;font-weight:700;white-space:nowrap;border:1.5px solid #93c5fd">${step.label}</span>`;
+    if (i === curIdx + 1 && step.fn)
+      return `<button onclick="event.stopPropagation();${step.fn}" style="font-size:.62rem;padding:2px 6px;border-radius:4px;background:#1d4ed8;color:white;font-weight:600;border:none;cursor:pointer;white-space:nowrap">→ ${step.label}</button>`;
+    return `<span style="font-size:.6rem;padding:1px 4px;color:#d1d5db;white-space:nowrap">${step.label}</span>`;
+  }).join('<span style="color:#e5e7eb;font-size:.6rem;padding:0 1px">›</span>');
+  const workerLine = [];
+  if (z.pracovnik)    workerLine.push(`<span style="font-size:.65rem;color:#6b7280">👤 ${z.pracovnik}</span>`);
+  if (z.zkontroloval) workerLine.push(`<span style="font-size:.65rem;color:#15803d">✓ ${z.zkontroloval}</span>`);
+  const destBadge = z.stav === 'Zkontrolováno'
+    ? (z.foceni
+        ? '<div style="font-size:.62rem;color:#1e40af;background:#dbeafe;border:1px solid #bfdbfe;border-radius:3px;padding:1px 5px;margin-top:3px;font-weight:700;white-space:nowrap">📷 Odneste na focení</div>'
+        : '<div style="font-size:.62rem;color:#15803d;background:#dcfce7;border:1px solid #bbf7d0;border-radius:3px;padding:1px 5px;margin-top:3px;font-weight:700;white-space:nowrap">📦 Odneste na přejímku</div>')
+    : '';
+  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:3px">${pills}</div>`
+    + (workerLine.length ? `<div style="margin-top:3px">${workerLine.join('&nbsp; ')}</div>` : '')
+    + destBadge;
+}
+
 function _dilnaRow(z) {
   const dnes = new Date().toISOString().slice(0,10);
   const isPrio = z.prioritni == 1;
@@ -6786,21 +6821,6 @@ function _dilnaRow(z) {
     ? `<div class="flex flex-col gap-0.5">${cncItems.join('')}</div>`
     : '<span style="color:#94a3b8;font-size:.7rem">–</span>';
 
-  // Pracovník dropdown
-  const users = _cache.dilnaUsers || [];
-  const pracovnikOpts = `<option value="">– Nikdo –</option>` +
-    users.map(u => `<option value="${u.jmeno}" ${z.pracovnik===u.jmeno?'selected':''}>${u.jmeno.split(' ')[0]}</option>`).join('');
-
-  // Stav dropdown — bez CNC hotovo, bez Zkontrolováno a Expedováno (nastavují se tlačítky)
-  const stavProDropdown = (z.stav === 'CNC hotovo') ? 'Výroba' : z.stav;
-  const stavOptsValues = ['Čeká','Výroba','Hotovo'];
-  // Pokud je zakázka ve stavu mimo dropdown, přidáme ji jako disabled option
-  const extraOpt = !stavOptsValues.includes(stavProDropdown)
-    ? `<option value="${stavProDropdown}" selected disabled>${stavProDropdown}</option>` : '';
-  const stavOpts = extraOpt + stavOptsValues.map(s =>
-    `<option value="${s}" ${stavProDropdown===s?'selected':''}>${s}</option>`
-  ).join('');
-
   // Barva pozadí: Zkontrolováno = sytá zelená, Hotovo = světlá zelená, Výroba = světle modrá, ostatní bílé
   const rowBg = z.stav === 'Zkontrolováno' ? 'background:#86efac'
     : z.stav === 'Hotovo' ? 'background:#ecfccb'
@@ -6820,19 +6840,6 @@ function _dilnaRow(z) {
   const terminCls = z.termin && z.termin < dnes && !['Hotovo','Zkontrolováno','Expedováno'].includes(z.stav)
     ? 'color:#dc2626;font-weight:600' : 'color:#6b7280';
 
-  // Inline info pro Zkontrolováno
-  const zkontrolovanoInfo = z.stav === 'Zkontrolováno'
-    ? (z.foceni
-        ? '<div style="font-size:.65rem;color:#1e40af;background:#dbeafe;border:1px solid #bfdbfe;border-radius:4px;padding:2px 5px;margin-top:3px;font-weight:700;white-space:nowrap">📷 Odneste na focení</div>'
-        : '<div style="font-size:.65rem;color:#15803d;background:#dcfce7;border:1px solid #bbf7d0;border-radius:4px;padding:2px 5px;margin-top:3px;font-weight:700;white-space:nowrap">📦 Odneste na přejímku</div>')
-    : '';
-
-  // Akční tlačítka na konci řádku
-  const akceButtons = z.stav === 'Hotovo'
-    ? `<button class="btn py-1 px-2 text-xs font-semibold" style="background:#65a30d;color:white;border-radius:6px" onclick="event.stopPropagation();_dilnaKontrola(${z.id})">Kontrola</button>`
-    : z.stav === 'Zkontrolováno'
-    ? `<button class="btn py-1 px-2 text-xs font-semibold" style="background:#7c3aed;color:white;border-radius:6px" onclick="event.stopPropagation();_dilnaOdneseno(${z.id})">Odneseno</button>`
-    : '';
 
   const mainRow = `<tr class="tr-hover cursor-pointer${isPrio?' prioritni-row':''}${z.stav==='Hotovo'?' dilna-hotovo-row':''}${z.stav==='Zkontrolováno'?' dilna-zkontrolovano-row':''}" style="${rowBg}" onclick="zakazkaDetail(${z.id})">
     <td class="w-8 text-center pr-0" style="${stavBarStyle}" onclick="event.stopPropagation()">${prioBtn}</td>
@@ -6850,26 +6857,13 @@ function _dilnaRow(z) {
     </td>
     <td class="text-center" style="${textMuted}">${cncBadge}</td>
     <td class="text-xs" style="${terminCls};${textMuted}">${z.termin||'–'}</td>
-    <td onclick="event.stopPropagation()">
-      <select onchange="_dilnaSetStav(${z.id}, this.value)"
-        style="font-size:.75rem;padding:2px 4px;border-radius:6px;border:1.5px solid #e2e8f0;cursor:pointer;background:white;max-width:120px">
-        ${stavOpts}
-      </select>
-      ${zkontrolovanoInfo}
-    </td>
-    <td onclick="event.stopPropagation()">
-      <select onchange="_dilnaPracovnikChange(${z.id}, this.value)"
-        style="font-size:.75rem;padding:2px 4px;border-radius:6px;border:1.5px solid #e2e8f0;cursor:pointer;background:white;max-width:110px">
-        ${pracovnikOpts}
-      </select>
+    <td onclick="event.stopPropagation()" style="min-width:270px">
+      ${_dilnaStepperHtml(z)}
     </td>
     <td onclick="event.stopPropagation()">
       <div class="flex gap-1 flex-wrap">
-        ${!['Hotovo','Zkontrolováno'].includes(z.stav) ? `
-          <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
-          <button class="btn btn-secondary py-1 px-2 text-xs" onclick="tiskVyrobniListZakazka(${z.id})">🖨</button>
-        ` : ''}
-        ${akceButtons}
+        <button class="btn btn-primary py-1 px-2 text-xs" onclick="zakazkaDetail(${z.id})">Detail</button>
+        <button class="btn btn-secondary py-1 px-2 text-xs" onclick="event.stopPropagation();tiskVyrobniListZakazka(${z.id})">🖨</button>
       </div>
     </td>
   </tr>`;
@@ -6894,7 +6888,7 @@ function _dilnaFilter() {
   });
   const tbody   = document.getElementById('dilna-tbody');
   const counter = document.getElementById('dilna-count');
-  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="10" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
+  if (tbody)   tbody.innerHTML   = filtered.map(_dilnaRow).join('') || '<tr><td colspan="9" class="text-center text-gray-400 py-8">Nic nenalezeno</td></tr>';
   if (counter) counter.textContent = filtered.length;
 }
 
@@ -6918,43 +6912,90 @@ async function _dilnaSetStav(id, stav) {
   }
 }
 
-function _dilnaKontrola(id) {
+function _dilnaPopupVyroba(id) {
   const z = (_cache.dilna || []).find(z => z.id === id);
   if (!z) return;
-  const smer = z.foceni
-    ? `<div style="background:#1e3a5f;color:white;border-radius:8px;padding:10px 20px;font-weight:800;font-size:.95rem;letter-spacing:.06em;display:inline-block;margin-top:8px">📷 ODNESTE NA FOCENÍ</div>`
-    : `<div style="background:#14532d;color:white;border-radius:8px;padding:10px 20px;font-weight:800;font-size:.95rem;letter-spacing:.06em;display:inline-block;margin-top:8px">📦 ODNESTE NA PŘEJÍMKU</div>`;
+  const users = _cache.dilnaUsers || [];
+  const opts = `<option value="">— Nepřiřazeno —</option>` +
+    users.map(u => `<option value="${u.jmeno}" ${z.pracovnik===u.jmeno?'selected':''}>${u.jmeno}</option>`).join('');
   openModal(`
-    <div class="text-center py-4">
-      <h3 class="text-lg font-bold mb-2">Zkontrolovat case</h3>
-      <p class="text-gray-500 text-sm mb-3">Potvrďte, že je case kompletně zkontrolován a připraven k předání.</p>
-      ${smer}
-      <div class="flex gap-2 mt-5 justify-center">
-        <button class="btn btn-secondary px-5" onclick="closeModal()">Zpět</button>
-        <button class="btn btn-primary px-5" onclick="_dilnaKontrolaPotvrzeni(${id})">Zkontrolováno</button>
+    <div class="py-2">
+      <h3 class="text-lg font-bold mb-1">Zahájit výrobu</h3>
+      <p class="text-xs text-gray-400 mb-4">${z.hn_cislo||'–'} — ${z.case_nazev||z.nazev||''}</p>
+      <label class="text-xs text-gray-500 font-medium block mb-1">Kdo bude na case pracovat?</label>
+      <select id="dp-vyroba-prac" class="select w-full">${opts}</select>
+      <div class="flex gap-2 mt-5 justify-end">
+        <button class="btn btn-secondary px-4" onclick="closeModal()">Zpět</button>
+        <button class="btn btn-primary px-4" onclick="_dilnaPotvrdVyroba(${id})">Zahájit výrobu</button>
       </div>
     </div>
   `);
 }
 
-async function _dilnaKontrolaPotvrzeni(id) {
+async function _dilnaPotvrdVyroba(id) {
+  const pracovnik = document.getElementById('dp-vyroba-prac')?.value || '';
   closeModal();
-  await api(`/api/zakazky/${id}`, 'PUT', { stav: 'Zkontrolováno' });
+  await api(`/api/zakazky/${id}`, 'PUT', { stav: 'Výroba', pracovnik });
   const zak = (_cache.dilna || []).find(z => z.id === id);
-  if (zak) { zak.stav = 'Zkontrolováno'; _dilnaFilter(); }
+  if (zak) { zak.stav = 'Výroba'; zak.pracovnik = pracovnik; _dilnaFilter(); }
   else { _cache.dilna = null; dilna(); }
 }
 
-async function _dilnaOdneseno(id) {
+async function _dilnaStepHotovo(id) {
+  await api(`/api/zakazky/${id}`, 'PUT', { stav: 'Hotovo' });
+  const zak = (_cache.dilna || []).find(z => z.id === id);
+  if (zak) {
+    zak.stav = 'Hotovo';
+    if (!zak.datum_dokonceni) zak.datum_dokonceni = new Date().toISOString().slice(0,10);
+    _dilnaFilter();
+  } else { _cache.dilna = null; dilna(); }
+}
+
+function _dilnaPopupKontrola(id) {
+  const z = (_cache.dilna || []).find(z => z.id === id);
+  if (!z) return;
+  const users = _cache.dilnaUsers || [];
+  const opts = `<option value="">— Nepřiřazeno —</option>` +
+    users.map(u => `<option value="${u.jmeno}" ${z.zkontroloval===u.jmeno?'selected':''}>${u.jmeno}</option>`).join('');
+  const smer = z.foceni
+    ? `<div style="background:#1e3a5f;color:white;border-radius:8px;padding:8px 16px;font-weight:800;font-size:.9rem;letter-spacing:.06em;display:inline-block">📷 ODNESTE NA FOCENÍ</div>`
+    : `<div style="background:#14532d;color:white;border-radius:8px;padding:8px 16px;font-weight:800;font-size:.9rem;letter-spacing:.06em;display:inline-block">📦 ODNESTE NA PŘEJÍMKU</div>`;
+  openModal(`
+    <div class="py-2">
+      <h3 class="text-lg font-bold mb-1">Zkontrolovat case</h3>
+      <p class="text-xs text-gray-400 mb-3">${z.hn_cislo||'–'} — ${z.case_nazev||z.nazev||''}</p>
+      <div class="text-center mb-4">${smer}</div>
+      <label class="text-xs text-gray-500 font-medium block mb-1">Kdo kontroloval?</label>
+      <select id="dp-kontr-prac" class="select w-full">${opts}</select>
+      <div class="flex gap-2 mt-5 justify-end">
+        <button class="btn btn-secondary px-4" onclick="closeModal()">Zpět</button>
+        <button class="btn btn-primary px-4" onclick="_dilnaPotvrdKontrola(${id})">Zkontrolováno</button>
+      </div>
+    </div>
+  `);
+}
+
+async function _dilnaPotvrdKontrola(id) {
+  const zkontroloval = document.getElementById('dp-kontr-prac')?.value || '';
+  closeModal();
+  await api(`/api/zakazky/${id}`, 'PUT', { stav: 'Zkontrolováno', zkontroloval });
+  const zak = (_cache.dilna || []).find(z => z.id === id);
+  if (zak) { zak.stav = 'Zkontrolováno'; zak.zkontroloval = zkontroloval; _dilnaFilter(); }
+  else { _cache.dilna = null; dilna(); }
+}
+
+async function _dilnaStepExpedovat(id) {
   await api(`/api/zakazky/${id}`, 'PUT', { stav: 'Expedováno' });
   _cache.dilna = (_cache.dilna || []).filter(z => z.id !== id);
   _dilnaFilter();
 }
 
+// Zachováno pro zpětnou kompatibilitu (volají jiné části systému)
+async function _dilnaOdneseno(id) { return _dilnaStepExpedovat(id); }
 async function _dilnaPracovnikChange(id, pracovnik) {
   await api(`/api/zakazky/${id}`, 'PUT', { pracovnik });
   const zak = (_cache.dilna || []).find(z => z.id === id);
-  if (zak) { zak.pracovnik = pracovnik; }
+  if (zak) zak.pracovnik = pracovnik;
 }
 
 function _dilnaHotovoBanner(z) {
@@ -7015,8 +7056,7 @@ async function dilna() {
         <th>Zákazník/Sklad</th>
         <th class="text-center">CNC</th>
         <th>Termín</th>
-        <th>Stav</th>
-        <th>Pracovník</th>
+        <th class="no-sort">Průběh výroby</th>
         <th class="no-sort">Akce</th>
       </tr></thead>
       <tbody id="dilna-tbody"></tbody>

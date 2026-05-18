@@ -618,6 +618,7 @@ def auto_migrate():
     add_column('zakazky', 'odeslano_do_vyroby',  'INTEGER DEFAULT 0')  # 1 = zobrazit v Dílně
     add_column('zakazky', 'destinace',           "TEXT DEFAULT 'Zákazník'")  # Zákazník / Sklad
     add_column('zakazky', 'poznamka_cnc_operator', 'TEXT')  # Editovatelná poznámka operátora CNC (co ještě chybí nařezat)
+    add_column('zakazky', 'zkontroloval',          'TEXT')  # Kdo provedl kontrolu (nastavuje se přes stepper v Dílně)
 
     # prijemky – dopravné + měna
     add_column('prijemky', 'dopravne',     'REAL DEFAULT 0')

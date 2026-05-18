@@ -526,47 +526,70 @@ id, typ_casu_id, nazev_souboru, vrstvy_json, nahrano, typ_sestavy
 
 Layout záložky 3D: nahoře karty verzí (tabs), pod nimi dvousloupcový grid — vlevo (280px) seznam vrstev, vpravo (1fr) Three.js canvas vždy viditelný inline. Canvas se **neničí** při přepínání záložek ani při přepínání verzí.
 
-Globální proměnné a konstanty (všechny na module level, ne uvnitř funkcí):
-- `_3dCurrentVid = null` — aktuálně zobrazená verze 3D modelu (vid = DB id řádku v typy_casu_3d)
-- `_3dOpacityMap = {}` — `{typ → opacity}` (0.05–1.0) pro průhlednost skupin vrstev
+**Registry viewerů — `_3dV`:**
+Dříve byly Three.js instance uloženy v jediném setu globálů (`_3dScene`, `_3dCamera`, `_3dMeshMap` atd.). To způsobovalo konflikt, jakmile byly otevřeny oba 3D viewery (DESKY + PĚNY) zároveň v detailu zakázky — druhý viewer přepsal globály prvního.
+
+Nyní: `let _3dV = {}` — registr viewerů keyed by `sfx`:
+- `_3dV['']` — BOM editor viewer + PĚNY viewer v detailu zakázky
+- `_3dV['-d']` — DESKY viewer v detailu zakázky
+
+Každý záznam: `{ scene, camera, renderer, controls, meshMap, opacityMap, animFrameId }`. Animační smyčka je uzavřena nad lokálními proměnnými — nesdílí globály.
+
+Globální proměnné a konstanty (module level):
+- `_3dV = {}` — registry viewerů (viz výše)
+- `_3dCurrentVid = null` — aktuálně zobrazená verze v BOM editoru (sfx='')
 - `_3dMatMap = {}` — `{kod_lowercase: {kod, nazev, ...}}` — naplní se z `_cache.materialy` při přepnutí na záložku 3D
 - `_3D_COLORS` — barvy fallback dle typu: `deska=0xc8986a`, `pena=0x86efac`, `hw=0x94a3b8`, `profily=0xfbbf24`, `nyty=0xd4d4d8`, `jine=0xe2e8f0`
 - `_3D_DESKA_COLORS` / `_3D_PENA_COLORS` — barvy dle tloušťky (odpovídají AutoCAD paletě)
 - `_3D_NAMED_COLORS` — barvy pro specifické názvy vrstev (Logo, Nyty, Pomocna 1…)
-- `layerColor(v)` — **globální funkce** (pozor: dříve byla lokální uvnitř `_bu3dInitViewer`, což způsobovalo ReferenceError). Priority: 0=kód materiálu→bílá, 1=přesný název, 2=tloušťka, 3=typ fallback
+- `layerColor(v)` — **globální funkce**. Priority: 0=kód materiálu→bílá, 1=přesný název, 2=tloušťka, 3=typ fallback
 - `_3dNormName(s)` — odstraní diakritiku, lowercase
 - `_3dColorByThickness(nazev)` — regex `^([dp])[_\s]+(\d+)mm`, lookup v color mapě
-- `_bu3dModelInfoHtml(typId, vid, verData, vrstvy)` — tabulka vrstev s dropdown přiřazení typu (vid = verze)
+- `_bu3dModelInfoHtml(typId, vid, verData, vrstvy)` — tabulka vrstev s dropdown přiřazení typu
 - `_bu3dTypOpts(cur)` — options pro dropdown: deska/pena/hw/profily/nyty/jiné/ignorovat
-- `_3dSetLayerType(typId, vid, filename, newTyp)` — PATCH `/3d/<vid>` + aktualizace meshe + přestavění legendy
-- `_bu3dSwitchVersion(typId, vid)` — přepne viewer na jinou verzi (načte STL soubory dané verze)
-- `_bu3dSetTipSestavy(typId, vid, value)` — toggle Sestava/Polstrování (comma-separated set, obě najednou možné)
-- `_3dToggleLayer(filename)` — přepne viditelnost jedné vrstvy
-- `_3dToggleGroup(typ)` — přepne viditelnost celé skupiny
-- `_3dSetGroupOpacity(typ, opacity)` — nastaví průhlednost skupiny; `depthWrite = opacity >= 1.0` (jinak by průhledné vrstvy blokovaly objekty za nimi)
+- `_3dSetLayerType(typId, vid, filename, newTyp)` — PATCH `/3d/<vid>` + aktualizace meshe (`_3dV['']?.meshMap`) + přestavění legendy
+- `_bu3dSwitchVersion(typId, vid)` — přepne viewer v BOM editoru (sfx='') na jinou verzi
+- `_bu3dSetTipSestavy(typId, vid, value)` — toggle Sestava/Polstrování
+- `_3dToggleLayer(filename, sfx='')` — přepne viditelnost jedné vrstvy v daném vieweru
+- `_3dToggleGroup(typ, sfx='')` — přepne viditelnost celé skupiny
+- `_3dSetGroupOpacity(typ, opacity, sfx='')` — nastaví průhlednost skupiny; `depthWrite = opacity >= 1.0`
 - `_3dPillSetActive(pill, active)` — vizuální stav individuálního pillu
-- `_3dMasterSetActive(typ, active)` — vizuální stav master checkbox-tlačítka skupiny
-- `_bu3dRebuildLegend(typId, vid, vrstvy)` — přestaví legendu; volá se po změně typu vrstvy
-- `_bu3dVersionTabsHtml(typId, versions, activeVid)` — karty verzí s pills Sestava/Polstrování + tlačítko „+"
+- `_3dMasterSetActive(typ, active, sfx='')` — vizuální stav master checkbox-tlačítka skupiny
+- `_bu3dRebuildLegend(typId, vid, vrstvy, sfx='')` — přestaví legendu; DOM ID pillů obsahují sfxId (pomlčka nahrazena podtržítkem) aby nedošlo ke kolizi
+- `_bu3dVersionTabsHtml(typId, versions, activeVid)` — karty verzí s pills Sestava/Polstrování + tlačítko „+" (pro BOM editor)
 
-**Legenda vrstev** (renderována v `_bu3dInitViewer`, přestavována v `_bu3dRebuildLegend`):
-- Jeden řádek na skupinu: `[master checkbox-btn] [pill1] [pill2] …` + posuvník průhlednosti
-- Master btn: bílé pozadí, barevný rámeček; kliknutím přepne celou skupinu
-- Individuální piluly: barevné pozadí (barva+`22` alpha); zblednou při skrytí
-- Posuvník opacity (`<input type="range" min="0.05" max="1" step="0.05">`) — živý náhled v %
-- `GROUP_DEF`: deska=`#c8986a`, pěna=`#86efac`, hw=`#94a3b8`, profily=`#fbbf24`, nýty=`#d4d4d8`, jiné=`#e2e8f0`
-- Zobrazují se jen skupiny přítomné v modelu (`presentTypes`)
+**Legenda vrstev** — DOM ID se sfx suffixem:
+- Pill: `pill3d_{filename_safe}{sfxId}` — sfxId = sfx.replace('-','_'), tj. `_d` pro DESKY viewer
+- Master btn: `grppill3d_{typ}{sfxId}`, checkbox span: `grpchk3d_{typ}{sfxId}`
+- Slider: `opaslider_{typ}{sfxId}`, label: `opalabel_{typ}{sfxId}`
+- Onclick handlery: `_3dToggleLayer('file.stl','${sfx}')`, `_3dToggleGroup('deska','${sfx}')`, `_3dSetGroupOpacity('deska',val,'${sfx}')`
 
 Funkce `_bu3dInitViewer(typId, vid, vrstvy, sfx='')`:
-- Volitelný parametr `sfx` — suffix pro DOM ID elementů (canvas, wrap, legend); prázdný řetězec = původní chování
+- Ukládá stav do `_3dV[sfx]` — každý viewer má vlastní izolovaný scene/camera/renderer/controls/meshMap
+- Animační smyčka je closure nad lokálními proměnnými — žádné sdílené globály
+- Volitelný parametr `sfx` — suffix pro DOM ID elementů (canvas, wrap, legend)
 - Three.js r128, STLLoader, OrbitControls (CDN: cdn.jsdelivr.net/npm/three@0.128.0)
 - STL URL: `/api/typy-casu/${typId}/3d/${vid}/stl/${filename}`
 - **Rotace**: `geometry.applyMatrix4(makeRotationX(-Math.PI/2))` — AutoCAD Z-up → Three.js Y-up
 - **Orbit centra**: 5–95 percentil vrcholů (každý 50.) — ignoruje outlier body
 - **Emissive** pro tenké objekty (minDim < 3 mm): 45 % base barvy
 - **renderOrder + polygonOffset**: jine=2, pena=1, deska=0 — předchází Z-fightingu
-- **depthWrite**: `false` pro průhledné skupiny (opacity < 1.0) — nutné aby vrstvy za průhlednou vrstvou byly viditelné
-- `_3dMeshMap` — globální `{filename → mesh}`
+- **depthWrite**: `false` pro průhledné skupiny (opacity < 1.0)
+
+**3D viewer v detailu zakázky — přepínání verzí:**
+
+Nad canvasem obou viewerů (DESKY i PĚNY) jsou pill záložky verzí — zobrazují se jen při více než 1 verzi. Název záložky = název souboru bez přípony.
+
+- `window._vlInit3DDesky()` — lazy init volaný z `ontoggle`; při prvním volání vykreslí záložky verzí a načte první verzi. Skryta do closure s `dil3DSestava` (pole verzí sestava).
+- `window._vlInit3DPena()` — totéž pro PĚNY viewer s `dil3DPolstrovani`.
+- `window._vlSwitchDesky3D(vid)` — přepne DESKY viewer na verzi `vid`, aktualizuje záložky, aplikuje výchozí opacity.
+- `window._vlSwitchPena3D(vid)` — totéž pro PĚNY viewer.
+
+Kontejnery záložek: `div#3d-vtabs-desky` (nad DESKY canvasem), `div#3d-vtabs-pena` (nad PĚNY canvasem).
+
+Výchozí opacity při přepnutí verze:
+- DESKY viewer: pěna → 5 % (funkce `_vl3dDefaultDesky`)
+- PĚNY viewer: deska/hw/profily/jiné → 5 %, nýty → skryté (funkce `_vl3dDefaultPena`)
 
 **Tip pro re-detekci typů:** Po přidání nových materiálů do katalogu nebo opravě kódů stačí ZIP nahrát znovu — server provede detekci znovu s aktuálními daty z DB.
 
